@@ -15,7 +15,7 @@ abstract class SessionStore<S> extends Notifier<S> {
 
 /// Base for persisted state. One verb for factory reset: [resetToDefaults].
 ///
-/// Subclasses declare [prefsKey], [defaults], [fromJson]/[toJson]. All
+/// Subclasses declare [prefsKey], [defaults], [encode]/[decode]. All
 /// SharedPreferences I/O, corrupt-data fallback, and save failure tolerance
 /// live here so stores don't duplicate it.
 abstract class PersistedStore<S> extends AsyncNotifier<S> {
@@ -23,9 +23,10 @@ abstract class PersistedStore<S> extends AsyncNotifier<S> {
 
   S get defaults;
 
-  S fromJson(Map<String, dynamic> json);
+  String encode(S state);
 
-  Map<String, dynamic> toJson(S state);
+  /// Parses a stored string. Throws on corrupt data (caught -> [defaults]).
+  S decode(String raw);
 
   /// Loads persisted state, falling back to [defaults] on missing/corrupt data.
   Future<S> loadPersisted() async {
@@ -33,9 +34,7 @@ abstract class PersistedStore<S> extends AsyncNotifier<S> {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(prefsKey);
       if (raw == null) return defaults;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return defaults;
-      return fromJson(decoded);
+      return decode(raw);
     } catch (_) {
       return defaults;
     }
@@ -46,13 +45,54 @@ abstract class PersistedStore<S> extends AsyncNotifier<S> {
     state = AsyncData(next);
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(prefsKey, jsonEncode(toJson(next)));
+      await prefs.setString(prefsKey, encode(next));
+    } catch (_) {
+      // Non-fatal; memory state is authoritative.
+    }
+  }
+
+  /// Memory-only update, no disk write (replay in-memory overrides).
+  void stage(S next) => state = AsyncData(next);
+
+  /// Raw disk helpers for stores with memory/disk split views (mock filter).
+  Future<String?> readRaw() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(prefsKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeRaw(String raw) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefsKey, raw);
     } catch (_) {
       // Non-fatal; memory state is authoritative.
     }
   }
 
   Future<void> resetToDefaults() => save(defaults);
+}
+
+/// JSON convenience over [PersistedStore].
+abstract class JsonPersistedStore<S> extends PersistedStore<S> {
+  Map<String, dynamic> toJson(S state);
+
+  S fromJson(Map<String, dynamic> json);
+
+  @override
+  String encode(S state) => jsonEncode(toJson(state));
+
+  @override
+  S decode(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('expected JSON object');
+    }
+    return fromJson(decoded);
+  }
 }
 
 /// Shared periodic-timer handling for the three ticking stores.

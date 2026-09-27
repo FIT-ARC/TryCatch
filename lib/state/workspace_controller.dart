@@ -1,10 +1,9 @@
-import 'dart:convert';
 import 'dart:io' show Directory, File, Platform;
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../foundation/store.dart';
 import './default_layouts.dart';
 import './layout_tree.dart';
 import '../ui/tile_registry.dart';
@@ -41,12 +40,11 @@ class WorkspaceState {
     final workspaces = (json['workspaces'] as List<dynamic>? ?? [])
         .map((e) => Workspace.fromJson(e as Map<String, dynamic>))
         .toList();
-    // No heuristics: the app always shows the first layout (on start,
-    // after replay, etc.). The persisted activeId is intentionally ignored.
-    return WorkspaceState(
-      workspaces: workspaces,
-      activeId: workspaces.isEmpty ? '' : workspaces.first.id,
-    );
+    final stored = json['activeId'] as String?;
+    final activeId = workspaces.any((w) => w.id == stored)
+        ? stored!
+        : (workspaces.isEmpty ? '' : workspaces.first.id);
+    return WorkspaceState(workspaces: workspaces, activeId: activeId);
   }
 }
 
@@ -57,27 +55,27 @@ class WorkspaceState {
 final workspaceProvider =
     AsyncNotifierProvider<WorkspaceStore, WorkspaceState>(WorkspaceStore.new);
 
-class WorkspaceStore extends AsyncNotifier<WorkspaceState> {
-  static const String _prefsKey = PrefsKeys.workspaces;
+class WorkspaceStore extends JsonPersistedStore<WorkspaceState> {
+  @override
+  String get prefsKey => PrefsKeys.workspaces;
+
+  @override
+  WorkspaceState get defaults => _defaultState();
+
+  @override
+  Map<String, dynamic> toJson(WorkspaceState state) => state.toJson();
+
+  @override
+  WorkspaceState fromJson(Map<String, dynamic> json) =>
+      WorkspaceState.fromJson(json);
 
   MinSizeLookup get _minOf => (tileType) => TileRegistry.minSizeOf(tileType);
 
   @override
   Future<WorkspaceState> build() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw != null) {
-        final loaded =
-            WorkspaceState.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-        if (loaded.workspaces.isNotEmpty) {
-          return loaded;
-        }
-      }
-    } catch (_) {
-      // Corrupt persistence falls through to defaults.
-    }
-    return _defaultState();
+    final loaded = await loadPersisted();
+    if (loaded.workspaces.isNotEmpty) return loaded;
+    return defaults;
   }
 
   WorkspaceState _defaultState() {
@@ -88,15 +86,7 @@ class WorkspaceStore extends AsyncNotifier<WorkspaceState> {
     );
   }
 
-  Future<void> _persist(WorkspaceState next) async {
-    state = AsyncData(next);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(next.toJson()));
-    } catch (_) {
-      // Non-fatal; keep working from memory.
-    }
-  }
+  Future<void> _persist(WorkspaceState next) => save(next);
 
   /// Applies [update] to the active workspace. With [persist] the result is
   /// also written to disk — divider drags pass `false` while interacting and
@@ -346,6 +336,7 @@ class WorkspaceStore extends AsyncNotifier<WorkspaceState> {
   }
 
   /// Restores the factory layouts, discarding all custom workspaces.
+  @override
   Future<void> resetToDefaults() async => _persist(_defaultState());
 
   // ── Developer tools (debug only) ────────────────────────────────────────────

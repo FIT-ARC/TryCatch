@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../foundation/store.dart';
 import '../services/prefs_keys.dart';
 
 /// A launch site: coordinates, MSL altitude and a display name.
@@ -142,26 +140,28 @@ LaunchSiteState _stripMock(LaunchSiteState state) {
   );
 }
 
-class LaunchSiteStore extends AsyncNotifier<LaunchSiteState> {
-  static const String _prefsKey = PrefsKeys.launchSites;
+class LaunchSiteStore extends JsonPersistedStore<LaunchSiteState> {
+  @override
+  String get prefsKey => PrefsKeys.launchSites;
+
+  @override
+  LaunchSiteState get defaults => _freshState();
+
+  @override
+  Map<String, dynamic> toJson(LaunchSiteState state) => state.toJson();
+
+  @override
+  LaunchSiteState fromJson(Map<String, dynamic> json) =>
+      LaunchSiteState.fromJson(json);
 
   @override
   Future<LaunchSiteState> build() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw == null) return _freshState();
-      final loaded =
-          LaunchSiteState.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-      // Release builds never show the dev-only mock site, even when the
-      // prefs file was written by a debug build. Debug builds inject it
-      // in memory (never persisted) so it always appears in the list.
-      if (!kDebugMode) return _stripMock(loaded);
-      return _injectMock(loaded);
-    } catch (_) {
-      // Corrupt settings must never take the app down.
-      return _freshState();
-    }
+    // Release builds never show the dev-only mock site, even when the
+    // prefs file was written by a debug build. Debug builds inject it
+    // in memory (never persisted) so it always appears in the list.
+    final loaded = await loadPersisted();
+    if (!kDebugMode) return _stripMock(loaded);
+    return _injectMock(loaded);
   }
 
   /// Writes [next] to disk without the mock pad (dev-only, in-memory only)
@@ -169,12 +169,7 @@ class LaunchSiteStore extends AsyncNotifier<LaunchSiteState> {
   Future<void> _persist(LaunchSiteState next) async {
     final disk = _stripMock(next);
     state = AsyncData(kDebugMode ? _injectMock(next) : disk);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, jsonEncode(disk.toJson()));
-    } catch (_) {
-      // Persistence failure is non-fatal; state stays in memory.
-    }
+    await writeRaw(encode(disk));
   }
 
   /// Selects the active launch site (does not add a preset). A site is

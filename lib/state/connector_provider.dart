@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../foundation/store.dart';
 import '../services/prefs_keys.dart';
 
 /// Stable id of the active telemetry connector (e.g. `'mock'`).
@@ -25,28 +25,27 @@ final activeConnectorProvider = Provider<TelemetryConnector>((ref) {
   return connectorById(id) ?? mockConnector;
 });
 
-class ConnectorIdStore extends AsyncNotifier<String> {
-  static const String _prefsKey = PrefsKeys.connectorId;
+class ConnectorIdStore extends PersistedStore<String> {
+  @override
+  String get prefsKey => PrefsKeys.connectorId;
 
   @override
-  Future<String> build() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
-      if (raw != null && isKnownConnectorId(raw)) {
-        // The MOCK connector is dev-only: a release build that inherits a
-        // persisted mock choice (shared prefs carried over from dev) falls
-        // back to the visible default instead of selecting a hidden entry.
-        if (!kDebugMode && isMockConnectorId(raw)) {
-          return defaultVisibleConnectorId;
-        }
-        return raw;
-      }
-    } catch (_) {
-      // Corrupt settings must never take the app down.
-    }
-    return defaultVisibleConnectorId;
+  String get defaults => defaultVisibleConnectorId;
+
+  @override
+  String encode(String state) => state;
+
+  @override
+  String decode(String raw) {
+    if (!isKnownConnectorId(raw)) throw const FormatException('unknown id');
+    // The MOCK connector is dev-only: a release build that inherits a
+    // persisted mock choice falls back to the visible default.
+    if (!kDebugMode && isMockConnectorId(raw)) return defaultVisibleConnectorId;
+    return raw;
   }
+
+  @override
+  Future<String> build() => loadPersisted();
 
   /// Selects the connector, persisting unless [persist] is false (replay's
   /// in-memory override). Unknown ids are ignored. The MOCK connector can
@@ -56,13 +55,8 @@ class ConnectorIdStore extends AsyncNotifier<String> {
   Future<void> set(String id, {bool persist = true}) async {
     if (!isKnownConnectorId(id)) return;
     if (persist && !kDebugMode && isMockConnectorId(id)) return;
-    state = AsyncData(id);
+    stage(id);
     if (!persist) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefsKey, id);
-    } catch (_) {
-      // Persistence failure is non-fatal; state stays in memory.
-    }
+    await writeRaw(id);
   }
 }
