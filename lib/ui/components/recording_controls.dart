@@ -63,7 +63,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
     final connected = status.isConnected;
     if (status.isRecording) {      child = Tooltip(
         message: 'Stop recording',
-        child: FilledButton.icon(
+        child: FilledButton(
           onPressed: ref.read(serialConfigProvider.notifier).stopRecording,
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.destructive,
@@ -76,20 +76,34 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          icon: const Icon(Icons.stop_rounded, size: 15),
-          label: Row(
-            mainAxisSize: MainAxisSize.min,
+          child: Row(
             children: [
-              const _RecordingDot(),
-              const SizedBox(width: 6),
-              Text(
-                _elapsed(),
-                style: AppText.mono.copyWith(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Nudged up: digits have no descenders, so a truly
+                    // centered dot reads a hair too low next to them.
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: _RecordingDot(),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _elapsed(),
+                      style: AppText.mono.copyWith(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [
+                          FontFeature.tabularFigures()
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const Icon(Icons.stop_rounded, size: 15),
             ],
           ),
         ),

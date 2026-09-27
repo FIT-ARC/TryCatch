@@ -260,9 +260,13 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   /// Selects the telemetry connector everywhere: persists the choice and
   /// tells the worker to re-parse with it. The telemetry store watches the
   /// connector id and clears the live flight itself (framings are
-  /// connector-specific, so stale frames must go).
+  /// connector-specific, so stale frames must go). Ignored while recording:
+  /// a mid-recording switch would mix framings under one header stamp.
   Future<void> setConnector(String id) async {
     if (!isKnownConnectorId(id)) return;
+    final recording =
+        ref.read(serialStatusProvider).value?.isRecording ?? false;
+    if (recording) return;
     await ref.read(activeConnectorIdProvider.notifier).set(id);
     final connected =
         ref.read(serialStatusProvider).value?.isConnected ?? false;

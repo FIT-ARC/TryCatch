@@ -274,10 +274,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final connected = serialStatus?.isConnected ?? false;
     final recording = serialStatus?.isRecording ?? false;
     final site = siteState.selected;
-    // Locked whenever the link is up or a replay owns the session: switching
-    // mid-stream wipes the live flight, and mid-recording it mixes framings
-    // under one header stamp. Disconnect (or close the replay) to switch.
-    final locked = replaying || connected;
+    // Locked while replaying, recording, or connected: switching
+    // mid-stream wipes the live flight, and mid-recording it mixes
+    // framings under one header stamp. Disconnect (or close the replay)
+    // to switch.
+    final locked = replaying || connected || recording;
 
     // Scroll viewport spans the full width so the scrollbar sits at the
     // screen edge; the 640 column + side padding live inside it.
@@ -427,7 +428,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     locked
                         ? (replaying
                             ? 'Locked while replaying — the recording picks its own connector.'
-                            : 'Locked while connected — disconnect to switch.')
+                            : recording
+                                ? 'Locked while recording — the file stamps this connector.'
+                                : 'Locked while connected — disconnect to switch.')
                         : 'How the ground station reads the rocket. States, '
                             'commands and tiles follow the selected connector.',
                     style: TextStyle(

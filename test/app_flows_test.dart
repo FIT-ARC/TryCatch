@@ -534,6 +534,63 @@ void main() {
         await disconnect(container);
       }
     });
+
+    test('connector switch is ignored while recording', () async {
+      final container = newContainer();
+      final tempDir =
+          await Directory.systemTemp.createTemp('trycatch_flows_lock_');
+      try {
+        await connectMock(container);
+        final path =
+            '${tempDir.path}${Platform.pathSeparator}lock_flight.bin';
+        worker.send(StartRecordingCommand(
+          filePath: path,
+          launch: const LaunchRef(
+            latitude: 50.0,
+            longitude: 14.0,
+            mslM: 300,
+            name: 'Pad',
+          ),
+          connectorId: 'mock',
+        ));
+        await waitFor(
+          () =>
+              container.read(serialStatusProvider).value?.isRecording ?? false,
+          reason: 'worker never reported recording',
+        );
+        await waitFor(
+          () => container.read(telemetryStoreProvider).packetCount > 0,
+          reason: 'no live frames ingested',
+        );
+        final packets =
+            container.read(telemetryStoreProvider).packetCount;
+        await container
+            .read(serialConfigProvider.notifier)
+            .setConnector('segfault');
+        // Ignored: connector, flight and recording all untouched.
+        expect(container.read(activeConnectorIdProvider).value, 'mock');
+        expect(container.read(telemetryStoreProvider).packetCount,
+            greaterThanOrEqualTo(packets));
+        expect(
+            container.read(serialStatusProvider).value?.isRecording, isTrue);
+        worker.send(const StopRecordingCommand());
+        await waitFor(
+          () =>
+              !(container.read(serialStatusProvider).value?.isRecording ??
+                  true),
+          reason: 'worker never stopped recording',
+        );
+        // The file kept one framing throughout: it replays cleanly.
+        final loaded = await RecordingRepository.loadReplay(path);
+        expect(loaded, isNotNull);
+        expect(loaded!.frames.isNotEmpty, isTrue);
+      } finally {
+        await disconnect(container);
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    });
   });
 }
 

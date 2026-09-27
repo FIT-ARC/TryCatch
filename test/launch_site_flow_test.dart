@@ -307,6 +307,32 @@ void main() {
       expect(absorbers, isNotEmpty);
     });
 
+    testWidgets('connector picker locks while recording', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            serialStatusProvider.overrideWith(
+              (ref) => Stream.value(const SerialWorkerStatus(
+                isConnected: true,
+                connectedPort: 'MOCK',
+                isRecording: true,
+              )),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text(
+            'Locked while recording — the file stamps this connector.'),
+        findsOneWidget,
+      );
+    });
     testWidgets('launch site card selects inline with add action',
         (tester) async {
       SharedPreferences.setMockInitialValues({
