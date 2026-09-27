@@ -63,7 +63,6 @@
 * Comments: why + invariant + units, 1-2 lines. No iteration essays.
 
 ## 10. E2E tests: container harness rule
-
 * `test/app_flows_test.dart` drives the real worker isolate + MOCK port
   with no widgets. Bare-container `read` does NOT drive StreamProviders
   (status/frames/link-stats stay loading) — the harness must attach
@@ -117,3 +116,18 @@
 5. Narrow `select()` watches for chart/3D/FSM tiles (map tile is the model).
 6. `HANDOFF.md` stale §6.7 (Monitor deleted) + Part 4 tree vs
    `docs/agents/` — consolidate into `docs/architecture.md`.
+
+## 11. Comments + names: timeless, consistent
+
+* Comments describe what the code IS and its contract, as if written
+  before the file in one go. Never the edit history: no "previously X",
+  "used to Y", "now Z", "fixed so ... works", first-person notes, or
+  per-iteration change summaries. Rationale longer than 2 lines goes in
+  `HANDOFF.md`/docs, not inline.
+* After an edit, re-read the touched comments: any sentence the change
+  made false or historical gets rewritten or deleted in the same edit.
+  No orphan references to deleted code paths.
+* One concept, one word, everywhere: `clear()` (session buffers) vs
+  `resetToDefaults()` (persisted settings); `played`/`future` splits;
+  `oldest`/`newest` indexing; `RateSeries`, `FlightReset`, `TimeSeries`.
+  New code reuses the existing term instead of coining a synonym.

@@ -54,7 +54,7 @@ flowchart TD
     I -- "TelemetryFrame" --> J["TelemetryStore.ingest\nskip if replaying"]
     J --> K["history ring 9000\n+ dead reckoning"]
     K -- TelemetryState --> L[tiles]
-    E -.->|"LinkStatsEvent\nmax 1 per 250 ms\n+ 500 ms heartbeat" .-> M[LinkStats consumers]
+    E -.->|"LinkStatsEvent\nmax 1 per 250 ms\n+ 500 ms heartbeat"| M[LinkStats consumers]
 ```
 
 - 250ms throttle: stats go out at most 4 Hz per chunk burst; the 500ms heartbeat forces one even with no traffic, so the UI graphs decay to zero instead of freezing.
@@ -127,7 +127,7 @@ flowchart LR
     W -- "connector parser" --> T
     W -- "recordBytes verbatim" --> CH
     T -- "PacketReceivedEvent" --> UIAPP[UI]
-    H -. "selects connector" .-> T
+    H -.->|"selects connector"| T
 ```
 
 Files: [frame_codec.dart](../packages/serial/lib/telemetry/frame_codec.dart) · [telemetry_frame.dart](../packages/serial/lib/telemetry/telemetry_frame.dart) · [recording_file.dart](../packages/serial/lib/io/recording_file.dart) · [mock_connector.dart](../packages/serial/lib/connectors/mock_connector.dart) · [registry.dart](../packages/serial/lib/connectors/registry.dart)
