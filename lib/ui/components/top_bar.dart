@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_config.dart';
+import '../../session/flight_reset.dart';
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import './brand_mark.dart';
@@ -277,9 +277,8 @@ class _NavMenu extends ConsumerWidget {
     );
   }
 
-  /// Clears the flight buffers: history buffer, dead reckoning, max altitude,
-  /// max speed/accel, the battery discharge average (all derived from the
-  /// history, so one reset covers everything) and the operator command log.
+  /// Clears the flight buffers via FlightReset: telemetry, commands,
+  /// channel history (replay already excluded by canReset above).
   Future<void> _confirmReset(BuildContext context, WidgetRef ref) {
     return showDialog(
       context: context,
@@ -301,8 +300,7 @@ class _NavMenu extends ConsumerWidget {
               // Drop focus first: yanking a focused subtree out from under
               // the engine while every tile flips to "waiting" at once.
               FocusManager.instance.primaryFocus?.unfocus();
-              ref.read(telemetryStoreProvider.notifier).reset();
-              ref.read(commandLogProvider.notifier).clear();
+              FlightReset.clearFlight(ref);
               Navigator.of(dialogContext).pop();
             },
             child: const Text('Clear'),

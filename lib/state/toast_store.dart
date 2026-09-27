@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../foundation/store.dart';
+
 /// Severity of a toast notification. Maps to status colors + icons in
 /// [ToastOverlay] — errors stay longest, info dismisses fastest.
 enum ToastSeverity { info, success, warning, error }
@@ -38,7 +40,7 @@ class ToastMessage {
 final toastStoreProvider =
     NotifierProvider<ToastStore, List<ToastMessage>>(ToastStore.new);
 
-class ToastStore extends Notifier<List<ToastMessage>> {
+class ToastStore extends SessionStore<List<ToastMessage>> {
   /// Visible cards in the overlay (newest last).
   static const int maxVisible = 4;
 
@@ -92,5 +94,6 @@ class ToastStore extends Notifier<List<ToastMessage>> {
   }
 
   /// Clears the whole queue (tests, reset flows).
+  @override
   void clear() => state = const [];
 }

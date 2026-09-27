@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
+import '../foundation/store.dart';
 import './connector_provider.dart';
 import './recording_provider.dart';
 import './toast_store.dart';
@@ -99,7 +100,7 @@ final serialErrorsProvider = StreamProvider<ErrorEvent>((ref) {
 final commandLogProvider =
     NotifierProvider<CommandLog, List<SentCommand>>(CommandLog.new);
 
-class CommandLog extends Notifier<List<SentCommand>> {
+class CommandLog extends SessionStore<List<SentCommand>> {
   /// Ring cap for the in-memory log (the file keeps everything).
   static const int maxEntries = 2000;
 
@@ -131,6 +132,7 @@ class CommandLog extends Notifier<List<SentCommand>> {
   }
 
   /// Clears the session log (new connection, test reset...).
+  @override
   void clear() => state = const [];
 }
 

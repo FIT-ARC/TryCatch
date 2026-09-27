@@ -5,6 +5,7 @@ import 'package:serial/serial.dart';
 
 import 'package:dead_reckoning/dead_reckoning.dart';
 
+import '../foundation/store.dart';
 import '../core/app_config.dart';
 import '../core/dead_reckoning_adapter.dart';
 import '../core/elevation_math.dart';
@@ -85,7 +86,7 @@ class TelemetryState {
 final telemetryStoreProvider =
     NotifierProvider<TelemetryStore, TelemetryState>(TelemetryStore.new);
 
-class TelemetryStore extends Notifier<TelemetryState> {
+class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   static const int _historyCapacity = AppConfig.telemetryHistoryCapacity;
 
   /// Dead reckoning kicks in only after GPS has been silent this long.
@@ -293,7 +294,12 @@ class TelemetryStore extends Notifier<TelemetryState> {
     _rebuildState();
   }
 
-  /// Clears the flight (new connection, new replay...).
+  /// Clears the flight (new connection, new replay...). Drops history, DR,
+  /// estimator, terrain cache and ticker; keeps the replaying flag.
+  /// Disk untouched. Use [reset] only during migration.
+  @override
+  void clear() => reset();
+
   void reset({String? sourceName}) {
     _history.clear();
     _deadReckoningHistory.clear();

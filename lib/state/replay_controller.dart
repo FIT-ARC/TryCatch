@@ -9,6 +9,7 @@ import '../core/app_config.dart';
 import '../core/channel_health.dart';
 import '../core/flight_events.dart';
 import '../core/path_utils.dart';
+import '../foundation/store.dart';
 import '../services/recording_repository.dart';
 import './telemetry_store.dart';
 
@@ -194,7 +195,7 @@ final replayCommandsProvider = Provider<List<ReplayCommand>>((ref) {
   ];
 });
 
-class ReplayController extends Notifier<ReplayState> {
+class ReplayController extends SessionStore<ReplayState> {
   /// Speed presets offered in the UI.
   static const List<double> speeds = AppConfig.replaySpeeds;
 
@@ -509,6 +510,10 @@ class ReplayController extends Notifier<ReplayState> {
     _index = index;
     state = state.copyWith(positionMs: positionMs);
   }
+
+  /// SessionStore entry: stops playback and returns to live mode.
+  @override
+  void clear() => stop();
 
   /// Stops playback and returns the store to live mode.
   void stop() {
