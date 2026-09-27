@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/channel_health.dart';
 import '../../state/channel_health_provider.dart';
+import '../../core/app_config.dart';
 import '../../theme/app_colors.dart';
 import '../screens/router.dart';
 
@@ -16,7 +17,7 @@ import '../screens/router.dart';
 /// rate holds its last value through silence. Disconnected reads as decaying
 /// numbers, never blank OFFLINE. Tapping opens Channel health.
 class LinkStatsButton extends ConsumerStatefulWidget {
-  static const double width = 188;
+  static const double width = AppConfig.topBarChipWidth;
 
   const LinkStatsButton({super.key});
 

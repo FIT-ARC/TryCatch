@@ -5,13 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
+import '../../core/app_config.dart';
 import '../../core/format.dart';
 import '../../state/launch_site_store.dart';
 import '../../state/telemetry_provider.dart';
 
 /// Recording control for the top bar: a Record button when idle, or the
-/// elapsed time with a stop action while recording. Shrink-wrapped at 32px
-/// height to match the other top-bar controls.
+/// elapsed time with a stop action while recording. Fixed at
+/// [AppConfig.topBarChipWidth] like the other top-bar chips, content
+/// centered, so siblings never shift.
 ///
 /// A launch site is mandatory: without one selected the button stays
 /// disabled (recordings stamp the site into the file header).
@@ -126,7 +128,11 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
       );
     }
 
-    return SizedBox(height: 32, child: child);
+    return SizedBox(
+      width: AppConfig.topBarChipWidth,
+      height: 32,
+      child: Center(child: child),
+    );
   }
 }
 

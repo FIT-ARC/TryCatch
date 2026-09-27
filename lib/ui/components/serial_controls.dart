@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
+import '../../core/app_config.dart';
 import '../../session/feedback.dart';
 import '../../state/telemetry_provider.dart';
 
@@ -17,10 +18,11 @@ class SerialControls extends ConsumerWidget {
   /// Sentinel menu value that triggers a port rescan instead of a pick.
   static const _rescanValue = '__rescan__';
 
-  /// Nominal segment widths: the outer slot is fixed (same connected or
-  /// not, so siblings never shift) while the picker segment flexes into
+  /// Nominal segment widths: the outer slot matches [AppConfig.topBarChipWidth]
+  /// (same as the other top-bar chips) while the picker segment flexes into
   /// whatever the border and link segment leave over.
-  static const double pickerWidth = 128;
+  static const double pickerWidth =
+      AppConfig.topBarChipWidth - actionWidth - 1;
   static const double actionWidth = 32;
 
   const SerialControls({super.key});

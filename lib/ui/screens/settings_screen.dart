@@ -297,18 +297,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
             AppCard(
               title: 'LAUNCH SITE',
-              trailing: OutlinedButton.icon(
-                onPressed: recording
-                    ? null
-                    : () => showLaunchSiteDialog(context),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 28),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10),
-                ),
-                icon: const Icon(Icons.add, size: 15),
-                label: const Text('Add'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: recording
+                        ? null
+                        : () => showAddSiteDialog(context),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon: const Icon(Icons.add, size: 15),
+                    label: const Text('Add'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: recording
+                        ? null
+                        : () => showImportSiteDialog(context),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon:
+                        const Icon(Icons.download_outlined, size: 15),
+                    label: const Text('Import'),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -364,9 +384,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       icon: Icons.edit_outlined,
                                       onTap: recording
                                           ? null
-                                          : () => showLaunchSiteDialog(
+                                          : () => showEditSiteDialog(
                                               context,
-                                              edit: preset),
+                                              preset),
                                     ),
                                     _RowAction(
                                       tooltip: 'Remove site',

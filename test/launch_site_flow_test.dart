@@ -472,6 +472,47 @@ void main() {
       expect(find.text('Add site'), findsNothing);
     });
 
+    testWidgets('import dialog saves a pasted share string',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await container.read(launchSiteProvider.future);
+      await tester.pump();
+
+      await tester.tap(find.text('Import'));
+      await tester.pump();
+      expect(find.text('Import site'), findsOneWidget);
+      const shared = LaunchSite(
+        name: 'Shared Pad',
+        latitude: 51.0,
+        longitude: 15.0,
+        altitudeMsl: 300,
+      );
+      await tester.enterText(
+          find.byType(TextField), shared.toShareString());
+      await tester.tap(find.text('Import').last);
+      await tester.pump();
+      final state = container.read(launchSiteProvider).value!;
+      expect(state.presets.map((p) => p.name),
+          containsAll(['Home', 'Shared Pad']));
+      expect(state.selected?.name, 'Shared Pad');
+      expect(find.text('Import site'), findsNothing);
+    });
+
     testWidgets('add dialog saves a typed site', (tester) async {
       SharedPreferences.setMockInitialValues({
         PrefsKeys.launchSites: jsonEncode({
