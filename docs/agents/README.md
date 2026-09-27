@@ -62,6 +62,17 @@
   corrupt-prefs fallback, decimation stability).
 * Comments: why + invariant + units, 1-2 lines. No iteration essays.
 
+## 10. E2E tests: container harness rule
+
+* `test/app_flows_test.dart` drives the real worker isolate + MOCK port
+  with no widgets. Bare-container `read` does NOT drive StreamProviders
+  (status/frames/link-stats stay loading) — the harness must attach
+  `container.listen(...)` on every worker-derived stream (same root cause
+  as the widget-harness NOTE in `serial_connecting_test.dart`).
+* New worker-dependent flows go in `app_flows_test.dart` (shared
+  spawn + ping in `setUpAll`, fresh container per test, connect/disconnect
+  per test, temp dirs cleaned in `finally`).
+
 ## 6. Feedback: toasts only
 
 * `toastStoreProvider` + `ToastOverlay` is the single user-feedback
