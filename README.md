@@ -11,7 +11,7 @@ No hardware? The built-in **MOCK** port runs a full-flight simulator (pad → as
 - **Live telemetry** — 10 Hz serial frames, parsed and CRC-checked in a background isolate.
 - **Tiling dashboard** — hyprland-style workspaces with drag-to-resize splits, drag-to-swap tiles, and per-workspace persistence. Factory presets: Flight control, Pre-flight check, Recovery, Replay.
 - **Telemetry tiles** — altitude / velocity / acceleration / battery / hall-sensor charts, GPS + dead-reckoning map, 3D rocket attitude, 3D flight path (plain + satellite), flight-state machine, GPS position, dead-reckoning estimate (packet loss only, live only), max altitude, nose-cone lock state, and a command panel.
-- **Recording & replay** — one-click recording to `Documents/TryCatch/recordings/*.bin`, with seek + speed + loop control on replay (Space toggles pause/play). Recordings carry launch site, time span, packet count and peaks in the file header. The playback bar has a display-smoothing toggle (3D trail + rotation, on by default); recordings, charts and map stay raw.
+- **Recording & replay** — one-click recording to `Documents/TryCatch/recordings/*.bin`, with seek + speed + loop control on replay (Space toggles pause/play). Recordings carry launch site, time span, packet count and peaks in the file header. The playback bar has a display-smoothing toggle (3D trail + rotation, off by default); recordings, charts and map stay raw.
 - **GPS gap filling** — ground-side dead reckoning bridges GPS outages so tracks stay connected.
 - **Dead reckoning tuning** — its own screen: guided re-tune against a flight recording (one 0–100 score per tune, per-phase breakdown, rotatable 3D outage preview), apply live or share as a short string.
 - **Channel health** — checks whether your frequency is free before launch (clear / activity / interference), mirrored live in the top bar.
@@ -64,19 +64,32 @@ Baud rate and framing live in `packages/serial`.
 
 ```
 lib/
-  ui/screens/     app chrome + screens (shell, dashboard, recordings, settings, monitor)
-  ui/components/  shared chrome (top bar, cards, pills, buttons)
-  ui/tiles/       telemetry tiles + shared/ (charts, 3D scene, tile I/O)
-  state/          Riverpod stores (telemetry, replay, workspaces, launch sites, router)
-  services/       app services (recording trim, prefs keys)
-  core/           pure logic (geo, dead reckoning, ring buffer, formats)
-  theme/          "Precision Light" design system
-packages/serial/  framing, codec, worker isolate, mock simulator
-test/             unit + widget tests
+  foundation/       shared bases: SessionStore/PersistedStore, TimeSeries +
+                    decimation + RateSeries, Ids, chart axes, logging
+  session/          cross-store flows (FlightReset clears every flight buffer)
+  state/            Riverpod stores (telemetry, replay, workspaces,
+                    launch sites, connector, channel health, toasts)
+  ui/screens/       app shell + screens (dashboard, recordings, settings,
+                    monitor, dead-reckoning lab)
+  ui/components/    shared chrome (top bar, cards, pills, toast overlay)
+  ui/tiles/         registry + 19 tiles + shared/ (charts, 3D scene, tile I/O)
+  ui/tile_registry.dart  data-driven tile descriptors (new tile = one class
+                    + one entry)
+  services/         RecordingRepository (sole recording I/O door), trim,
+                    elevation, prefs keys
+  core/             pure logic (format, flight events/stats, ring buffer)
+  theme/            "Precision Light" design system
+packages/serial/  connectors, framing, codec, worker isolate, mock simulator
+packages/dead_reckoning/  estimator + tune + eval + geo (pure Dart)
+test/             unit + widget + end-to-end (`app_flows_test.dart` drives
+                  the real worker isolate over the MOCK port)
+docs/agents/      contributor conventions (read before changing state/UI)
 packaging/        linux desktop/udev files; windows MSIX via package:msix
 ```
 
-Deep-dive on architecture, wire format, and decisions: [HANDOFF.md](HANDOFF.md).
+Deep-dives: [HANDOFF.md](HANDOFF.md) (history + decisions) and
+[docs/agents/](docs/agents/) (current conventions for state, time-series,
+tiles, feedback, and tests).
 
 ## Contributing
 
@@ -93,8 +106,15 @@ Issues and PRs welcome.
 
     CI runs the same two steps; releases are gated on them too.
 
-4. Follow existing conventions:
+4. Follow existing conventions (see [docs/agents/](docs/agents/) — required
+   reading before changing state, time-series, tiles, or feedback):
     - Riverpod 3, no codegen, no router package, no `build_runner`.
+    - Stores extend `SessionStore` (in-memory, `clear()`) or `PersistedStore`
+      (disk, `resetToDefaults()`); "clear buffers" goes through `FlightReset`.
+    - Time-varying data goes through `TimeSeries` + `decimate()`; link rates
+      through the shared `RateSeries` — no per-widget trackers.
+    - One feedback system: toasts only, no `SnackBar`s. Recording I/O only
+      via `RecordingRepository`.
     - Keep tiles data-driven — a new dashboard tile is one class + one `TileRegistry` entry (id, title, description, min size, builder).
     - Charts plot raw data through the shared `TimeSeriesChart` path — no per-tile smoothing.
     - Match the Precision Light theme (`AppCard`, `AppText`, pink `#FF00A1` accent only; status stays green/amber/red).
