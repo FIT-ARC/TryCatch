@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:serial/serial.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:trycatch/services/prefs_keys.dart';
 import 'package:trycatch/state/launch_site_store.dart';
+import 'package:trycatch/state/telemetry_provider.dart';
 import 'package:trycatch/ui/screens/settings_screen.dart';
 
 Map<String, dynamic> _site(String name) => {
@@ -233,6 +235,36 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('OFFLINE MAPS'), findsOneWidget);
+    });
+
+    testWidgets('connector picker locks while connected', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            serialStatusProvider.overrideWith(
+              (ref) => Stream.value(const SerialWorkerStatus(
+                isConnected: true,
+                connectedPort: 'MOCK',
+              )),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text('Locked while connected — disconnect to switch.'),
+        findsOneWidget,
+      );
+      final absorbers = tester.widgetList<AbsorbPointer>(
+        find.byWidgetPredicate(
+            (w) => w is AbsorbPointer && w.absorbing),
+      );
+      expect(absorbers, isNotEmpty);
     });
   });
 }

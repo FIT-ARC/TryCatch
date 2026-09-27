@@ -237,6 +237,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final connectorId =
         ref.watch(activeConnectorIdProvider).value ?? defaultVisibleConnectorId;
     final replaying = ref.watch(replayProvider.select((s) => s.isActive));
+    final connected =
+        ref.watch(serialStatusProvider).value?.isConnected ?? false;
+    // Locked whenever the link is up or a replay owns the session: switching
+    // mid-stream wipes the live flight, and mid-recording it mixes framings
+    // under one header stamp. Disconnect (or close the replay) to switch.
+    final locked = replaying || connected;
 
     return Center(
       child: ConstrainedBox(
@@ -257,18 +263,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         fontSize: 12.5, color: AppColors.mutedForeground),
                   ),
                   const SizedBox(height: 10),
-                  // 2. The picker (one bordered row per connector; the
-                  // selected row carries the accent border + tint).
-                  // Locked (not just no-op) while replaying: the recording
-                  // owns the connector for the session.
+                  // 2. The picker: compact bordered rows, selected row carries
+                  // the accent border + tint.
                   AbsorbPointer(
-                    absorbing: replaying,
+                    absorbing: locked,
                     child: Opacity(
-                      opacity: replaying ? 0.45 : 1.0,
+                      opacity: locked ? 0.45 : 1.0,
                       child: RadioGroup<String>(
                         groupValue: connectorId,
                         onChanged: (id) {
-                          if (!replaying && id != null) {
+                          if (!locked && id != null) {
                             ref
                                 .read(serialConfigProvider.notifier)
                                 .setConnector(id);
@@ -282,31 +286,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               _ConnectorRow(
                                 connector: connector,
                                 selected: connector.id == connectorId,
-                                onTap: replaying
+                                onTap: locked
                                     ? null
                                     : () => ref
                                         .read(serialConfigProvider.notifier)
                                         .setConnector(connector.id),
                               ),
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 6),
                             ],
                           ],
                         ),
                       ),
                     ),
                   ),
-                  // 3. Status line: static, so it never shifts layout.
-                  Text(
-                    replaying
-                        ? 'Locked while replaying — the recording picks its own connector.'
-                        : 'Recordings remember this choice and replay with it.',
-                    style: AppText.mono.copyWith(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.mutedForeground,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                  // 3. Lock reason — shown only while locked.
+                  if (locked)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        replaying
+                            ? 'Locked while replaying — the recording picks its own connector.'
+                            : 'Locked while connected — disconnect to switch.',
+                        style: AppText.mono.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.mutedForeground,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -505,9 +513,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-/// One connector option: bordered row with a compact radio, name +
-/// description, and a check holding the trailing slot when selected
-/// (so rows never shift width between states).
+/// One connector option: compact bordered row with a small radio, name +
+/// single-line description, and a check holding the trailing slot when
+/// selected (so rows never shift width between states).
 class _ConnectorRow extends StatelessWidget {
   final TelemetryConnector connector;
   final bool selected;
@@ -528,7 +536,7 @@ class _ConnectorRow extends StatelessWidget {
         onTap: onTap,
         child: Container(
           padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
             border: Border.all(
@@ -542,8 +550,8 @@ class _ConnectorRow extends StatelessWidget {
           child: Row(
             children: [
               SizedBox(
-                width: 28,
-                height: 28,
+                width: 24,
+                height: 24,
                 child: Radio<String>(
                   value: connector.id,
                   visualDensity: VisualDensity.compact,
@@ -559,16 +567,19 @@ class _ConnectorRow extends StatelessWidget {
                   children: [
                     Text(
                       connector.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 1),
                     Text(
                       connector.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 12, color: AppColors.mutedForeground),
+                          fontSize: 11.5, color: AppColors.mutedForeground),
                     ),
                   ],
                 ),
