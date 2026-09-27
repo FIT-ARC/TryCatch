@@ -255,10 +255,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 1. What this is.
+                  // 1. What this is — replaced by the lock reason while
+                  // locked, so the card never grows a footer line.
                   Text(
-                    'How the ground station reads the rocket. States, '
-                    'commands and tiles follow the selected connector.',
+                    locked
+                        ? (replaying
+                            ? 'Locked while replaying — the recording picks its own connector.'
+                            : 'Locked while connected — disconnect to switch.')
+                        : 'How the ground station reads the rocket. States, '
+                            'commands and tiles follow the selected connector.',
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.mutedForeground),
                   ),
@@ -299,22 +304,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ),
                   ),
-                  // 3. Lock reason — shown only while locked.
-                  if (locked)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        replaying
-                            ? 'Locked while replaying — the recording picks its own connector.'
-                            : 'Locked while connected — disconnect to switch.',
-                        style: AppText.mono.copyWith(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.mutedForeground,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ),
                 ],
               ),
             ),
