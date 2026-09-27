@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/replay_controller.dart';
 import '../../core/channel_health.dart';
 import '../../core/format.dart';
+import '../../foundation/chart_axis.dart';
+import '../../foundation/time/rate_series.dart' show RateSample, RateSeries;
 import '../../state/channel_health_provider.dart';
 import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
@@ -53,7 +55,7 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
     // Shared history: survives remounts (notably the edit-mode toggle,
     // which swaps wrappers around every tile and recreates tile State).
     ref.watch(channelHealthProvider);
-    final tracker = ref.read(channelHealthProvider.notifier).tracker;
+    final series = ref.read(channelHealthProvider.notifier).series;
     final status = ref.watch(serialStatusProvider).value;
     final connected = status?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
@@ -79,7 +81,7 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
       );
     }
 
-    final latest = tracker.latest;
+    final latest = series.latest;
     final matchedBps = latest?.matchedBps ?? 0.0;
     final unmatchedBps = latest?.unmatchedBps ?? 0.0;
     final verdict = verdictFor(unmatchedBps);
@@ -108,12 +110,31 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
               unmatchedBps: unmatchedBps,
             ),
             const SizedBox(height: 6),
-            Expanded(child: _RateChart(tracker: tracker)),
+            Expanded(child: _RateChart(series: series)),
           ],
         );
       },
     );
   }
+}
+
+/// Splits a replay channel profile at the playhead. The last played bin is
+/// carried into the future list so the dimmed segment connects.
+(List<ChannelBin> played, List<ChannelBin> future) splitChannelBins(
+  List<ChannelBin> profile,
+  int positionMs,
+) {
+  final played = <ChannelBin>[];
+  final future = <ChannelBin>[];
+  for (final bin in profile) {
+    if (bin.startMs <= positionMs) {
+      played.add(bin);
+    } else {
+      if (future.isEmpty && played.isNotEmpty) future.add(played.last);
+      future.add(bin);
+    }
+  }
+  return (played, future);
 }
 
 /// Compact whole-flight replay body for the tile: verdict row + chart with
@@ -129,16 +150,7 @@ class _TileReplayBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final played = <ChannelBin>[];
-    final future = <ChannelBin>[];
-    for (final bin in profile) {
-      if (bin.startMs <= positionMs) {
-        played.add(bin);
-      } else {
-        if (future.isEmpty && played.isNotEmpty) future.add(played.last);
-        future.add(bin);
-      }
-    }
+    final (played, future) = splitChannelBins(profile, positionMs);
     final cursor = played.isEmpty ? null : played.last;
     final verdict = verdictFor(cursor?.unmatchedBps ?? 0.0);
 
@@ -287,7 +299,7 @@ class _ChannelHealthMonitorState extends ConsumerState<ChannelHealthMonitor> {
   Widget build(BuildContext context) {
     // Shared history — see the tile above.
     ref.watch(channelHealthProvider);
-    final tracker = ref.read(channelHealthProvider.notifier).tracker;
+    final series = ref.read(channelHealthProvider.notifier).series;
     final status = ref.watch(serialStatusProvider).value;
     final connected = status?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
@@ -317,7 +329,7 @@ class _ChannelHealthMonitorState extends ConsumerState<ChannelHealthMonitor> {
       );
     }
 
-    final latest = tracker.latest;
+    final latest = series.latest;
     final matchedBps = latest?.matchedBps ?? 0.0;
     final unmatchedBps = latest?.unmatchedBps ?? 0.0;
     final verdict = verdictFor(unmatchedBps);
@@ -343,7 +355,7 @@ class _ChannelHealthMonitorState extends ConsumerState<ChannelHealthMonitor> {
                   trailing: _Legend(),
                   fillChild: true,
                   // Display-only plot (axis labels repaint on every tick).
-                  child: ExcludeSemantics(child: _RateChart(tracker: tracker)),
+                  child: ExcludeSemantics(child: _RateChart(series: series)),
                 ),
               ),
             ],
@@ -369,16 +381,7 @@ class _ReplayBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final played = <ChannelBin>[];
-    final future = <ChannelBin>[];
-    for (final bin in profile) {
-      if (bin.startMs <= positionMs) {
-        played.add(bin);
-      } else {
-        if (future.isEmpty && played.isNotEmpty) future.add(played.last);
-        future.add(bin);
-      }
-    }
+    final (played, future) = splitChannelBins(profile, positionMs);
     final cursor = played.isEmpty ? null : played.last;
     final verdict = verdictFor(cursor?.unmatchedBps ?? 0.0);
 
@@ -503,9 +506,9 @@ class _Legend extends StatelessWidget {
 }
 
 class _RateChart extends StatelessWidget {
-  final ChannelHealthTracker tracker;
+  final RateSeries series;
 
-  const _RateChart({required this.tracker});
+  const _RateChart({required this.series});
 
   /// Rolling live window (ms) for the tile chart.
   static const _windowMs = 60000;
@@ -513,26 +516,22 @@ class _RateChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final cutoff = nowMs - _windowMs;
-    final points = <ChannelSample>[
-      for (final s in tracker.samples.newestFirst())
-        if (s.timestampMs >= cutoff) s,
-    ].reversed.toList();
+    final points = series.slice(nowMs - _windowMs, nowMs);
 
     if (points.length < 2) {
       return const Center(child: WaitingForData(compact: true));
     }
 
-    List<FlSpot> spots(double Function(ChannelSample) pick) => [
+    List<FlSpot> spots(double Function(RateSample) pick) => [
           for (final s in points)
-            FlSpot((s.timestampMs - cutoff) / 1000, pick(s)),
+            FlSpot((s.timestampMs - (nowMs - _windowMs)) / 1000, pick(s)),
         ];
 
     var peak = 1.0;
     for (final s in points) {
       peak = math.max(peak, math.max(s.matchedBps, s.unmatchedBps));
     }
-    final maxY = _snappedMax(peak);
+    final maxY = AxisSteps.snappedMax(peak);
 
     return LineChart(
       _chartData(
@@ -540,8 +539,8 @@ class _RateChart extends StatelessWidget {
         maxX: _windowMs / 1000,
         maxY: maxY,
         played: [
-          _bar(spots((s) => s.matchedBps), AppColors.success),
-          _bar(spots((s) => s.unmatchedBps), AppColors.destructive,
+          _bar(spots((RateSample s) => s.matchedBps), AppColors.success),
+          _bar(spots((RateSample s) => s.unmatchedBps), AppColors.destructive,
               fill: true),
         ],
         touchData: chartTouchData(
@@ -592,7 +591,7 @@ class _ReplayChart extends StatelessWidget {
     for (final b in profile) {
       peak = math.max(peak, math.max(b.matchedBps, b.unmatchedBps));
     }
-    final maxY = _snappedMax(peak);
+    final maxY = AxisSteps.snappedMax(peak);
 
     final binMs = profile.length > 1
         ? profile[1].startMs - profile[0].startMs
@@ -701,7 +700,7 @@ LineChartData _chartData({
   double? bottomInterval,
   double? playheadX,
 }) {
-  final step = _niceStep(maxY / 3);
+  final step = AxisSteps.niceStep(maxY / 3);
   final interval = maxY / (maxY / step).round().clamp(2, 6);
   final xInterval = bottomInterval ?? 15;
   return LineChartData(
@@ -753,7 +752,7 @@ LineChartData _chartData({
           getTitlesWidget: (value, meta) => SideTitleWidget(
             meta: meta,
             child: Text(
-              _axisLabel(value),
+              AxisSteps.compactLabel(value),
               style: AppText.mono
                   .copyWith(fontSize: 9.5, color: AppColors.faint),
             ),
@@ -779,30 +778,4 @@ LineChartData _chartData({
     lineTouchData: touchData,
     lineBarsData: [...played, ...?future, ...touch],
   );
-}
-
-/// Snaps [peak] up to a round axis max (1-2-5 progression).
-double _snappedMax(double peak) {
-  final step = _niceStep(peak / 3);
-  return (peak / step).ceilToDouble() * step;
-}
-
-double _niceStep(double raw) {
-  if (raw <= 0) return 1;
-  var mag = 1.0;
-  while (raw < mag) {
-    mag /= 10;
-  }
-  while (raw >= mag * 10) {
-    mag *= 10;
-  }
-  for (final m in [1.0, 2.0, 5.0, 10.0]) {
-    if (raw <= m * mag) return m * mag;
-  }
-  return 10 * mag;
-}
-
-String _axisLabel(double v) {
-  if (v >= 1000) return '${(v / 1000).toStringAsFixed(1)}k';
-  return v.toStringAsFixed(0);
 }
