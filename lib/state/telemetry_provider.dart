@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../foundation/store.dart';
-import '../session/feedback.dart';
 import './connector_provider.dart';
 import './recording_provider.dart';
 export './connector_provider.dart';
@@ -216,20 +215,15 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   ///
   /// The active connector id rides along so the worker parses the
   /// bytestream with the connector the UI is showing. With no port picked
-  /// this toasts a hint instead of dropping the tap silently. Otherwise the
+  /// this is a silent no-op: the link segment stays muted and inert until
+  /// a port is selected, so the tap can never happen from the UI.
   /// attempt is marked optimistic ([SerialConfig.connectingPort]) — the
   /// native open can stall for a moment on cranky hardware — and cleared
   /// when the worker answers: [SerialControls] clears it on a connected
   /// status, [SerialToastBridge] on any error (plus the timeout below).
   void connect() {
     final cfg = state;
-    if (cfg.selectedPort == null) {
-      ref.infoToast(
-        'Select a serial port first, then connect.',
-        title: 'No port selected',
-      );
-      return;
-    }
+    if (cfg.selectedPort == null) return;
     final port = cfg.selectedPort!;
     state = state.copyWith(connectingPort: port);
     _connectTimer?.cancel();

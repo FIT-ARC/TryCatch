@@ -147,7 +147,8 @@ class SerialControls extends ConsumerWidget {
             color: AppColors.border,
           ),
           // Link segment: icon-only connect/disconnect, spinner while the
-          // native open is in flight.
+          // native open is in flight. Pink only when a port is selected
+          // (otherwise muted and inert — no hint toast needed).
           SizedBox(
             width: actionWidth,
             height: 32,
@@ -160,11 +161,13 @@ class SerialControls extends ConsumerWidget {
                           ? 'Select a port first'
                           : 'Connect to $effectiveSelected')),
               child: MouseRegion(
-                cursor: SystemMouseCursors.click,
+                cursor: canConnect || connected
+                    ? SystemMouseCursors.click
+                    : SystemMouseCursors.basic,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  // Never a dead click: no-port and mid-connect taps explain
-                  // themselves with a hint toast.
+                  // Mid-connect taps explain the spinner; a disabled
+                  // (port-less) segment is inert by design.
                   onTap: connected
                       ? notifier.disconnect
                       : (connecting != null
@@ -172,19 +175,14 @@ class SerialControls extends ConsumerWidget {
                                 'Still connecting to $connecting…',
                                 title: 'Connecting',
                               )
-                          : (canConnect
-                              ? notifier.connect
-                              : () => ref.infoToast(
-                                    'Select a serial port first, then connect.',
-                                    title: 'No port selected',
-                                  ))),
+                          : (canConnect ? notifier.connect : null)),
                   child: Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.horizontal(
                         right: Radius.circular(AppDimens.radiusSmall),
                       ),
-                      color: !connected
+                      color: canConnect
                           ? AppColors.primary.withValues(alpha: 0.12)
                           : Colors.transparent,
                     ),
@@ -202,7 +200,9 @@ class SerialControls extends ConsumerWidget {
                             size: 17,
                             color: connected
                                 ? AppColors.mutedForeground
-                                : AppColors.primary,
+                                : (canConnect
+                                    ? AppColors.primary
+                                    : AppColors.faint),
                           ),
                   ),
                 ),
