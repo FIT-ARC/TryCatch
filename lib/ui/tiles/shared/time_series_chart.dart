@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../../core/format.dart';
+import '../../../foundation/chart_axis.dart';
 import '../../../state/replay_controller.dart';
 import '../../../state/telemetry_store.dart';
 import '../../../theme/app_colors.dart';
@@ -397,7 +398,7 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
       rawMin = v - pad;
       rawMax = v + pad;
     }
-    final yStep = _niceStep(((rawMax - rawMin).abs()) / 3);
+    final yStep = AxisSteps.niceStep(((rawMax - rawMin).abs()) / 3);
     final minY = widget.config.yMin ?? (rawMin / yStep).floorToDouble() * yStep;
     final maxY = widget.config.yMax ?? (rawMax / yStep).ceilToDouble() * yStep;
     final ySpan = maxY - minY;
@@ -650,22 +651,6 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
   ///
   /// Top-level (and public) so unit tests can pin the spike-preserving
   /// behaviour without pumping the widget.
-  /// Chooses a human-friendly axis step (1-2-5 progression).
-  double _niceStep(double raw) {
-    if (raw <= 0) return 1;
-    var mag = 1.0;
-    while (raw < mag) {
-      mag /= 10;
-    }
-    while (raw >= mag * 10) {
-      mag *= 10;
-    }
-    for (final m in [1.0, 2.0, 5.0, 10.0]) {
-      if (raw <= m * mag) return m * mag;
-    }
-    return 10 * mag;
-  }
-
   double _timeInterval(double seconds) {
     if (seconds <= 15) return 5;
     if (seconds <= 30) return 10;
