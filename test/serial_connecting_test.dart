@@ -209,7 +209,7 @@ void main() {
       );
       await tester.pump();
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('COM4…'), findsOneWidget);
+      expect(find.text('COM4'), findsOneWidget);
 
       await tester.tap(find.byType(CircularProgressIndicator));
       await tester.pump();

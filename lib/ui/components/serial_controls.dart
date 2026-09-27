@@ -127,9 +127,8 @@ class SerialControls extends ConsumerWidget {
                           ),
                         ],
                         child: _SegmentLabel(
-                          text: connecting != null
-                              ? '$connecting…'
-                              : (effectiveSelected ??
+                          text: connecting ??
+                              (effectiveSelected ??
                                   (ports.isEmpty ? 'No ports' : 'Port')),
                           textColor: (connecting ?? effectiveSelected) == null
                               ? AppColors.mutedForeground
