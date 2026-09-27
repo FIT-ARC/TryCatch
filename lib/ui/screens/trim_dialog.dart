@@ -7,7 +7,8 @@ import 'package:serial/serial.dart' show connectorById;
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
 import '../../core/path_utils.dart';
-import '../../services/flight_trim.dart';
+import '../../services/flight_trim.dart' show buildAltProfile, trimRecording;
+import '../../services/recording_repository.dart';
 import '../../state/toast_store.dart';
 import '../../theme/app_colors.dart';
 import './recording_info.dart';
@@ -41,7 +42,7 @@ class _TrimDialogState extends ConsumerState<TrimDialog> {
     // Self-heal: if the card preview never decoded (stale/empty profile),
     // decode on demand so the altitude graph and event markers still show.
     if (widget.info.altProfile.length < 2 || !widget.info.previewDone) {
-      decodeRecordingFrames(widget.info.path).then((flight) {
+      RecordingRepository.decodePreview(widget.info.path).then((flight) {
         if (!mounted || flight.isEmpty) return;
         setState(() {
           if (widget.info.altProfile.length < 2) {

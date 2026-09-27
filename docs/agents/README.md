@@ -72,3 +72,10 @@
 * Undo flows: `push(message, actionLabel: 'Undo', onAction: ...)` —
   the card runs the callback then dismisses. Pinned by
   `toast_overlay_test.dart` (action button test).
+
+## 7. Recording I/O: one door
+
+* `RecordingRepository` (`loadReplay`, `decodePreview`, trim via
+  `flight_trim.dart`) is the only entry UI/state may use. Never import
+  `FileParser` / `readRecordingChunks` / `decodeRecordingFrames`
+  outside `services/`.

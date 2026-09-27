@@ -10,7 +10,7 @@ import '../../core/dead_reckoning_adapter.dart';
 import '../../core/elevation_math.dart';
 import '../../core/format.dart';
 import '../../core/path_utils.dart';
-import '../../services/flight_trim.dart';
+import '../../services/recording_repository.dart';
 import '../../state/dead_reckoning_tune_store.dart';
 import '../../state/toast_store.dart';
 import '../../services/elevation_service.dart';
@@ -176,7 +176,7 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
       _clearResults();
     });
     try {
-      final flight = await decodeRecordingFrames(path);
+      final flight = await RecordingRepository.decodePreview(path);
       if (!mounted) return;
       if (flight.frames.isEmpty) {
         setState(() {

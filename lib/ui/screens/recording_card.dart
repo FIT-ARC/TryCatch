@@ -7,7 +7,8 @@ import 'package:serial/serial.dart' show connectorById;
 
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
-import '../../services/flight_trim.dart';
+import '../../services/flight_trim.dart' show buildAltProfile, buildTrackProfile;
+import '../../services/recording_repository.dart';
 import '../../state/launch_site_store.dart';
 import '../../state/toast_store.dart';
 import '../../theme/app_colors.dart';
@@ -59,7 +60,7 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
   /// the file header are kept; the decode only adds the visual profiles.
   Future<void> _loadPreview() async {
     try {
-      final flight = await decodeRecordingFrames(widget.info.path);
+      final flight = await RecordingRepository.decodePreview(widget.info.path);
       if (!mounted) return;
       setState(() {
         final info = widget.info;
