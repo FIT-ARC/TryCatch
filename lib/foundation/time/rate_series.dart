@@ -3,6 +3,7 @@ import 'package:serial/serial.dart';
 import '../app_log.dart';
 import 'time_series.dart';
 import 'timed_sample.dart';
+import 'window.dart';
 
 /// One per-snapshot rate point, derived from [LinkStats] counter deltas.
 class RateSample with TimedSample {
@@ -77,44 +78,27 @@ class RateSeries extends RingTimeSeries<RateSample> {
     _prev = null;
   }
 
-  /// Mean packet rate over [window] ending at [nowMs], from cumulative
-  /// counters — exact regardless of slice sizes. Per-slice instantaneous
-  /// rates flip-flop with emission phase (e.g. alternating 187 ms / 313 ms
-  /// slices read 5.3 / 12.8 at a true 10 Hz), so the display never uses
-  /// a single slice.
-  double averagePacketRate(
-      {int? nowMs, Duration window = const Duration(seconds: 2)}) {
-    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
-    RateSample? first;
-    RateSample? last;
-    for (var i = 0; i < length; i++) {
-      final s = oldest(i);
-      if (s.timestampMs < now - window.inMilliseconds) continue;
-      if (s.timestampMs > now) continue;
-      first ??= s;
-      last = s;
-    }
-    if (first == null || last == null || identical(first, last)) {
-      return latest?.packetRate ?? 0.0;
-    }
-    final spanS = (last.timestampMs - first.timestampMs) / 1000.0;
-    if (spanS <= 0) return latest?.packetRate ?? 0.0;
-    return (last.matchedPackets - first.matchedPackets) / spanS;
-  }
-
   /// Live label: windowed rate while fresh, age after 2s silence, no-data
-  /// before first.
+  /// before first. The rate is the generic windowed mean over cumulative
+  /// counters (see `rateOverWindow`), never one instantaneous slice.
   String label({int? nowMs, Duration window = const Duration(seconds: 2)}) {
     final last = latest;
     if (last == null) return 'no data';
     final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
     final ageMs = now - last.timestampMs;
+    final shown = rateOverWindow(
+      this,
+      (s) => s.matchedPackets,
+      nowMs: now,
+      window: window,
+      fallback: last.packetRate,
+    ).toStringAsFixed(1);
     if (ageMs < 0) {
       AppLog.warn('RateSeries label clock skew: $ageMs ms');
-      return '${averagePacketRate(nowMs: now, window: window).toStringAsFixed(1)} pkt/s';
+      return '$shown pkt/s';
     }
     if (ageMs <= window.inMilliseconds) {
-      return '${averagePacketRate(nowMs: now, window: window).toStringAsFixed(1)} pkt/s';
+      return '$shown pkt/s';
     }
     if (ageMs < 1000) return '$ageMs ms ago';
     final s = ageMs / 1000;

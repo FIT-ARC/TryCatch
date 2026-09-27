@@ -3,6 +3,7 @@ import 'package:trycatch/foundation/ids.dart';
 import 'package:trycatch/foundation/time/decimation.dart';
 import 'package:trycatch/foundation/time/rate_series.dart';
 import 'package:trycatch/foundation/time/time_series.dart';
+import 'package:trycatch/foundation/time/window.dart';
 import 'package:serial/serial.dart';
 
 class _Pt {
@@ -96,5 +97,26 @@ void main() {
     final label = r.label(nowMs: t);
     final shown = double.parse(label.split(' ').first);
     expect(shown, inInclusiveRange(9.0, 11.0));
+  });
+
+  test('rateOverWindow is exact on any uneven series', () {
+    // Generic helper, plain cumulative counter: uneven slices must not move
+    // the mean.
+    final s = RingTimeSeries<_Pt>(16, (p) => p.ts);
+    var t = 0;
+    var total = 0.0;
+    for (final dt in [50, 400, 120, 900, 30]) {
+      t += dt;
+      total += 10 * dt / 1000;
+      s.push(_Pt(t, total));
+    }
+    expect(
+      rateOverWindow(s, (p) => p.v, nowMs: t),
+      closeTo(10.0, 1e-9),
+    );
+    expect(
+      rateOverWindow(s, (p) => p.v, nowMs: t + 100000),
+      0.0,
+    );
   });
 }

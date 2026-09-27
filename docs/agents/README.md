@@ -33,7 +33,9 @@
 * `lib/foundation/time/` owns `TimeSeries` (chronological 0=oldest),
   `RingTimeSeries` (live, bounded), `ListTimeSeries` (replay/preview),
   `decimate()` (`extremes` for charts, `strideStable` for trails/maps),
-  `RateSeries` (link rates from `LinkStats`).
+  `rateOverWindow()` (exact cumulative mean over a window — displays use
+  this, never one instantaneous slice), `RateSeries` (link rates from
+  `LinkStats`).
 * UI never indexes `RingBuffer` (`[]`/`getChronological`/`newestFirst`)
   directly — use `oldest/newest/slice/splitAt/toChronological`.
 * Played/future split: `splitAt(clockMs)` + carry-last-point in the
