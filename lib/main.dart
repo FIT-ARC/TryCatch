@@ -11,6 +11,7 @@ import 'package:tray_manager/tray_manager.dart' as tray;
 import 'package:window_manager/window_manager.dart';
 
 import './core/app_config.dart';
+import './foundation/app_log.dart';
 import './ui/screens/app_shell.dart';
 import './state/telemetry_provider.dart';
 import './theme/app_colors.dart';
@@ -37,7 +38,7 @@ void main() async {
     // Restart marker: main() re-running means hot restart (reload never
     // re-runs main). Correlate with [tray] lines to tell restart orphans
     // apart from same-process double-init.
-    debugPrint('[app] main() ran — fresh launch or hot restart');
+    AppLog.warn('[app] main() ran — fresh launch or hot restart');
   }
 
   const windowOptions = WindowOptions(
@@ -125,12 +126,12 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
     _trayIcon = null;
     _trayMenu = null;
     if (kDebugMode && icon != null) {
-      debugPrint('[tray] dispose icon');
+      AppLog.warn('[tray] dispose icon');
     }
     try {
       icon?.dispose();
     } catch (e) {
-      debugPrint('System tray: dispose failed: $e');
+      AppLog.warn('System tray: dispose failed: $e');
     }
   }
 
@@ -191,7 +192,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
     // leaving no tray at all).
     final trayIcon = tray.TrayIcon.create();
     if (trayIcon == null) {
-      debugPrint('System tray: TrayIcon.create() failed, skipping tray');
+      AppLog.warn('System tray: TrayIcon.create() failed, skipping tray');
       return;
     }
     _trayIcon = trayIcon;
@@ -210,12 +211,12 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
     await _trayGuard('setIcon', () async {
       final iconPath = await _resolveTrayIconPath();
       if (iconPath == null) {
-        debugPrint('System tray: no icon file found, skipping icon');
+        AppLog.warn('System tray: no icon file found, skipping icon');
         return;
       }
       final image = tray.Image.fromFile(iconPath);
       if (image == null) {
-        debugPrint('System tray: could not load $iconPath');
+        AppLog.warn('System tray: could not load $iconPath');
         return;
       }
       trayIcon.icon = image;
@@ -271,7 +272,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
     try {
       await call();
     } catch (e) {
-      debugPrint('System tray: $what failed: $e');
+      AppLog.warn('System tray: $what failed: $e');
     }
   }
 

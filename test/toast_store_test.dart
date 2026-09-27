@@ -18,17 +18,17 @@ void main() {
       expect(toasts.single.severity, ToastSeverity.error);
     });
 
-    test('consecutive duplicates refresh instead of stacking', () {
+    test('identical messages stack as separate cards', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifier = container.read(toastStoreProvider.notifier);
       final first = notifier.push('same');
       final second = notifier.push('same');
-      expect(first, second);
-      expect(container.read(toastStoreProvider), hasLength(1));
+      expect(first, isNot(second));
+      expect(container.read(toastStoreProvider), hasLength(2));
       // A different message stacks normally.
       notifier.push('other');
-      expect(container.read(toastStoreProvider), hasLength(2));
+      expect(container.read(toastStoreProvider), hasLength(3));
     });
 
     test('dismiss removes by id and ignores unknown ids', () {

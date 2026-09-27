@@ -44,5 +44,28 @@ void main() {
       expect(first, hasLength(1));
       expect(first.single.message, contains('__BOGUS_PORT_XYZ__'));
     });
+
+    test('failed connect names the port exactly once', () async {
+      final worker = await SerialWorker.spawn();
+      addTearDown(worker.dispose);
+      await worker.ready;
+      final ping = Timer.periodic(
+        const Duration(seconds: 2),
+        (_) => worker.send(const PingCommand()),
+      );
+      addTearDown(ping.cancel);
+
+      final errors = worker.errorStream.take(1).toList();
+      worker.send(const ConnectCommand('__BOGUS_PORT_XYZ__'));
+
+      final first = await errors.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TestFailure('No ErrorEvent arrived.'),
+      );
+      final message = first.single.message;
+      final occurrences =
+          '__BOGUS_PORT_XYZ__'.allMatches(message).length;
+      expect(occurrences, 1, reason: 'message: $message');
+    });
   });
 }

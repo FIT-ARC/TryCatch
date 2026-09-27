@@ -9,7 +9,7 @@ import '../components/app_card.dart';
 import './tile_leaf_scope.dart';
 import './tile_picker_dialog.dart';
 import '../../state/layout_tree.dart';
-import '../../state/toast_store.dart';
+import '../../session/feedback.dart';
 import '../tile_registry.dart';
 import '../../state/workspace_controller.dart';
 import '../../state/workspace_models.dart';
@@ -678,14 +678,13 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
         .mergeDivider(nodeId: divider.nodeId, keepSide: result);
 
     if (!mounted) return;
-    ref.read(toastStoreProvider.notifier).push(
-          'Section removed',
-          severity: ToastSeverity.info,
-          actionLabel: 'Undo',
-          onAction: () {
-            ref.read(workspaceProvider.notifier).restoreRoot(oldRoot);
-          },
-        );
+    ref.infoToast(
+      'Section removed',
+      actionLabel: 'Undo',
+      onAction: () {
+        ref.read(workspaceProvider.notifier).restoreRoot(oldRoot);
+      },
+    );
   }
 
   // ── Snap overlay ──────────────────────────────────────────────────────────────

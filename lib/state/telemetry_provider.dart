@@ -6,9 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../foundation/store.dart';
+import '../session/feedback.dart';
 import './connector_provider.dart';
 import './recording_provider.dart';
-import './toast_store.dart';
 export './connector_provider.dart';
 export './recording_provider.dart';
 
@@ -224,11 +224,10 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   void connect() {
     final cfg = state;
     if (cfg.selectedPort == null) {
-      ref.read(toastStoreProvider.notifier).push(
-            'Select a serial port first, then connect.',
-            severity: ToastSeverity.info,
-            title: 'No port selected',
-          );
+      ref.infoToast(
+        'Select a serial port first, then connect.',
+        title: 'No port selected',
+      );
       return;
     }
     final port = cfg.selectedPort!;

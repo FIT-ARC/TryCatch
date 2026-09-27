@@ -72,16 +72,25 @@
   spawn + ping in `setUpAll`, fresh container per test, connect/disconnect
   per test, temp dirs cleaned in `finally`).
 
-## 6. Feedback: toasts only
+## 6. Feedback: toasts only, via AppFeedback
 
-* `toastStoreProvider` + `ToastOverlay` is the single user-feedback
-  system. `ScaffoldMessenger`/`SnackBar` must not be used in new code;
-  all 10 legacy sites were migrated in System 6.
-* Severities: success (confirmations), warning (no-result searches),
-  error (failures), info (neutral notes + undo).
+* `AppFeedback` (`lib/session/feedback.dart`) is the single entry:
+  `error`/`warning`/`info`/`success` over `toastStoreProvider`.
+  Never push to the store directly outside it. Repeats stack as separate
+  cards (shadcn-style, no dedup); the queue caps at `maxEntries`.
+* Style: title is a short Title Case noun (`Serial error`,
+  `Port disconnected`, `Command failed`, `Ports refreshed`); the message
+  is one plain sentence naming ports/files/counts exactly once, ending
+  with the next step (`check the cable and retry`, `select a port
+  first`). Worker messages follow the same rule at the source
+  (`packages/serial/lib/worker/worker.dart` names the port once).
+* Severities: success (confirmations), warning (no-result searches,
+  disconnects), error (failures), info (neutral notes + undo).
 * Undo flows: `push(message, actionLabel: 'Undo', onAction: ...)` —
   the card runs the callback then dismisses. Pinned by
   `toast_overlay_test.dart` (action button test).
+* Diagnostics: `AppLog.warn` (debug-only). No raw `print`/`debugPrint`
+  in `lib/`.
 
 ## 7. Recording I/O: one door
 

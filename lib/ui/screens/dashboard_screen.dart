@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/app_colors.dart';
-import '../../state/toast_store.dart';
+import '../../session/feedback.dart';
 import '../../state/workspace_controller.dart';
 import './tile_picker_dialog.dart';
 export './tile_picker_dialog.dart';
@@ -433,14 +433,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   .read(workspaceProvider.notifier)
                   .promoteToDefaults();
               if (!context.mounted) return;
-              ref.read(toastStoreProvider.notifier).push(
-                    err == null
-                        ? 'Current workspaces saved to default_layouts.dart!'
-                        : 'Warning: $err',
-                    severity: err == null
-                        ? ToastSeverity.success
-                        : ToastSeverity.warning,
-                  );
+              if (err == null) {
+                ref.successToast(
+                    'Current workspaces saved to default_layouts.dart!');
+              } else {
+                ref.warningToast('Warning: $err');
+              }
             },
             child: const Text('Make default'),
           ),

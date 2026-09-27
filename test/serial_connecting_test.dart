@@ -225,7 +225,7 @@ void main() {
       expect(
           SerialToastBridge.isDisconnectMessage('Port disconnected — COM4'),
           isTrue);
-      expect(SerialToastBridge.isDisconnectMessage('Port closed (COM4)'),
+      expect(SerialToastBridge.isDisconnectMessage('Port closed — COM4'),
           isTrue);
       expect(SerialToastBridge.isDisconnectMessage('Port error: boom'),
           isTrue);

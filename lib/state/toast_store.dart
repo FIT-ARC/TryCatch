@@ -61,9 +61,9 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
   @override
   List<ToastMessage> build() => const [];
 
-  /// Pushes a toast; returns its id. Duplicate consecutive messages (same
-  /// severity + text, e.g. a flapping watchdog) refresh the existing card
-  /// instead of stacking.
+  /// Pushes a toast; returns its id. Every push is a new card, even for
+  /// identical messages (shadcn-style): repeats stack newest-last and each
+  /// auto-dismisses on its own timer. Bounded to [maxEntries].
   int push(
     String message, {
     ToastSeverity severity = ToastSeverity.error,
@@ -71,23 +71,6 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
     String? actionLabel,
     VoidCallback? onAction,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (state.isNotEmpty) {
-      final last = state.last;
-      if (last.message == message && last.severity == severity) {
-        final refreshed = ToastMessage(
-          id: last.id,
-          message: last.message,
-          severity: last.severity,
-          title: title ?? last.title,
-          actionLabel: actionLabel ?? last.actionLabel,
-          onAction: onAction ?? last.onAction,
-          timestampMs: now,
-        );
-        state = [...state.sublist(0, state.length - 1), refreshed];
-        return last.id;
-      }
-    }
     final toast = ToastMessage(
       id: _nextId++,
       message: message,
@@ -95,7 +78,7 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
       title: title,
       actionLabel: actionLabel,
       onAction: onAction,
-      timestampMs: now,
+      timestampMs: DateTime.now().millisecondsSinceEpoch,
     );
     var next = [...state, toast];
     if (next.length > maxEntries) {

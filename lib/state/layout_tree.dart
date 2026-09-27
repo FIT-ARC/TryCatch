@@ -10,8 +10,7 @@ library;
 import 'dart:math' as math;
 import 'dart:ui' show Size;
 
-import 'package:flutter/foundation.dart' show debugPrint;
-
+import '../foundation/app_log.dart';
 import '../foundation/ids.dart';
 
 /// Per-tile-type minimum size in logical pixels (from `TileRegistry`).
@@ -754,7 +753,7 @@ LayoutNode treeFromOrder(List<LeafNode> leaves) {
   }
 
   if (leaves.isEmpty) {
-    debugPrint('layout_tree: building tree from empty list');
+    AppLog.warn('layout_tree: building tree from empty list');
   }
   return build(leaves, 0);
 }

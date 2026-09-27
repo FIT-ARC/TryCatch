@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../state/toast_store.dart';
+import '../../session/feedback.dart';
 import '../../theme/app_colors.dart';
 
 /// Small copy-to-clipboard button with a toast confirmation.
@@ -32,10 +32,7 @@ class CopyButton extends ConsumerWidget {
           mouseCursor: SystemMouseCursors.click,
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: text));
-            ref.read(toastStoreProvider.notifier).push(
-                  'Copied $text',
-                  severity: ToastSeverity.success,
-                );
+            ref.successToast('Copied $text');
           },
           borderRadius: BorderRadius.circular(4),
           child: Padding(

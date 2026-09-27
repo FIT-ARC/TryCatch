@@ -123,9 +123,12 @@ void workerMain(SendPort mainSendPort) async {
     if (status.isConnected) {
       final lostPort = status.connectedPort;
       pushStatus(status.copyWith(isConnected: false, connectedPort: null));
-      mainSendPort.send(ErrorEvent(
-        lostPort == null ? reason : '$reason — $lostPort',
-      ));
+      // Port named exactly once: callers pass a bare reason, and reasons
+      // that already name it (native errors) are sent as-is.
+      final message = lostPort == null || reason.contains(lostPort)
+          ? reason
+          : '$reason — $lostPort';
+      mainSendPort.send(ErrorEvent(message));
       emitStats(force: true);
     }
   }
@@ -159,7 +162,7 @@ void workerMain(SendPort mainSendPort) async {
         return;
       }
       if (status.isConnected && !service.isConnected) {
-        markDisconnected('Port disconnected (${status.connectedPort ?? 'unknown port'})');
+        markDisconnected('Port disconnected');
         return;
       }
       if (status.isConnected) emitStats(force: true);
@@ -181,7 +184,6 @@ void workerMain(SendPort mainSendPort) async {
   /// Subscribes to the serial byte stream and processes chunks concurrently
   void attachByteStream() {
     byteSubscription?.cancel();
-    final portName = status.connectedPort;
     byteSubscription = service.byteStream.listen(
       (chunk) {
         // 1. Exact 1:1 raw binary disk recording (includes noise, preamble, fragments)
@@ -200,9 +202,7 @@ void workerMain(SendPort mainSendPort) async {
       onDone: () {
         // Previously silent: the UI kept showing "connected" with a dead
         // stream. Treat any unexpected close as a disconnect.
-        markDisconnected(
-          portName == null ? 'Port closed' : 'Port closed ($portName)',
-        );
+        markDisconnected('Port closed');
       },
       cancelOnError: true,
     );
@@ -252,10 +252,15 @@ void workerMain(SendPort mainSendPort) async {
           emitStats(force: true);
         } else {
           pushStatus(status.copyWith(isConnected: false, connectedPort: null));
+          // Port named exactly once: native failures may already name it.
+          const hint =
+              'check the cable, driver and that no other app holds the port';
           mainSendPort.send(ErrorEvent(
             failure == null
-                ? 'Failed to open $port — check the cable, driver and that no other app holds the port'
-                : 'Failed to open $port: $failure',
+                ? 'Failed to open $port — $hint'
+                : failure.contains(port)
+                    ? '$failure — $hint'
+                    : 'Failed to open $port — $failure',
           ));
         }
 

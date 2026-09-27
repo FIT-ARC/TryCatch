@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
+import '../../session/feedback.dart';
 import '../../state/telemetry_provider.dart';
-import '../../state/toast_store.dart';
 
 /// Compact connection control for the top bar: port picker and link action
 /// fused into one pill — the segments share the outer border with square
@@ -168,20 +168,14 @@ class SerialControls extends ConsumerWidget {
                   onTap: connected
                       ? notifier.disconnect
                       : (connecting != null
-                          ? () => ref
-                              .read(toastStoreProvider.notifier)
-                              .push(
+                          ? () => ref.infoToast(
                                 'Still connecting to $connecting…',
-                                severity: ToastSeverity.info,
                                 title: 'Connecting',
                               )
                           : (canConnect
                               ? notifier.connect
-                              : () => ref
-                                  .read(toastStoreProvider.notifier)
-                                  .push(
+                              : () => ref.infoToast(
                                     'Select a serial port first, then connect.',
-                                    severity: ToastSeverity.info,
                                     title: 'No port selected',
                                   ))),
                   child: Container(

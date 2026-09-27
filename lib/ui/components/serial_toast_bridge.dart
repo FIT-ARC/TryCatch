@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
+import '../../session/feedback.dart';
 import '../../state/telemetry_provider.dart';
-import '../../state/toast_store.dart';
 
 /// Headless bridge: watches serial worker events and pushes toasts.
 ///
@@ -20,9 +20,6 @@ import '../../state/toast_store.dart';
 /// Deliberately silent on user-initiated disconnects: [DisconnectCommand]
 /// emits no [ErrorEvent], so nothing toasts — the top-bar pill flipping
 /// back to the port picker is the whole signal.
-///
-/// Dedupes via the toast store (consecutive identical messages refresh one
-/// card).
 class SerialToastBridge extends ConsumerWidget {
   const SerialToastBridge({super.key});
 
@@ -43,13 +40,11 @@ class SerialToastBridge extends ConsumerWidget {
         // below is the visible answer); then surface it.
         ref.read(serialConfigProvider.notifier).clearConnecting();
         final disconnect = isDisconnectMessage(event.message);
-        ref.read(toastStoreProvider.notifier).push(
-              event.message,
-              severity: disconnect
-                  ? ToastSeverity.warning
-                  : ToastSeverity.error,
-              title: disconnect ? 'Port disconnected' : 'Serial error',
-            );
+        if (disconnect) {
+          ref.warningToast(event.message, title: 'Port disconnected');
+        } else {
+          ref.errorToast(event.message, title: 'Serial error');
+        }
       });
     });
 
@@ -59,17 +54,14 @@ class SerialToastBridge extends ConsumerWidget {
         // [SerialConfigNotifier.refreshPorts], so startup scans stay silent.
         if (!ref.read(serialConfigProvider).refreshPending) return;
         ref.read(serialConfigProvider.notifier).consumeRefresh();
-        final notifier = ref.read(toastStoreProvider.notifier);
         if (ports.isEmpty) {
-          notifier.push(
+          ref.warningToast(
             'No serial ports found — plug in the radio and rescan.',
-            severity: ToastSeverity.warning,
             title: 'Ports refreshed',
           );
         } else {
-          notifier.push(
+          ref.infoToast(
             'Ports refreshed — ${ports.length} found.',
-            severity: ToastSeverity.info,
             title: 'Ports refreshed',
           );
         }
@@ -80,11 +72,10 @@ class SerialToastBridge extends ConsumerWidget {
       next.whenData((event) {
         if (!event.ok) {
           final label = describeUplink(event.bytes.toList()).label;
-          ref.read(toastStoreProvider.notifier).push(
-                'Uplink "$label" was not sent — check the link and retry.',
-                severity: ToastSeverity.error,
-                title: 'Command failed',
-              );
+          ref.errorToast(
+            'Uplink "$label" was not sent — check the link and retry.',
+            title: 'Command failed',
+          );
         }
       });
     });

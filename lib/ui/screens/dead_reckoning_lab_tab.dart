@@ -12,7 +12,7 @@ import '../../core/format.dart';
 import '../../core/path_utils.dart';
 import '../../services/recording_repository.dart';
 import '../../state/dead_reckoning_tune_store.dart';
-import '../../state/toast_store.dart';
+import '../../session/feedback.dart';
 import '../../services/elevation_service.dart';
 import '../../state/recording_provider.dart';
 import '../../theme/app_colors.dart';
@@ -267,10 +267,7 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
       if (masks.isEmpty) {
         if (!mounted) return;
         setState(() => _working = false);
-        ref.read(toastStoreProvider.notifier).push(
-              'No scorable outages in this flight.',
-              severity: ToastSeverity.warning,
-            );
+        ref.warningToast('No scorable outages in this flight.');
         return;
       }
       if (!mounted) return;
@@ -364,10 +361,7 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _working = false);
-      ref.read(toastStoreProvider.notifier).push(
-            'Tuning failed.',
-            severity: ToastSeverity.error,
-          );
+      ref.errorToast('Tuning failed.');
     }
   }
 
@@ -441,10 +435,7 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     if (tune == null) return;
     await ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
     if (!mounted) return;
-    ref.read(toastStoreProvider.notifier).push(
-          'New tune applied.',
-          severity: ToastSeverity.success,
-        );
+    ref.successToast('New tune applied.');
     setState(() {
       _clearResults();
       _appliedSummary = describeDeadReckoningTune(tune);
@@ -579,10 +570,7 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
       _tuneEdited = false;
     });
     ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
-    ref.read(toastStoreProvider.notifier).push(
-          'Tune loaded.',
-          severity: ToastSeverity.success,
-        );
+    ref.successToast('Tune loaded.');
   }
 
   void _startWizard() {
@@ -1048,12 +1036,11 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     if (tune == null || !mounted) return;
     await ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
     if (!mounted) return;
-    ref.read(toastStoreProvider.notifier).push(
-          tune == DeadReckoningTune.defaults
-              ? 'Factory defaults restored.'
-              : 'Tune applied live and saved.',
-          severity: ToastSeverity.success,
-        );
+    if (tune == DeadReckoningTune.defaults) {
+      ref.successToast('Factory defaults restored.');
+    } else {
+      ref.successToast('Tune applied live and saved.');
+    }
   }
 }
 

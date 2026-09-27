@@ -9,7 +9,7 @@ import '../../core/format.dart';
 import '../../core/path_utils.dart';
 import '../../services/flight_trim.dart' show buildAltProfile, trimRecording;
 import '../../services/recording_repository.dart';
-import '../../state/toast_store.dart';
+import '../../session/feedback.dart';
 import '../../theme/app_colors.dart';
 import './recording_info.dart';
 import './trim_chart.dart';
@@ -101,10 +101,7 @@ class _TrimDialogState extends ConsumerState<TrimDialog> {
         return;
       }
       Navigator.of(context).pop(true);
-      ref.read(toastStoreProvider.notifier).push(
-            'Saved $fileName.bin ($kept packets).',
-            severity: ToastSeverity.success,
-          );
+      ref.successToast('Saved $fileName.bin ($kept packets).');
     } catch (_) {
       if (!mounted) return;
       setState(() {
