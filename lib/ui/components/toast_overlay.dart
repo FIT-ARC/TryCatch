@@ -269,6 +269,30 @@ class _ToastCardState extends ConsumerState<ToastCard> {
                           color: AppColors.foreground,
                         ),
                       ),
+                      if (toast.actionLabel != null && toast.onAction != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            onPressed: () {
+                              toast.onAction!.call();
+                              ref
+                                  .read(toastStoreProvider.notifier)
+                                  .dismiss(toast.id);
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.only(top: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              toast.actionLabel!.toUpperCase(),
+                              style: AppText.microLabel.copyWith(
+                                color: accent,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),

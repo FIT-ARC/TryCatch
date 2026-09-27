@@ -7,6 +7,7 @@ import 'package:serial/serial.dart'
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:trycatch/core/ring_buffer.dart';
 import 'package:trycatch/state/dead_reckoning_tune_store.dart';
+import 'package:trycatch/ui/components/toast_overlay.dart';
 import 'package:trycatch/state/telemetry_store.dart';
 import 'package:trycatch/ui/screens/dead_reckoning_lab_tab.dart';
 
@@ -103,11 +104,16 @@ Widget _page({
 }) {
   final page = MaterialApp(
     home: Scaffold(
-      body: DeadReckoningLabTab(
-        debugSamples: samples ?? _climbingLeg(),
-        debugFrames: frames ?? _climbingFrames(),
-        debugName: name,
-        loadTerrain: false,
+      body: Stack(
+        children: [
+          DeadReckoningLabTab(
+            debugSamples: samples ?? _climbingLeg(),
+            debugFrames: frames ?? _climbingFrames(),
+            debugName: name,
+            loadTerrain: false,
+          ),
+          const ToastOverlay(),
+        ],
       ),
     ),
   );

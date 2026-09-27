@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../state/toast_store.dart';
 import '../../theme/app_colors.dart';
 
-/// Small copy-to-clipboard button with a confirmation snackbar.
-class CopyButton extends StatelessWidget {
+/// Small copy-to-clipboard button with a toast confirmation.
+class CopyButton extends ConsumerWidget {
   final String text;
 
-  /// Tooltip + snackbar context (defaults to Google Maps paste format).
+  /// Tooltip + toast context (defaults to Google Maps paste format).
   final String formatName;
 
-  /// Icon-only rendering for tight rows (same tap behavior + snackbar).
+  /// Icon-only rendering for tight rows (same tap behavior + toast).
   final bool iconOnly;
 
   const CopyButton({
@@ -21,7 +23,7 @@ class CopyButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Tooltip(
       message: 'Copy "$text" ($formatName)',
       child: MouseRegion(
@@ -30,14 +32,10 @@ class CopyButton extends StatelessWidget {
           mouseCursor: SystemMouseCursors.click,
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: text));
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Copied $text'),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            }
+            ref.read(toastStoreProvider.notifier).push(
+                  'Copied $text',
+                  severity: ToastSeverity.success,
+                );
           },
           borderRadius: BorderRadius.circular(4),
           child: Padding(

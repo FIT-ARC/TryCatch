@@ -1,27 +1,29 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart' show connectorById;
 
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
 import '../../core/path_utils.dart';
 import '../../services/flight_trim.dart';
+import '../../state/toast_store.dart';
 import '../../theme/app_colors.dart';
 import './recording_info.dart';
 import './trim_chart.dart';
 
 /// Trims a time slice of a recording into a new `.bin` file.
-class TrimDialog extends StatefulWidget {
+class TrimDialog extends ConsumerStatefulWidget {
   final RecordingInfo info;
 
   const TrimDialog({super.key, required this.info});
 
   @override
-  State<TrimDialog> createState() => _TrimDialogState();
+  ConsumerState<TrimDialog> createState() => _TrimDialogState();
 }
 
-class _TrimDialogState extends State<TrimDialog> {
+class _TrimDialogState extends ConsumerState<TrimDialog> {
   late double _startS;
   late double _endS;
   late final TextEditingController _name;
@@ -98,9 +100,10 @@ class _TrimDialogState extends State<TrimDialog> {
         return;
       }
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved $fileName.bin ($kept packets).')),
-      );
+      ref.read(toastStoreProvider.notifier).push(
+            'Saved $fileName.bin ($kept packets).',
+            severity: ToastSeverity.success,
+          );
     } catch (_) {
       if (!mounted) return;
       setState(() {

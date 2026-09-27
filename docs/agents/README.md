@@ -61,3 +61,14 @@
 * New stores/time-series need unit tests (clear idempotence,
   corrupt-prefs fallback, decimation stability).
 * Comments: why + invariant + units, 1-2 lines. No iteration essays.
+
+## 6. Feedback: toasts only
+
+* `toastStoreProvider` + `ToastOverlay` is the single user-feedback
+  system. `ScaffoldMessenger`/`SnackBar` must not be used in new code;
+  all 10 legacy sites were migrated in System 6.
+* Severities: success (confirmations), warning (no-result searches),
+  error (failures), info (neutral notes + undo).
+* Undo flows: `push(message, actionLabel: 'Undo', onAction: ...)` —
+  the card runs the callback then dismisses. Pinned by
+  `toast_overlay_test.dart` (action button test).

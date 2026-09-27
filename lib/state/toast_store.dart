@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../foundation/store.dart';
@@ -20,6 +21,12 @@ class ToastMessage {
 
   final ToastSeverity severity;
 
+  /// Optional action button label (e.g. 'Undo'). Shown only with [onAction].
+  final String? actionLabel;
+
+  /// In-memory action callback. Never persisted; one-shot per toast.
+  final VoidCallback? onAction;
+
   /// Epoch millis when the toast was pushed (ordering + tests).
   final int timestampMs;
 
@@ -28,6 +35,8 @@ class ToastMessage {
     required this.message,
     required this.severity,
     this.title,
+    this.actionLabel,
+    this.onAction,
     required this.timestampMs,
   });
 }
@@ -55,8 +64,13 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
   /// Pushes a toast; returns its id. Duplicate consecutive messages (same
   /// severity + text, e.g. a flapping watchdog) refresh the existing card
   /// instead of stacking.
-  int push(String message,
-      {ToastSeverity severity = ToastSeverity.error, String? title}) {
+  int push(
+    String message, {
+    ToastSeverity severity = ToastSeverity.error,
+    String? title,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (state.isNotEmpty) {
       final last = state.last;
@@ -66,6 +80,8 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
           message: last.message,
           severity: last.severity,
           title: title ?? last.title,
+          actionLabel: actionLabel ?? last.actionLabel,
+          onAction: onAction ?? last.onAction,
           timestampMs: now,
         );
         state = [...state.sublist(0, state.length - 1), refreshed];
@@ -77,6 +93,8 @@ class ToastStore extends SessionStore<List<ToastMessage>> {
       message: message,
       severity: severity,
       title: title,
+      actionLabel: actionLabel,
+      onAction: onAction,
       timestampMs: now,
     );
     var next = [...state, toast];

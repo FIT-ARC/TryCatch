@@ -165,5 +165,25 @@ void main() {
       final cards = tester.widgetList<ToastCard>(find.byType(ToastCard));
       expect([for (final c in cards) c.toast.message], ['first', 'second']);
     });
+
+    testWidgets('action button runs callback and dismisses', (tester) async {
+      final container = await _pumpLiveOverlay(tester);
+      var ran = false;
+      container.read(toastStoreProvider.notifier).push(
+            'Section removed',
+            severity: ToastSeverity.info,
+            actionLabel: 'Undo',
+            onAction: () => ran = true,
+          );
+      await tester.pump();
+      await tester.pump(ToastOverlay.enterDuration);
+
+      await tester.tap(find.text('UNDO'));
+      await tester.pump();
+      await tester.pump(ToastOverlay.exitDuration * 2);
+      await tester.pump();
+      expect(ran, isTrue);
+      expect(container.read(toastStoreProvider), isEmpty);
+    });
   });
 }

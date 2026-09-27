@@ -9,6 +9,7 @@ import '../../core/flight_events.dart';
 import '../../core/format.dart';
 import '../../services/flight_trim.dart';
 import '../../state/launch_site_store.dart';
+import '../../state/toast_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/app_card.dart';
 import '../tiles/shared/map_tiles.dart';
@@ -111,14 +112,16 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
       await ref.read(launchSiteProvider.notifier).savePreset(site);
       unawaited(precacheLaunchSites([site]));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved launch site "${site.name}".')),
-      );
+      ref.read(toastStoreProvider.notifier).push(
+            'Saved launch site "${site.name}".',
+            severity: ToastSeverity.success,
+          );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save the launch site.')),
-      );
+      ref.read(toastStoreProvider.notifier).push(
+            'Could not save the launch site.',
+            severity: ToastSeverity.error,
+          );
     } finally {
       if (mounted) setState(() => _savingSite = false);
     }

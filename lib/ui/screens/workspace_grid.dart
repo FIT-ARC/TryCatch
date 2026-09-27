@@ -9,6 +9,7 @@ import '../components/app_card.dart';
 import './tile_leaf_scope.dart';
 import './tile_picker_dialog.dart';
 import '../../state/layout_tree.dart';
+import '../../state/toast_store.dart';
 import '../tile_registry.dart';
 import '../../state/workspace_controller.dart';
 import '../../state/workspace_models.dart';
@@ -677,22 +678,14 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
         .mergeDivider(nodeId: divider.nodeId, keepSide: result);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Section removed'),
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () {
-            if (mounted) {
-              ref
-                  .read(workspaceProvider.notifier)
-                  .restoreRoot(oldRoot);
-            }
+    ref.read(toastStoreProvider.notifier).push(
+          'Section removed',
+          severity: ToastSeverity.info,
+          actionLabel: 'Undo',
+          onAction: () {
+            ref.read(workspaceProvider.notifier).restoreRoot(oldRoot);
           },
-        ),
-      ),
-    );
+        );
   }
 
   // ── Snap overlay ──────────────────────────────────────────────────────────────

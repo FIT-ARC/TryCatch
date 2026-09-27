@@ -7,6 +7,7 @@ import 'package:serial/serial.dart';
 
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
+import '../../state/toast_store.dart';
 import '../../state/workspace_controller.dart';
 import '../../theme/app_colors.dart';
 import './recording_card.dart';
@@ -107,9 +108,10 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
       await RecordingService.openRecordingsFolder();
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open the folder.')),
-      );
+      ref.read(toastStoreProvider.notifier).push(
+            'Could not open the folder.',
+            severity: ToastSeverity.error,
+          );
     }
   }
 

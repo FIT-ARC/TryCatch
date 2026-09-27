@@ -12,6 +12,7 @@ import '../../core/format.dart';
 import '../../core/path_utils.dart';
 import '../../services/flight_trim.dart';
 import '../../state/dead_reckoning_tune_store.dart';
+import '../../state/toast_store.dart';
 import '../../services/elevation_service.dart';
 import '../../state/recording_provider.dart';
 import '../../theme/app_colors.dart';
@@ -266,10 +267,10 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
       if (masks.isEmpty) {
         if (!mounted) return;
         setState(() => _working = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('No scorable outages in this flight.')),
-        );
+        ref.read(toastStoreProvider.notifier).push(
+              'No scorable outages in this flight.',
+              severity: ToastSeverity.warning,
+            );
         return;
       }
       if (!mounted) return;
@@ -363,9 +364,10 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _working = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tuning failed.')),
-      );
+      ref.read(toastStoreProvider.notifier).push(
+            'Tuning failed.',
+            severity: ToastSeverity.error,
+          );
     }
   }
 
@@ -439,9 +441,10 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     if (tune == null) return;
     await ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('New tune applied.')),
-    );
+    ref.read(toastStoreProvider.notifier).push(
+          'New tune applied.',
+          severity: ToastSeverity.success,
+        );
     setState(() {
       _clearResults();
       _appliedSummary = describeDeadReckoningTune(tune);
@@ -576,9 +579,10 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
       _tuneEdited = false;
     });
     ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Tune loaded.')),
-    );
+    ref.read(toastStoreProvider.notifier).push(
+          'Tune loaded.',
+          severity: ToastSeverity.success,
+        );
   }
 
   void _startWizard() {
@@ -1044,13 +1048,12 @@ class _DeadReckoningLabTabState extends ConsumerState<DeadReckoningLabTab> {
     if (tune == null || !mounted) return;
     await ref.read(deadReckoningTuneProvider.notifier).setTune(tune);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(tune == DeadReckoningTune.defaults
-            ? 'Factory defaults restored.'
-            : 'Tune applied live and saved.'),
-      ),
-    );
+    ref.read(toastStoreProvider.notifier).push(
+          tune == DeadReckoningTune.defaults
+              ? 'Factory defaults restored.'
+              : 'Tune applied live and saved.',
+          severity: ToastSeverity.success,
+        );
   }
 }
 
