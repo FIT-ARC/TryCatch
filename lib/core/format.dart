@@ -1,4 +1,8 @@
 // Shared human formatting helpers (durations as m:ss).
+//
+// Two "ago" vocabularies: log rows use whole seconds ([formatAgoMs],
+// `12 s ago` / `3 m 04 s ago`); link-silence readouts keep sub-second
+// precision ([formatPacketAge], `850 ms ago` / `3.2 s ago`).
 
 /// Milliseconds → `m:ss` (e.g. 95000 → `1:35`).
 String formatMinSec(int ms) {
@@ -84,4 +88,12 @@ String formatTimeInState(Duration d) {
   final m = seconds ~/ 60;
   final s = (seconds % 60).toStringAsFixed(0).padLeft(2, '0');
   return '${m > 0 ? '$m m ' : ''}$s s in state';
+}
+
+/// Milliseconds → `5 s ago` / `3 m 04 s ago` (clamped at zero).
+/// Log-row ages (events, commands); whole seconds, no ms branch.
+String formatAgoMs(int ms) {
+  final s = (ms.clamp(0, 1 << 62)) ~/ 1000;
+  if (s < 60) return '$s s ago';
+  return '${s ~/ 60} m ${(s % 60).toString().padLeft(2, '0')} s ago';
 }

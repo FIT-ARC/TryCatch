@@ -116,7 +116,7 @@ class _EventsTileState extends ConsumerState<EventsTile> {
         final event = events[index];
         final time = replaying
             ? 'at ${formatMinSec(event.positionMs)}'
-            : _formatAgo(nowMs - event.receivedAtMs);
+            : formatAgoMs(nowMs - event.receivedAtMs);
         if (!replaying) {
           return _EventRow(event: event, time: time, replaying: false);
         }
@@ -218,11 +218,4 @@ class _TileDot extends ConsumerWidget {
       dimmed: positionMs < event.positionMs,
     );
   }
-}
-
-/// Milliseconds → `5 s ago` / `3 m 04 s ago` (clamped at zero).
-String _formatAgo(int ms) {
-  final s = (ms.clamp(0, 1 << 62)) ~/ 1000;
-  if (s < 60) return '$s s ago';
-  return '${s ~/ 60} m ${(s % 60).toString().padLeft(2, '0')} s ago';
 }

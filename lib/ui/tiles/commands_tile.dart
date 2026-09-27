@@ -118,7 +118,7 @@ class _CommandsTileState extends ConsumerState<CommandsTile> {
         final command = commands[index];
         return _CommandRow(
           command: command,
-          time: _formatAgo(nowMs - command.receivedAtMs),
+          time: formatAgoMs(nowMs - command.receivedAtMs),
           replaying: false,
           positionMs: 0,
         );
@@ -333,13 +333,6 @@ bool _bytesEqual(List<int> a, List<int> b) {
     if (a[i] != b[i]) return false;
   }
   return true;
-}
-
-/// Milliseconds → `5 s ago` / `3 m 04 s ago` (clamped at zero).
-String _formatAgo(int ms) {
-  final s = (ms.clamp(0, 1 << 62)) ~/ 1000;
-  if (s < 60) return '$s s ago';
-  return '${s ~/ 60} m ${(s % 60).toString().padLeft(2, '0')} s ago';
 }
 
 /// Display labels for the log subtitle line.
