@@ -297,6 +297,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 children: [
             AppCard(
               title: 'LAUNCH SITE',
+              trailing: OutlinedButton.icon(
+                onPressed: recording
+                    ? null
+                    : () => showLaunchSiteDialog(context),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                icon: const Icon(Icons.add, size: 15),
+                label: const Text('Add'),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -340,6 +353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   fontSize: 10.5,
                                   color: AppColors.mutedForeground,
                                 ),
+                                showCheck: false,
                                 actions: [
                                   CopyButton(
                                       text: preset.toShareString(),
@@ -376,24 +390,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ],
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      onPressed: recording
-                          ? null
-                          : () => showLaunchSiteDialog(context),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 32),
-                        tapTargetSize:
-                            MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12),
-                      ),
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('Add site'),
                     ),
                   ),
                 ],

@@ -14,33 +14,31 @@ import '../tiles/shared/map_tiles.dart';
 /// entered manually or pasted from a share string.
 Future<void> showLaunchSiteDialog(BuildContext context,
     {LaunchSite? edit}) {
+  final saveRef = GlobalKey<_LaunchSiteDialogBodyState>();
   return showDialog(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text(edit == null ? 'Add site' : 'Edit site',
           style: const TextStyle(fontSize: 16)),
-      content: _LaunchSiteDialogBody(edit: edit),
-      actions: const [_CloseButton()],
+      content: _LaunchSiteDialogBody(key: saveRef, edit: edit),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => saveRef.currentState?.save(),
+          child: const Text('Save'),
+        ),
+      ],
     ),
   );
-}
-
-class _CloseButton extends StatelessWidget {
-  const _CloseButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton(
-      onPressed: () => Navigator.of(context).pop(),
-      child: const Text('Close'),
-    );
-  }
 }
 
 class _LaunchSiteDialogBody extends ConsumerStatefulWidget {
   final LaunchSite? edit;
 
-  const _LaunchSiteDialogBody({this.edit});
+  const _LaunchSiteDialogBody({super.key, this.edit});
 
   @override
   ConsumerState<_LaunchSiteDialogBody> createState() =>
@@ -114,9 +112,9 @@ class _LaunchSiteDialogBodyState extends ConsumerState<_LaunchSiteDialogBody> {
     );
   }
 
-  /// Saves the form. A rename deletes the original preset first
-  /// (presets are keyed by name); the saved site ends up selected.
-  Future<void> _saveForm() async {
+  /// Validates + saves the form, closing the dialog on success. A rename
+  /// deletes the original preset first (presets are keyed by name).
+  Future<void> save() async {
     final site = _parseManual();
     if (site == null) return;
     final repo = ref.read(launchSiteProvider.notifier);
@@ -229,21 +227,6 @@ class _LaunchSiteDialogBodyState extends ConsumerState<_LaunchSiteDialogBody> {
                     TextStyle(color: AppColors.destructive, fontSize: 12),
               ),
             ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                FilledButton.icon(
-                  onPressed: _saveForm,
-                  icon: const Icon(Icons.save_outlined, size: 16),
-                  label: const Text('Save'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            ),
           ],
         ),
       ),

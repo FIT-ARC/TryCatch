@@ -23,6 +23,10 @@ class OptionRow extends StatelessWidget {
   /// Subtitle voice; defaults to muted prose (site rows pass mono coords).
   final TextStyle? subtitleStyle;
 
+  /// Whether to paint the trailing check slot. Launch-site rows hide it
+  /// (the radio already marks selection); connector rows keep it.
+  final bool showCheck;
+
   final List<Widget> actions;
 
   const OptionRow({
@@ -33,6 +37,7 @@ class OptionRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.subtitleStyle,
+    this.showCheck = true,
     this.actions = const [],
   });
 
@@ -105,15 +110,17 @@ class OptionRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Opacity(
-                opacity: selected ? 1.0 : 0.0,
-                child: Icon(
-                  Icons.check,
-                  size: 16,
-                  color: AppColors.primary,
+              if (showCheck) ...[
+                const SizedBox(width: 8),
+                Opacity(
+                  opacity: selected ? 1.0 : 0.0,
+                  child: Icon(
+                    Icons.check,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
                 ),
-              ),
+              ],
               ...actions,
             ],
           ),

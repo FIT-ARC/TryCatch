@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,26 @@ Map<String, dynamic> _site(String name) => {
       'longitude': 14.0,
       'altitudeMsl': 300.0,
     };
+
+/// Fail-fast HTTP: tile precaching resolves without touching the network.
+class _OfflineHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      _FailingHttpClient();
+}
+
+class _FailingHttpClient implements HttpClient {
+  @override
+  Duration? connectionTimeout;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) =>
+      Future.error(const SocketException('offline test'));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
+}
 
 Future<LaunchSiteState> _loadWithPrefs(Map<String, dynamic> stored) async {
   SharedPreferences.setMockInitialValues({
@@ -306,7 +327,7 @@ void main() {
       expect(find.text('LAUNCH SITE'), findsOneWidget);
       // The site name also appears in the offline-maps rows below.
       expect(find.text('Home'), findsWidgets);
-      expect(find.text('Add site'), findsOneWidget);
+      expect(find.text('Add'), findsOneWidget);
       // Per-row management: share copies, edit and delete manage.
       expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
       expect(find.byIcon(Icons.delete_outline), findsOneWidget);
@@ -340,7 +361,7 @@ void main() {
         findsOneWidget,
       );
       final addButton =
-          find.widgetWithText(OutlinedButton, 'Add site');
+          find.widgetWithText(OutlinedButton, 'Add');
       expect(addButton, findsOneWidget);
       expect(tester.widget<OutlinedButton>(addButton).onPressed, isNull);
     });
@@ -415,6 +436,78 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull);
       expect(rowHeights(), before);
+    });
+
+    testWidgets('add dialog has one close path and validates', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Add'));
+      await tester.pump();
+      expect(find.text('Add site'), findsOneWidget);
+      expect(find.text('Save'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Close'), findsNothing);
+
+      // Empty name validates in place, dialog stays open.
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(find.text('Give the site a name.'), findsOneWidget);
+      expect(find.text('Add site'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(find.text('Add site'), findsNothing);
+    });
+
+    testWidgets('add dialog saves a typed site', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      HttpOverrides.global = _OfflineHttpOverrides();
+      addTearDown(() => HttpOverrides.global = null);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await container.read(launchSiteProvider.future);
+      await tester.pump();
+
+      await tester.tap(find.text('Add'));
+      await tester.pump();
+      final fields = find.byType(TextField);
+      await tester.enterText(fields.at(0), 'Field');
+      await tester.enterText(fields.at(1), '51');
+      await tester.enterText(fields.at(2), '15');
+      await tester.enterText(fields.at(3), '300');
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      final state = container.read(launchSiteProvider).value!;
+      expect(
+          state.presets.map((p) => p.name), containsAll(['Home', 'Field']));
+      expect(state.selected?.name, 'Field');
+      expect(find.text('Add site'), findsNothing);
     });
   });
 }
