@@ -79,3 +79,30 @@
   `flight_trim.dart`) is the only entry UI/state may use. Never import
   `FileParser` / `readRecordingChunks` / `decodeRecordingFrames`
   outside `services/`.
+
+## 8. Known exceptions (do not "fix" without a task)
+
+* `DeadReckoningTuneController` stays sync-`Notifier`: the estimator
+  needs defaults before async prefs load. Uses compact-or-JSON parse.
+* `core/packet_rate_tracker.dart` + `core/channel_health.dart`
+  `ChannelHealthTracker` stay for their unit tests; no widget may use
+  them — widgets read `channelHealthProvider.series`.
+* `TimeSeriesChart.decimateExtremes` keeps its local bucket loop until
+  the `ListTimeSeries` adapter lands; new code uses
+  `foundation/time/decimate.dart`.
+* `ToastStore` ids are per-launch ints (ephemeral, dismiss identity);
+  persisted entity ids use `Ids.next(prefix)`.
+* `snackBarTheme` in `app_theme.dart` is dead config (no ScaffoldMessenger
+  uses remain); remove it with the next theme pass.
+
+## 9. Backlog (ordered)
+
+1. Trail/map/thumbnail decimation onto `decimate(mode: strideStable)`.
+2. `WorkspaceStore.promoteToDefaults` codegen out of prod store into
+   `tool/` (debug-only, `dart:io` search does not belong in state).
+3. `Colors.*` sweep outside `theme/` (map/satellite attribution,
+   `workspace_grid` overlays, QR white) + drop `snackBarTheme`.
+4. Two-click confirm (`control_panel`, `fsm`) into one `TwoClickButton`.
+5. Narrow `select()` watches for chart/3D/FSM tiles (map tile is the model).
+6. `HANDOFF.md` stale §6.7 (Monitor deleted) + Part 4 tree vs
+   `docs/agents/` — consolidate into `docs/architecture.md`.
