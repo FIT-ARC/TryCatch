@@ -8,6 +8,7 @@ import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/centered_stat.dart';
 import '../components/connector_gate.dart';
+import '../components/waiting_for_data.dart';
 
 /// Peak barometric altitude (m AGL) reached in the current session.
 ///
@@ -25,7 +26,10 @@ class MaxAltitudeTile extends ConsumerWidget {
         .unsupportedPlaceholder(TelemetryField.baroAltitude);
     if (unsupported != null) return unsupported;
     final state = ref.watch(telemetryStoreProvider);
-    final maxAlt = state.history.isEmpty ? null : state.maxAltitude;
+    if (state.history.isEmpty) {
+      return const Center(child: WaitingForData());
+    }
+    final maxAlt = state.maxAltitude;
 
     // No headline label — the card header already says what this is.
     // CenteredValue scale-downs in short tiles, so no extra breakpoint.

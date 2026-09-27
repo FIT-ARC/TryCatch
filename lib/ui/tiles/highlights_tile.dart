@@ -8,7 +8,6 @@ import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
-import '../components/connector_gate.dart';
 import '../components/waiting_for_data.dart';
 
 /// Flight highlights: session extremes in one tile.
@@ -30,10 +29,17 @@ class HighlightsTile extends ConsumerWidget {
     // Highlights are velocity/acceleration extremes — without either the
     // tile has nothing to extreme over.
     final connector = ref.watch(activeConnectorProvider);
-    if (!connector.capabilities.supports(TelemetryField.velocity) &&
-        !connector.capabilities.supports(TelemetryField.acceleration)) {
-      return connector
-          .unsupportedPlaceholder(TelemetryField.velocity)!;
+    final hasVelocity =
+        connector.capabilities.supports(TelemetryField.velocity);
+    final hasAccel =
+        connector.capabilities.supports(TelemetryField.acceleration);
+    if (!hasVelocity && !hasAccel) {
+      return Center(
+        child: NotProvidedByConnector(
+          field: 'Velocity / Acceleration',
+          connectorName: connector.displayName,
+        ),
+      );
     }
     final state = ref.watch(telemetryStoreProvider);
     final replay = ref.watch(replayProvider);
@@ -107,7 +113,7 @@ class HighlightsTile extends ConsumerWidget {
               Expanded(
                 child: _Cell(
                   label: 'Total drift',
-                  value: _formatDistanceM(drift),
+                  value: drift == null ? '—' : formatDistanceM(drift),
                   color: AppColors.foreground,
                 ),
               ),
@@ -140,13 +146,6 @@ class HighlightsTile extends ConsumerWidget {
       ),
     );
   }
-}
-
-/// Metres → `843 m` / `1.24 km` (`—` when null).
-String _formatDistanceM(double? m) {
-  if (m == null) return '—';
-  if (m >= 1000) return '${(m / 1000).toStringAsFixed(2)} km';
-  return '${m.toStringAsFixed(m.abs() >= 100 ? 0 : 1)} m';
 }
 
 /// Session extremes over a set of frames. Pure + unit-testable.
