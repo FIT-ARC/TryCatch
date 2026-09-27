@@ -57,6 +57,19 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# cnativeapi (tray_manager 0.7's native backend) trips MSVC C4267
+# (size_t -> unsigned long in its C ABI shims) and C4996 (strcpy) under the
+# default /W3. Silence the noise for those third-party targets only — our
+# own code stays /W4 /WX via APPLY_STANDARD_SETTINGS. /FS serializes PDB
+# writes through mspdbsrv: without it parallel cl.exe invocations sharing
+# one PDB randomly die with C1090 (access denied), hanging the build. Safe
+# if the plugin is absent/renamed.
+foreach(_tray_target IN ITEMS nativeapi cnativeapi)
+  if(TARGET ${_tray_target})
+    target_compile_options(${_tray_target} PRIVATE /wd4267 /wd4996 /FS)
+  endif()
+endforeach()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

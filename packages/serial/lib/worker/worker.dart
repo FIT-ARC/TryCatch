@@ -4,6 +4,15 @@ import 'dart:typed_data';
 
 import '../serial.dart';
 
+/// Pure lease check (unit-tested): `true` once [nowMs] is more than
+/// [leaseMs] past the last command from the main isolate.
+bool workerLeaseExpired({
+  required int lastSignalMs,
+  required int nowMs,
+  int leaseMs = workerLeaseMs,
+}) =>
+    nowMs - lastSignalMs > leaseMs;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // workerMain: Entry Point (Runs in the BACKGROUND Isolate)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -15,6 +24,11 @@ import '../serial.dart';
 /// 1. Native serial port I/O (via pure FFI libserialport).
 /// 2. 1:1 raw binary disk dumping (via [Recorder]).
 /// 3. Bytestream → internal-frame parsing via the selected [TelemetryConnector].
+///
+/// Liveness: child isolates survive a hot restart, so the worker self-exits
+/// once its main isolate stops proving it is alive (see [workerLeaseMs] and
+/// [PingCommand]) — otherwise the orphan would squat on the serial port
+/// forever.
 void workerMain(SendPort mainSendPort) async {
   // ── Handshake Step 1 ─────────────────────────────────────────────────────────
   // Create an inbox for receiving commands from the main UI isolate
@@ -33,6 +47,31 @@ void workerMain(SendPort mainSendPort) async {
   StreamSubscription<Uint8List>? byteSubscription;
   Timer? statsTimer;
   int lastStatsEmitMs = 0;
+
+  /// Last command (any type, pings included) from the main isolate.
+  ///
+  /// The 500 ms stats tick enforces the lease (see [workerLeaseMs]): once
+  /// the main isolate is gone — hot restart — no command ever arrives again
+  /// and the worker shuts itself down instead of squatting on the port.
+  /// Starts at boot so a main that dies before its first command still
+  /// releases everything.
+  int lastSignalMs = DateTime.now().millisecondsSinceEpoch;
+
+  /// Full teardown: release ports, finalize any recording, close the inbox.
+  ///
+  /// With no live ports, timers, or subscriptions left, the isolate exits
+  /// on its own afterwards.
+  Future<void> shutdown() async {
+    await byteSubscription?.cancel();
+    byteSubscription = null;
+    statsTimer?.cancel();
+    statsTimer = null;
+    service.disconnect();
+    try {
+      await recorder.stop();
+    } catch (_) {}
+    commandPort.close();
+  }
 
   /// Updates local status and notifies the main UI isolate
   void pushStatus(SerialWorkerStatus next) {
@@ -68,17 +107,81 @@ void workerMain(SendPort mainSendPort) async {
     pushStatus(status.copyWith(connectorId: connector.id));
   }
 
+  /// Central teardown for every unexpected link loss path (stream error,
+  /// stream done, watchdog, failed transmit on a dead handle).
+  ///
+  /// Cancels the byte forwarder, drops the native handle, resets framing
+  /// state, flips the UI status to disconnected (so the port picker
+  /// unlocks) and surfaces one [ErrorEvent] for the toast bridge.
+  void markDisconnected(String reason) {
+    byteSubscription?.cancel();
+    byteSubscription = null;
+    service.disconnect();
+    parser.reset();
+    // Only notify when the UI still thinks we are up: user-initiated
+    // disconnects already pushed their own status update.
+    if (status.isConnected) {
+      final lostPort = status.connectedPort;
+      pushStatus(status.copyWith(isConnected: false, connectedPort: null));
+      mainSendPort.send(ErrorEvent(
+        lostPort == null ? reason : '$reason — $lostPort',
+      ));
+      emitStats(force: true);
+    }
+  }
+
   /// Steady heartbeat so the UI graph decays to zero during silence and
   /// keeps a regular sample cadence (not just on chunk arrival).
+  ///
+  /// Doubles as a disconnect watchdog: [RealSerialPort] swallows native
+  /// handle loss internally (its broadcast byte controller never errors or
+  /// closes), so a yanked USB adapter would otherwise leave [status] stuck
+  /// at "connected" with no packets and no error — the half-open state.
+  /// Every tick reconciles [status] against [SerialService.isConnected].
   void ensureStatsTimer() {
-    statsTimer ??= Timer.periodic(const Duration(milliseconds: 500), (_) {
+    statsTimer ??= Timer.periodic(const Duration(milliseconds: 500), (_) async {
+      // Liveness lease: no word from main within [workerLeaseMs] means the
+      // main isolate is gone (hot restart) — release everything and exit
+      // instead of squatting on the serial port. The status/error below
+      // only ever reach a live listener in tests (a dead main hears
+      // nothing); there they pin the shutdown down.
+      if (workerLeaseExpired(
+        lastSignalMs: lastSignalMs,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      )) {
+        if (status.isConnected) {
+          pushStatus(status.copyWith(isConnected: false, connectedPort: null));
+          mainSendPort.send(ErrorEvent(
+            'Worker shutting down: lost contact with the app',
+          ));
+        }
+        await shutdown();
+        return;
+      }
+      if (status.isConnected && !service.isConnected) {
+        markDisconnected('Port disconnected (${status.connectedPort ?? 'unknown port'})');
+        return;
+      }
       if (status.isConnected) emitStats(force: true);
     });
+  }
+
+  /// Port enumeration never throws past this point: on some Linux/macOS
+  /// setups `SerialPort.availablePorts` throws (permissions, missing udev,
+  /// driver quirks) which used to kill the whole worker isolate.
+  List<String> safePorts() {
+    try {
+      return SerialService.availablePorts;
+    } catch (e) {
+      mainSendPort.send(ErrorEvent('Port scan failed: $e'));
+      return const [];
+    }
   }
 
   /// Subscribes to the serial byte stream and processes chunks concurrently
   void attachByteStream() {
     byteSubscription?.cancel();
+    final portName = status.connectedPort;
     byteSubscription = service.byteStream.listen(
       (chunk) {
         // 1. Exact 1:1 raw binary disk recording (includes noise, preamble, fragments)
@@ -92,27 +195,34 @@ void workerMain(SendPort mainSendPort) async {
         emitStats();
       },
       onError: (Object e) {
-        service.disconnect();
-        parser.reset();
-        pushStatus(status.copyWith(isConnected: false, connectedPort: null));
-        mainSendPort.send(ErrorEvent('Port error: $e'));
+        markDisconnected('Port error: $e');
       },
       onDone: () {
-        parser.reset();
-        pushStatus(status.copyWith(isConnected: false, connectedPort: null));
+        // Previously silent: the UI kept showing "connected" with a dead
+        // stream. Treat any unexpected close as a disconnect.
+        markDisconnected(
+          portName == null ? 'Port closed' : 'Port closed ($portName)',
+        );
       },
+      cancelOnError: true,
     );
     ensureStatsTimer();
   }
 
+  // The lease + watchdog tick runs from boot (not just while connected):
+  // a worker whose main died before its first connect must still exit.
+  ensureStatsTimer();
+
   // Push initial hardware port discovery list upon startup
-  mainSendPort.send(PortListEvent(SerialService.availablePorts));
+  mainSendPort.send(PortListEvent(safePorts()));
 
   // ── Command Loop ─────────────────────────────────────────────────────────────
   // Dart's event loop handles this command loop and the serial byte stream
   // concurrently without thread contention or manual mutex locking.
   await for (final message in commandPort) {
     if (message is! SerialCommand) continue;
+    // Any command proves the main isolate is alive — renew the lease.
+    lastSignalMs = DateTime.now().millisecondsSinceEpoch;
 
     switch (message) {
       case ConnectCommand(:final port, :final connectorId):
@@ -121,8 +231,19 @@ void workerMain(SendPort mainSendPort) async {
         service.disconnect();
         useConnector(connectorId);
 
-        // Connect using centralized SerialHardwareConfig settings
-        final ok = service.connect(port);
+        // Connect using centralized SerialHardwareConfig settings.
+        // service.connect() returns false on failure but native FFI calls
+        // can also throw per-platform (permissions on Linux/macOS,
+        // missing driver on Windows) — either way the UI must hear about
+        // it instead of sitting on a dead picker.
+        bool ok = false;
+        String? failure;
+        try {
+          ok = service.connect(port);
+        } catch (e) {
+          ok = false;
+          failure = e.toString();
+        }
 
         if (ok) {
           pushStatus(status.copyWith(isConnected: true, connectedPort: port));
@@ -130,7 +251,12 @@ void workerMain(SendPort mainSendPort) async {
           attachByteStream();
           emitStats(force: true);
         } else {
-          mainSendPort.send(ErrorEvent('Failed to open $port'));
+          pushStatus(status.copyWith(isConnected: false, connectedPort: null));
+          mainSendPort.send(ErrorEvent(
+            failure == null
+                ? 'Failed to open $port — check the cable, driver and that no other app holds the port'
+                : 'Failed to open $port: $failure',
+          ));
         }
 
       case DisconnectCommand():
@@ -141,12 +267,17 @@ void workerMain(SendPort mainSendPort) async {
         pushStatus(status.copyWith(isConnected: false, connectedPort: null));
         emitStats(force: true);
 
+      case PingCommand():
+        // Heartbeat (see [workerLeaseMs]): the lease was already renewed
+        // above; nothing else to do — deliberately ack-free.
+        break;
+
       case SetConnectorCommand(:final connectorId):
         useConnector(connectorId);
         emitStats(force: true);
 
       case ListPortsCommand():
-        mainSendPort.send(PortListEvent(SerialService.availablePorts));
+        mainSendPort.send(PortListEvent(safePorts()));
 
       case SendBytesCommand(:final bytes, :final source):
         final ok = service.sendBytes(bytes);
@@ -167,9 +298,29 @@ void workerMain(SendPort mainSendPort) async {
           source: source,
         ));
         if (!ok) {
-          mainSendPort.send(ErrorEvent(
-            'Not connected — failed to send ${bytes.length} byte(s)',
-          ));
+          // A failed transmit on a dead handle means the link is gone even
+          // when packets were still arriving a moment ago (TX stall on a
+          // floating CTS, unplugged adapter, suspended USB). Flip the status
+          // so the UI unlocks the picker instead of staying half-open.
+          if (status.isConnected && !service.isConnected) {
+            final lostPort = status.connectedPort;
+            pushStatus(
+                status.copyWith(isConnected: false, connectedPort: null));
+            parser.reset();
+            byteSubscription?.cancel();
+            byteSubscription = null;
+            mainSendPort.send(ErrorEvent(
+              'Port disconnected — failed to send ${bytes.length} byte(s)'
+              '${lostPort == null ? '' : ' ($lostPort)'}',
+            ));
+            emitStats(force: true);
+          } else {
+            mainSendPort.send(ErrorEvent(
+              status.isConnected
+                  ? 'Send failed (${bytes.length} byte(s)) — link may be down, try reconnecting'
+                  : 'Not connected — failed to send ${bytes.length} byte(s)',
+            ));
+          }
         }
 
       case StartRecordingCommand(

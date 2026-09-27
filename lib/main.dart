@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // tray_manager 0.6+ native API (one TrayIcon object per icon, sync
 // setters, per-item click listeners). Imported with a prefix: its Image,
@@ -24,6 +26,19 @@ void main() async {
   // Spawn the background serial worker isolate before the UI starts.
   // The worker begins scanning for ports immediately.
   final worker = await SerialWorker.spawn();
+
+  // Heartbeat lease: child isolates survive a hot restart, so a worker
+  // whose main dies must self-exit instead of squatting on the serial port
+  // (see workerLeaseMs). Ping for the life of the app — ack-free, ~1 msg/2 s.
+  Timer.periodic(const Duration(seconds: 2), (_) {
+    worker.send(const PingCommand());
+  });
+  if (kDebugMode) {
+    // Restart marker: main() re-running means hot restart (reload never
+    // re-runs main). Correlate with [tray] lines to tell restart orphans
+    // apart from same-process double-init.
+    debugPrint('[app] main() ran — fresh launch or hot restart');
+  }
 
   const windowOptions = WindowOptions(
     size: Size(AppConfig.windowInitialWidth, AppConfig.windowInitialHeight),
@@ -86,6 +101,9 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
   // ignore: unused_field
   tray.Menu? _trayMenu;
 
+  /// Setup already running (see [_ensureTrayIcon]); concurrent hides share it.
+  Future<bool>? _traySetupFuture;
+
   @override
   void initState() {
     super.initState();
@@ -96,21 +114,75 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
   @override
   void dispose() {
     windowManager.removeListener(this);
-    _trayIcon?.dispose();
-    _trayIcon = null;
-    _trayMenu = null;
+    _disposeTray();
     super.dispose();
   }
 
-  Future<void> _initDesktopLifecycle() async {
-    // 1. Intercept native close button clicks so the OS does not kill the process
-    await windowManager.setPreventClose(true);
+  /// Frees the current tray icon/menu, if any. Never throws: teardown must
+  /// not take the app (or a hot-restart unmount) down with it.
+  void _disposeTray() {
+    final icon = _trayIcon;
+    _trayIcon = null;
+    _trayMenu = null;
+    if (kDebugMode && icon != null) {
+      debugPrint('[tray] dispose icon');
+    }
+    try {
+      icon?.dispose();
+    } catch (e) {
+      debugPrint('System tray: dispose failed: $e');
+    }
+  }
 
-    // 2. Setup system tray icon and context menu
-    await _setupSystemTray();
+  Future<void> _initDesktopLifecycle() async {
+    // Dev builds skip the whole hide-to-tray dance: no tray icon is ever
+    // created, and native close quits the process outright (ports freed, no
+    // orphans, no ghosts). Release keeps hide-on-close with a lazily
+    // created icon (see onWindowClose).
+    if (kDebugMode) return;
+    // Intercept native close button clicks so the OS does not kill the
+    // process. The tray icon itself is created lazily on the first hide
+    // (see onWindowClose), never at startup.
+    await windowManager.setPreventClose(true);
+  }
+
+  /// Ensures the tray icon exists, creating it on first use.
+  ///
+  /// The icon is intentionally NOT created at startup: every
+  /// `TrayIcon.create()` is a fresh OS tray entry, and a hot restart
+  /// orphans the previous incarnation's icon (undestroyable cross-isolate),
+  /// so eager creation guarantees one ghost per restart. Lazy creation
+  /// keeps the pure build/run/restart dev loop icon-free; at most one ghost
+  /// per hide+restart cycle can still occur. Concurrent hides share one
+  /// in-flight setup. Returns whether an icon is live afterwards.
+  Future<bool> _ensureTrayIcon() async {
+    if (_trayIcon != null) return true;
+    final inFlight = _traySetupFuture;
+    if (inFlight != null) return inFlight;
+    final future = _setupSystemTray().then((_) => _trayIcon != null);
+    _traySetupFuture = future;
+    try {
+      return await future;
+    } catch (_) {
+      return false;
+    } finally {
+      _traySetupFuture = null;
+    }
   }
 
   Future<void> _setupSystemTray() async {
+    // Idempotent: a previous icon from this state is freed before a new
+    // native icon is allocated — creating without disposing first is what
+    // duplicates tray entries within one isolate lifetime.
+    //
+    // Hard limit, documented: an icon orphaned by a hot restart (new main
+    // isolate, same OS process) cannot be destroyed from here — its Dart
+    // handle died with the old isolate and the plugin offers no global
+    // destroy. Lazy creation ([_ensureTrayIcon]) is what actually keeps
+    // ghosts away: icons only ever exist while a window is hidden behind
+    // them. A stale ghost is dev-only cosmetic (production never
+    // hot-restarts) and Windows drops ghosts on hover.
+    _disposeTray();
     // NOTE: the icon is a StatusNotifierItem on Linux (needs a hosting
     // panel; clicks are never reported there — the panel opens the
     // registered menu itself). Every call is guarded individually so one
@@ -230,9 +302,15 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
   // Called whenever the user clicks the window close (X) button
   @override
   void onWindowClose() async {
-    // Hide to tray instead of exiting
+    // Hide to tray instead of exiting — but only behind a live tray icon
+    // that can bring the window back. Hiding with no icon would leave the
+    // app running with no visible UI at all, so quit outright instead.
     if (await windowManager.isPreventClose()) {
-      await windowManager.hide();
+      if (await _ensureTrayIcon()) {
+        await windowManager.hide();
+      } else {
+        await windowManager.destroy();
+      }
     }
   }
 

@@ -5,6 +5,24 @@ import '../telemetry/telemetry_frame.dart';
 
 // ─── Commands (UI → Serial Worker Isolate) ───────────────────────────────────
 
+/// Liveness lease for the worker isolate, in milliseconds.
+///
+/// The worker holds OS-exclusive resources yet child isolates survive a hot
+/// restart — so it self-exits once its main isolate stops proving it is
+/// alive (every received command, [PingCommand] included, renews the lease;
+/// see [workerLeaseExpired]). The app pings every 2 s, giving a zombie at
+/// most an 8 s squat on the port before the user can reconnect cleanly.
+const int workerLeaseMs = 8000;
+
+/// Pure lease check (unit-tested): `true` once [nowMs] is more than
+/// [leaseMs] past the last command from the main isolate.
+bool workerLeaseExpired({
+  required int lastSignalMs,
+  required int nowMs,
+  int leaseMs = workerLeaseMs,
+}) =>
+    nowMs - lastSignalMs > leaseMs;
+
 /// Base class for all commands sent to the serial worker isolate.
 sealed class SerialCommand {
   const SerialCommand();
@@ -36,6 +54,18 @@ class SetConnectorCommand extends SerialCommand {
 /// Close the active serial port connection.
 class DisconnectCommand extends SerialCommand {
   const DisconnectCommand();
+}
+
+/// Heartbeat proving the main isolate is still alive.
+///
+/// The worker holds OS-exclusive resources (serial handles, recording
+/// files) and child isolates survive a hot restart — without a pulse the
+/// previous incarnation's worker would squat on the port forever. Every
+/// received command (this one included) renews the lease (see
+/// [workerLeaseMs]); workers must be pinged periodically, and the app does
+/// so from [main]. Deliberately ack-free: no UI churn.
+class PingCommand extends SerialCommand {
+  const PingCommand();
 }
 
 /// Request a scan of available COM ports and simulated ports.
@@ -146,9 +176,16 @@ class StatusChangedEvent extends SerialEvent {
 }
 
 /// Emitted when a serial or parsing error occurs.
+///
+/// [timestampMs] lets the UI order and dedupe rapid bursts; defaults to
+/// "now" so existing call sites (`ErrorEvent('...')`) keep compiling.
 class ErrorEvent extends SerialEvent {
   final String message;
-  ErrorEvent(this.message);
+  final int timestampMs;
+
+  ErrorEvent(this.message, [int? timestampMs])
+      : timestampMs = timestampMs ??
+            DateTime.now().millisecondsSinceEpoch;
 }
 
 /// Emitted for every uplink attempt handled by the worker (one per

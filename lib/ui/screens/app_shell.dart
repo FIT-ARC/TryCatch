@@ -9,6 +9,8 @@ import './recordings_screen.dart';
 import './settings_screen.dart';
 import './dashboard_screen.dart';
 import './router.dart';
+import '../components/serial_toast_bridge.dart';
+import '../components/toast_overlay.dart';
 import '../components/top_bar.dart';
 
 /// Root layout: top bar on every screen + the active screen below it.
@@ -58,23 +60,32 @@ class AppShell extends ConsumerWidget {
           },
       },
       child: Scaffold(
-        body: Column(
+        body: Stack(
           children: [
-            // NOTE: non-const on purpose — const children would not rebuild on
-            // a dark-mode flip (AppColors resolves dynamically).
-            TopBar(),
-            Expanded(
-              child: IndexedStack(
-                index: screen.index,
-                children: [
-                  DashboardScreen(),
-                  RecordingsScreen(),
-                  MonitorScreen(),
-                  DeadReckoningLabTab(),
-                  SettingsScreen(),
-                ],
-              ),
+            Column(
+              children: [
+                // NOTE: non-const on purpose — const children would not rebuild on
+                // a dark-mode flip (AppColors resolves dynamically).
+                TopBar(),
+                Expanded(
+                  child: IndexedStack(
+                    index: screen.index,
+                    children: [
+                      DashboardScreen(),
+                      RecordingsScreen(),
+                      MonitorScreen(),
+                      DeadReckoningLabTab(),
+                      SettingsScreen(),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            // Headless: turns worker errors / disconnects / failed uplinks
+            // into toasts (renders nothing itself).
+            SerialToastBridge(),
+            // Floating error/warning cards over the workspace.
+            ToastOverlay(),
           ],
         ),
       ),

@@ -25,7 +25,17 @@ class RealSerialPort {
   bool get isConnected => _port != null && _port!.isOpen;
 
   /// List of detected physical serial ports available on the host OS.
-  static List<String> get availablePorts => SerialPort.availablePorts;
+  ///
+  /// Never throws: `SerialPort.availablePorts` can throw on some Linux/macOS
+  /// configurations (missing permissions, no udev, driver quirks). Callers
+  /// (port scans in the worker isolate) must not crash the isolate.
+  static List<String> get availablePorts {
+    try {
+      return SerialPort.availablePorts;
+    } catch (_) {
+      return const [];
+    }
+  }
 
   /// Opens and configures the physical serial port identified by [portName].
   bool connect(String portName) {
@@ -117,11 +127,22 @@ class RealSerialPort {
   }
 
   /// Transmits raw [bytes] to the connected hardware port.
+  ///
+  /// Returns `true` only when the OS accepted every byte. A partial write
+  /// means the handle is broken (unplugged mid-write, driver dropped the
+  /// endpoint): the port is torn down so the worker's disconnect watchdog
+  /// can report it instead of leaving a half-open "connected but can't
+  /// send" state behind.
   bool sendBytes(Uint8List bytes) {
     if (!isConnected) return false;
 
     try {
-      return _port!.write(bytes) == bytes.length;
+      final written = _port!.write(bytes);
+      if (written != bytes.length) {
+        disconnect();
+        return false;
+      }
+      return true;
     } catch (_) {
       disconnect();
       return false;

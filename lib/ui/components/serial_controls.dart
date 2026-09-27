@@ -4,6 +4,7 @@ import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
 import '../../state/telemetry_provider.dart';
+import '../../state/toast_store.dart';
 
 /// Compact connection control for the top bar: port picker and link action
 /// fused into one pill — the segments share the outer border with square
@@ -32,11 +33,26 @@ class SerialControls extends ConsumerWidget {
         ref.watch(serialStatusProvider).value ?? const SerialWorkerStatus();
     final notifier = ref.read(serialConfigProvider.notifier);
 
+    // Resolve the in-flight connect mark: the worker answered with a live
+    // link (idempotent; also covers the "connected to another port" edge).
+    // Failures clear via the toast bridge's error listener below.
+    ref.listen(serialStatusProvider, (_, next) {
+      next.whenData((s) {
+        if (s.isConnected) {
+          ref.read(serialConfigProvider.notifier).clearConnecting();
+        }
+      });
+    });
+
     final selected = config.selectedPort;
     final effectiveSelected = selected ??
         (ports.contains(status.connectedPort) ? status.connectedPort : null);
     final connected = status.isConnected;
-    final canConnect = !connected && effectiveSelected != null;
+    // In-flight connect attempt (native open can stall on cranky hardware):
+    // the pill shows a spinner + the target port until the worker answers.
+    final connecting =
+        (!connected) ? config.connectingPort : null;
+    final canConnect = !connected && connecting == null && effectiveSelected != null;
 
     return Container(
       // Total slot stays fixed so siblings never shift; the border paints
@@ -49,7 +65,9 @@ class SerialControls extends ConsumerWidget {
         border: Border.all(
           color: connected
               ? AppColors.success.withValues(alpha: 0.5)
-              : AppColors.strongBorder,
+              : (connecting != null
+                  ? AppColors.primary.withValues(alpha: 0.5)
+                  : AppColors.strongBorder),
         ),
       ),
       child: Row(
@@ -109,9 +127,11 @@ class SerialControls extends ConsumerWidget {
                           ),
                         ],
                         child: _SegmentLabel(
-                          text: effectiveSelected ??
-                              (ports.isEmpty ? 'No ports' : 'Port'),
-                          textColor: effectiveSelected == null
+                          text: connecting != null
+                              ? '$connecting…'
+                              : (effectiveSelected ??
+                                  (ports.isEmpty ? 'No ports' : 'Port')),
+                          textColor: (connecting ?? effectiveSelected) == null
                               ? AppColors.mutedForeground
                               : AppColors.foreground,
                           icon: Icons.arrow_drop_down,
@@ -126,44 +146,70 @@ class SerialControls extends ConsumerWidget {
             height: 18,
             color: AppColors.border,
           ),
-          // Link segment: icon-only connect/disconnect.
+          // Link segment: icon-only connect/disconnect, spinner while the
+          // native open is in flight.
           SizedBox(
             width: actionWidth,
             height: 32,
             child: Tooltip(
               message: connected
                   ? 'Disconnect ${status.connectedPort ?? ''}'
-                  : (effectiveSelected == null
-                      ? 'Select a port first'
-                      : 'Connect to $effectiveSelected'),
+                  : (connecting != null
+                      ? 'Connecting to $connecting…'
+                      : (effectiveSelected == null
+                          ? 'Select a port first'
+                          : 'Connect to $effectiveSelected')),
               child: MouseRegion(
-                cursor: (connected || canConnect)
-                    ? SystemMouseCursors.click
-                    : SystemMouseCursors.basic,
+                cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
+                  // Never a dead click: no-port and mid-connect taps explain
+                  // themselves with a hint toast.
                   onTap: connected
                       ? notifier.disconnect
-                      : (canConnect ? notifier.connect : null),
+                      : (connecting != null
+                          ? () => ref
+                              .read(toastStoreProvider.notifier)
+                              .push(
+                                'Still connecting to $connecting…',
+                                severity: ToastSeverity.info,
+                                title: 'Connecting',
+                              )
+                          : (canConnect
+                              ? notifier.connect
+                              : () => ref
+                                  .read(toastStoreProvider.notifier)
+                                  .push(
+                                    'Select a serial port first, then connect.',
+                                    severity: ToastSeverity.info,
+                                    title: 'No port selected',
+                                  ))),
                   child: Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.horizontal(
                         right: Radius.circular(AppDimens.radiusSmall),
                       ),
-                      color: canConnect
+                      color: !connected
                           ? AppColors.primary.withValues(alpha: 0.12)
                           : Colors.transparent,
                     ),
-                    child: Icon(
-                      connected ? Icons.link_off : Icons.link,
-                      size: 17,
-                      color: connected
-                          ? AppColors.mutedForeground
-                          : (canConnect
-                              ? AppColors.primary
-                              : AppColors.faint),
-                    ),
+                    child: connecting != null
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primary,
+                            ),
+                          )
+                        : Icon(
+                            connected ? Icons.link_off : Icons.link,
+                            size: 17,
+                            color: connected
+                                ? AppColors.mutedForeground
+                                : AppColors.primary,
+                          ),
                   ),
                 ),
               ),

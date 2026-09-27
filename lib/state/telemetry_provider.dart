@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -6,6 +7,7 @@ import 'package:serial/serial.dart';
 
 import './connector_provider.dart';
 import './recording_provider.dart';
+import './toast_store.dart';
 export './connector_provider.dart';
 export './recording_provider.dart';
 
@@ -52,7 +54,7 @@ final linkStatsStreamProvider = StreamProvider<LinkStats>((ref) {
 
 /// Most recently reported list of available serial ports.
 ///
-/// Dev-gated: the MOCK / MOCK-BQ simulator ports only show in debug builds.
+/// Dev-gated: the MOCK / MOCK-BQ / MOCK-DC simulator ports only show in debug builds.
 /// Release builds list physical ports alone (the worker still accepts a mock
 /// name via `connect()` for tests, it just isn't offered in the picker).
 final availablePortsProvider = StreamProvider<List<String>>((ref) async* {
@@ -71,6 +73,17 @@ final availablePortsProvider = StreamProvider<List<String>>((ref) async* {
 final commandEventsProvider = StreamProvider<CommandResultEvent>((ref) {
   final worker = ref.watch(serialWorkerProvider);
   return worker.commandStream;
+});
+
+/// Stream of worker-side errors (connect failures, unexpected disconnects,
+/// failed transmits).
+///
+/// The worker used to only `print()` these, so failures were silent in the
+/// UI. The serial toast bridge watches this and surfaces each message as a
+/// toast; widgets that need one-shot error text can watch it directly.
+final serialErrorsProvider = StreamProvider<ErrorEvent>((ref) {
+  final worker = ref.watch(serialWorkerProvider);
+  return worker.errorStream;
 });
 
 // ─── Live command log ────────────────────────────────────────────────────────
@@ -128,15 +141,39 @@ class CommandLog extends Notifier<List<SentCommand>> {
 class SerialConfig {
   final String? selectedPort;
 
-  const SerialConfig({this.selectedPort});
+  /// Port of the in-flight connect attempt, or `null` when idle.
+  ///
+  /// Set optimistically by [SerialConfigNotifier.connect] (the native open
+  /// can block for a moment on cranky ports) and cleared when the worker
+  /// answers — a connected status on success, any error on failure — or by
+  /// a timeout fallback. [SerialControls] renders this as a "connecting"
+  /// pill state so the click never looks dead.
+  final String? connectingPort;
+
+  /// Whether a port rescan is awaiting its fresh list.
+  ///
+  /// Set by [SerialConfigNotifier.refreshPorts]; [SerialToastBridge]
+  /// consumes it to toast exactly one "Ports refreshed" acknowledgment per
+  /// explicit rescan (startup scans stay silent).
+  final bool refreshPending;
+
+  const SerialConfig({this.selectedPort, this.connectingPort, this.refreshPending = false});
 
   static const _absent = Object();
 
-  SerialConfig copyWith({Object? selectedPort = _absent}) {
+  SerialConfig copyWith({
+    Object? selectedPort = _absent,
+    Object? connectingPort = _absent,
+    bool? refreshPending,
+  }) {
     return SerialConfig(
       selectedPort: identical(selectedPort, _absent)
           ? this.selectedPort
           : selectedPort as String?,
+      connectingPort: identical(connectingPort, _absent)
+          ? this.connectingPort
+          : connectingPort as String?,
+      refreshPending: refreshPending ?? this.refreshPending,
     );
   }
 }
@@ -148,8 +185,21 @@ final serialConfigProvider =
 
 /// Manages the pending serial config and dispatches commands to the worker.
 class SerialConfigNotifier extends Notifier<SerialConfig> {
+  /// Give up waiting for the worker this long after a connect attempt
+  /// (success/failure normally answers in well under a second; a stuck
+  /// isolate must not pin the pill on "connecting" forever).
+  static const connectTimeout = Duration(seconds: 10);
+
+  Timer? _connectTimer;
+
   @override
-  SerialConfig build() => const SerialConfig();
+  SerialConfig build() {
+    ref.onDispose(() {
+      _connectTimer?.cancel();
+      _connectTimer = null;
+    });
+    return const SerialConfig();
+  }
 
   void setPort(String? port) {
     // The mock simulator ports are dev-only: ignore them in release builds
@@ -163,15 +213,53 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   /// Dispatches a [ConnectCommand] to the serial worker with the configured hardware settings.
   ///
   /// The active connector id rides along so the worker parses the
-  /// bytestream with the connector the UI is showing.
+  /// bytestream with the connector the UI is showing. With no port picked
+  /// this toasts a hint instead of dropping the tap silently. Otherwise the
+  /// attempt is marked optimistic ([SerialConfig.connectingPort]) — the
+  /// native open can stall for a moment on cranky hardware — and cleared
+  /// when the worker answers: [SerialControls] clears it on a connected
+  /// status, [SerialToastBridge] on any error (plus the timeout below).
   void connect() {
     final cfg = state;
-    if (cfg.selectedPort == null) return;
+    if (cfg.selectedPort == null) {
+      ref.read(toastStoreProvider.notifier).push(
+            'Select a serial port first, then connect.',
+            severity: ToastSeverity.info,
+            title: 'No port selected',
+          );
+      return;
+    }
+    final port = cfg.selectedPort!;
+    state = state.copyWith(connectingPort: port);
+    _connectTimer?.cancel();
+    _connectTimer = Timer(connectTimeout, () {
+      if (ref.mounted && state.connectingPort == port) {
+        state = state.copyWith(connectingPort: null);
+      }
+    });
     final connectorId = ref.read(activeConnectorIdProvider).value ??
         defaultVisibleConnectorId;
     ref
         .read(serialWorkerProvider)
-        .send(ConnectCommand(cfg.selectedPort!, connectorId: connectorId));
+        .send(ConnectCommand(port, connectorId: connectorId));
+  }
+
+  /// Clears the in-flight connect mark (worker answered: connected status
+  /// or error toast already surfaced). Idempotent; called from
+  /// [SerialControls] and [SerialToastBridge], which own the worker
+  /// subscriptions — `ref.listen` outside [build] does not reliably
+  /// deliver stream events, so the notifier deliberately holds no
+  /// subscriptions of its own.
+  void clearConnecting() {
+    if (state.connectingPort == null) return;
+    _connectTimer?.cancel();
+    state = state.copyWith(connectingPort: null);
+  }
+
+  /// Consumes the pending rescan acknowledgment after toasting it.
+  void consumeRefresh() {
+    if (!state.refreshPending) return;
+    state = state.copyWith(refreshPending: false);
   }
 
   /// Selects the telemetry connector everywhere: persists the choice and
@@ -189,12 +277,22 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   }
 
   /// Dispatches a [DisconnectCommand] to the serial worker.
-  void disconnect() =>
-      ref.read(serialWorkerProvider).send(const DisconnectCommand());
+  void disconnect() {
+    _connectTimer?.cancel();
+    if (state.connectingPort != null) {
+      state = state.copyWith(connectingPort: null);
+    }
+    ref.read(serialWorkerProvider).send(const DisconnectCommand());
+  }
 
   /// Asks the worker to re-scan and push an updated port list.
-  void refreshPorts() =>
-      ref.read(serialWorkerProvider).send(const ListPortsCommand());
+  ///
+  /// The fresh list is acknowledged with a "Ports refreshed" toast (see
+  /// [SerialToastBridge]) — rescans previously gave no feedback at all.
+  void refreshPorts() {
+    state = state.copyWith(refreshPending: true);
+    ref.read(serialWorkerProvider).send(const ListPortsCommand());
+  }
 
   /// Starts a recording session with an auto-generated timestamp file in the documents recordings folder.
   Future<void> startRecording() => RecordingService.startRecording(ref);
