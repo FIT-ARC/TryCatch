@@ -266,5 +266,37 @@ void main() {
       );
       expect(absorbers, isNotEmpty);
     });
+
+    testWidgets('selecting a connector moves no row heights', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      List<double> rowHeights() => [
+            for (final c in tester.widgetList<Container>(
+              find.byWidgetPredicate((w) =>
+                  w is Container &&
+                  w.decoration is BoxDecoration &&
+                  (w.decoration as BoxDecoration).border is Border),
+            ))
+              tester.getSize(find.byWidget(c)).height,
+          ];
+
+      final before = rowHeights();
+      expect(before, isNotEmpty);
+      // MOCK is selected by default in debug; pick another option.
+      await tester.tap(find.text('Rocket v1'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+      expect(rowHeights(), before);
+    });
   });
 }

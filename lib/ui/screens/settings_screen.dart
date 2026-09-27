@@ -540,8 +540,10 @@ class _ConnectorRow extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
             border: Border.all(
+              // Same width in both states: color + tint + check carry the
+              // selection, so tapping never shifts row heights.
               color: selected ? AppColors.primary : AppColors.border,
-              width: selected ? 1.5 : 1,
+              width: 1,
             ),
             color: selected
                 ? AppColors.primary.withValues(alpha: 0.06)
