@@ -69,7 +69,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
             backgroundColor: AppColors.destructive,
             foregroundColor: AppColors.primaryForeground,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: const Size(0, 32),
+            minimumSize: const Size(AppConfig.topBarChipWidth, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             textStyle: const TextStyle(
               fontSize: 12.5,
@@ -115,7 +115,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
                 color: AppColors.destructive.withValues(
                     alpha: canRecord ? 1.0 : 0.45)),
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: const Size(0, 32),
+            minimumSize: const Size(AppConfig.topBarChipWidth, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             textStyle: const TextStyle(
               fontSize: 12.5,
@@ -131,7 +131,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
     return SizedBox(
       width: AppConfig.topBarChipWidth,
       height: 32,
-      child: Center(child: child),
+      child: child,
     );
   }
 }
