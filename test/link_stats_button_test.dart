@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:trycatch/core/format.dart';
-import 'package:trycatch/core/packet_rate_tracker.dart';
+import 'package:trycatch/foundation/time/rate_series.dart';
 import 'package:trycatch/state/telemetry_provider.dart';
 import 'package:trycatch/theme/app_colors.dart';
 import 'package:trycatch/ui/components/link_stats_button.dart';
@@ -40,18 +40,17 @@ Future<void> _pumpButton(
   await tester.pump(const Duration(milliseconds: 100));
 }
 
-TelemetryFrame _packet() => TelemetryFrame(receivedAtMs: 0);
-
 void main() {
   group('LinkStatsButton (connection-agnostic)', () {
-    testWidgets('shows unknown B/s + no-data rate while disconnected',
+    testWidgets('shows unknown B/s + stale age while disconnected',
         (tester) async {
+      final t1 = DateTime.now().millisecondsSinceEpoch - 10000;
       await _pumpButton(
         tester,
         linkStats: Stream.fromIterable([
-          const LinkStats(timestampMs: 1000),
-          const LinkStats(
-            timestampMs: 2000,
+          LinkStats(timestampMs: t1),
+          LinkStats(
+            timestampMs: t1 + 1000,
             totalBytes: 700,
             matchedBytes: 550,
             garbageBytes: 150,
@@ -61,59 +60,61 @@ void main() {
       );
 
       expect(find.text('OFFLINE'), findsNothing);
-      expect(find.text('no data'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'ago')), findsOneWidget);
       expect(find.text('150 B/s'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('shows live pkt/s while flowing', (tester) async {
-      final packets = StreamController<TelemetryFrame>();
-      addTearDown(packets.close);
-      await _pumpButton(tester, packets: packets.stream);
-
-      for (var i = 0; i < 4; i++) {
-        for (var j = 0; j < 5; j++) {
-          packets.add(_packet());
-        }
-        await tester.pump(const Duration(milliseconds: 250));
-      }
+    testWidgets('shows live pkt/s with fresh snapshots', (tester) async {
+      final t1 = DateTime.now().millisecondsSinceEpoch - 1000;
+      await _pumpButton(
+        tester,
+        linkStats: Stream.fromIterable([
+          LinkStats(timestampMs: t1),
+          LinkStats(
+            timestampMs: t1 + 500,
+            totalBytes: 1100,
+            matchedBytes: 1000,
+            matchedPackets: 20,
+          ),
+        ]),
+      );
       expect(find.textContaining(RegExp(r'\d+\.\d pkt/s')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });
 
-  group('linkRateLabel', () {
-    test('no data before the first packet', () {
-      expect(linkRateLabel(PacketRateTracker(), 0), 'no data');
+  group('RateSeries label', () {
+    test('no data before the first snapshot', () {
+      expect(RateSeries().label(nowMs: 0), 'no data');
     });
 
     test('live rate while flowing, age past the 2 s window', () {
-      final rate = PacketRateTracker();
-      rate.recordPacket(1000);
-      rate.recordPacket(1000);
-      rate.sample(1000);
-      rate.recordPacket(1500);
-      rate.recordPacket(1500);
-      rate.recordPacket(1500);
-      rate.sample(1500);
-      // 3 packets in the last 500 ms → live.
-      expect(linkRateLabel(rate, 1500), '6.0 pkt/s');
-      // 4 s of silence → age of the last packet instead of a blank.
-      expect(linkRateLabel(rate, 5500), '4.0 s ago');
+      final series = RateSeries();
+      series.addSnapshot(const LinkStats(timestampMs: 1000, totalBytes: 100));
+      series.addSnapshot(const LinkStats(
+        timestampMs: 1500,
+        totalBytes: 700,
+        matchedBytes: 600,
+        matchedPackets: 3,
+      ));
+      expect(series.label(nowMs: 1500), '6.0 pkt/s');
+      expect(series.label(nowMs: 5500), '4.0 s ago');
     });
   });
 
   group('dead link signals red', () {
     testWidgets('silent link reads red no matter the congestion',
         (tester) async {
-      // Quiet frequency (150 B/s is mere activity) but no packets at all:
+      // Quiet frequency (150 B/s is mere activity) but stale link:
       // the pill must signal the dead link, not the quiet channel.
+      final t1 = DateTime.now().millisecondsSinceEpoch - 10000;
       await _pumpButton(
         tester,
         linkStats: Stream.fromIterable([
-          const LinkStats(timestampMs: 1000),
-          const LinkStats(
-            timestampMs: 2000,
+          LinkStats(timestampMs: t1),
+          LinkStats(
+            timestampMs: t1 + 1000,
             totalBytes: 700,
             matchedBytes: 550,
             garbageBytes: 150,
@@ -124,7 +125,7 @@ void main() {
 
       expect(find.text('OFFLINE'), findsNothing);
       expect(find.text('150 B/s'), findsOneWidget);
-      expect(find.text('no data'), findsOneWidget);
+      expect(find.textContaining(RegExp(r'ago')), findsOneWidget);
 
       final pills = tester.widgetList<Container>(
         find.byWidgetPredicate(

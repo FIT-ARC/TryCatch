@@ -2,34 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:trycatch/core/packet_rate_tracker.dart';
 
 import '../../core/channel_health.dart';
 import '../../state/channel_health_provider.dart';
-import '../../state/telemetry_provider.dart';
 import '../../theme/app_colors.dart';
 import '../screens/router.dart';
 
 /// Combined link-stats button for the top bar: packet rate + unknown
 /// bytes/s in one fixed-width slot.
 ///
-/// Replaces the separate packet-rate readout and channel-health pill. The
-/// whole button takes on the channel-verdict color (tinted wash, colored
-/// border, tinted text); tapping opens the Channel health screen. Fixed
-/// width so live value changes never shift siblings. The two values share
-/// the width equally with a fixed centered separator, so the divider never
-/// wanders as the numbers change length.
-///
-/// Deliberately connection-agnostic: both halves report live data alone —
-/// packet rate decays to "N s ago" when no packet arrived within the last
-/// 2 s (the [PacketRateTracker] window), and the unknown rate holds its
-/// last value through silence. A disconnected port therefore reads as
-/// decaying numbers, never as a blank OFFLINE.
-///
-/// The color is the worse of link liveness and congestion
-/// (`max(packet severity, congestion severity)`): a link that stopped
-/// delivering packets reads red no matter how quiet the frequency is.
-/// Pure helper [linkStateColor] pins the mapping; unit-tested.
+/// Both halves read the shared [RateSeries] (fed from worker LinkStats):
+/// packet rate decays to "N s ago" past the 2 s liveness window, unknown
+/// rate holds its last value through silence. Disconnected reads as decaying
+/// numbers, never blank OFFLINE. Tapping opens Channel health.
 class LinkStatsButton extends ConsumerStatefulWidget {
   static const double width = 188;
 
@@ -39,12 +24,8 @@ class LinkStatsButton extends ConsumerStatefulWidget {
   ConsumerState<LinkStatsButton> createState() => _LinkStatsButtonState();
 }
 
-/// Pill color for the top-bar link button: the worse of link liveness and
-/// congestion. No packets within the liveness window reads red no matter
-/// how quiet the frequency is; otherwise the congestion verdict color.
-/// Neutral before any data ever arrived.
-///
-/// Pure in ([unmatchedBps], [packetsLive], [hasData]); unit-tested.
+/// Pill color: worse of link liveness and congestion. Silent link reads red;
+/// otherwise the congestion verdict color. Neutral before any data.
 Color linkStateColor({
   required double unmatchedBps,
   required bool packetsLive,
@@ -60,14 +41,13 @@ Color linkStateColor({
 }
 
 class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
-  final PacketRateTracker _rate = PacketRateTracker();
   Timer? _uiTimer;
 
   @override
   void initState() {
     super.initState();
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (mounted) setState(() => _rate.sample());
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() {});
     });
   }
 
@@ -79,24 +59,23 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(telemetryStreamProvider, (_, next) {
-      next.whenData((_) => _rate.recordPacket());
-    });
-    // Shared channel history — survives rebuilds (see channel_health_provider).
     ref.watch(channelHealthProvider);
-    final channel = ref.read(channelHealthProvider.notifier).tracker;
+    final series = ref.read(channelHealthProvider.notifier).series;
+    final latest = series.latest;
 
-    final unmatched = channel.latest?.unmatchedBps ?? 0.0;
-    final hasData =
-        channel.latest != null || _rate.timeSinceLastPacket() != null;
+    final unmatched = latest?.unmatchedBps ?? 0.0;
+    final hasData = latest != null;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final packetsLive =
+        latest != null && nowMs - latest.timestampMs <= 2000;
     final Color stateColor = linkStateColor(
       unmatchedBps: unmatched,
-      packetsLive: !_rate.isTimedOut(),
+      packetsLive: packetsLive,
       hasData: hasData,
     );
-    final ratePart = linkRateLabel(_rate);
+    final ratePart = hasData ? series.label(nowMs: nowMs) : 'no data';
     final channelPart =
-        channel.latest == null ? '··· B/s' : formatBps(unmatched);
+        latest == null ? '··· B/s' : formatBps(unmatched);
     const tip =
         'Packet rate and unknown traffic on this frequency (ours vs unknown) '
         '— live even while disconnected. Open Channel health.';
@@ -133,8 +112,6 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.max,
                   children: [
-                    // Two equal halves keep the separator dead-center no
-                    // matter how the value lengths change.
                     Expanded(
                       child: Text(
                         ratePart,

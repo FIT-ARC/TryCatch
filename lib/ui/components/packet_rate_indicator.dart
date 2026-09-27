@@ -2,14 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:trycatch/core/format.dart';
-import 'package:trycatch/core/packet_rate_tracker.dart';
-import 'package:trycatch/state/telemetry_provider.dart';
 
+import '../../state/channel_health_provider.dart';
 import '../../theme/app_colors.dart';
 
-/// Fixed-width packet-rate readout for the PACKETS cell: live pink "X pkt/s"
-/// value while data flows, muted "last Ns ago" through dropouts.
+/// Fixed-width packet-rate readout for the PACKETS cell, driven by the
+/// shared RateSeries: live "X pkt/s" while fresh, "N ago" past 2 s silence.
 class PacketRateIndicator extends ConsumerStatefulWidget {
   static const double width = 128;
 
@@ -21,14 +19,13 @@ class PacketRateIndicator extends ConsumerStatefulWidget {
 }
 
 class _PacketRateIndicatorState extends ConsumerState<PacketRateIndicator> {
-  final PacketRateTracker _tracker = PacketRateTracker();
   Timer? _uiTimer;
 
   @override
   void initState() {
     super.initState();
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (mounted) setState(() => _tracker.sample());
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (mounted) setState(() {});
     });
   }
 
@@ -38,22 +35,15 @@ class _PacketRateIndicatorState extends ConsumerState<PacketRateIndicator> {
     super.dispose();
   }
 
-  String _ago() {
-    final d = _tracker.timeSinceLastPacket();
-    if (d == null) return 'no data yet';
-    return formatPacketAge(d);
-  }
-
   @override
   Widget build(BuildContext context) {
-    ref.listen(telemetryStreamProvider, (_, next) {
-      next.whenData((_) => _tracker.recordPacket());
-    });
-
-    final timedOut = _tracker.isTimedOut();
-    final label = timedOut
-        ? _ago()
-        : '${_tracker.getAveragePacketsPerSecond().toStringAsFixed(1)} pkt/s';
+    ref.watch(channelHealthProvider);
+    final series = ref.read(channelHealthProvider.notifier).series;
+    final latest = series.latest;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final timedOut =
+        latest == null || nowMs - latest.timestampMs > 2000;
+    final label = latest == null ? 'no data yet' : series.label(nowMs: nowMs);
 
     return SizedBox(
       width: PacketRateIndicator.width,
@@ -66,14 +56,6 @@ class _PacketRateIndicatorState extends ConsumerState<PacketRateIndicator> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: timedOut ? AppColors.faint : AppColors.pink,
-              boxShadow: timedOut
-                  ? null
-                  : [
-                      BoxShadow(
-                        color: AppColors.pink.withValues(alpha: 0.25),
-                        blurRadius: 6,
-                      ),
-                    ],
             ),
           ),
           const SizedBox(width: 7),
