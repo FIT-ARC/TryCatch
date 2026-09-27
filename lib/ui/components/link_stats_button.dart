@@ -46,7 +46,8 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
   @override
   void initState() {
     super.initState();
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    // 10 Hz repaint: the "N s ago" age reads cleanly while stale.
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) setState(() {});
     });
   }
