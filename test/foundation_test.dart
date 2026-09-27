@@ -66,4 +66,35 @@ void main() {
     r.clear();
     expect(r.isEmpty, isTrue);
   });
+
+  test('windowed mean hides slice-phase flicker', () {
+    // Measured MOCK cadence: alternating 187 ms / 1-pkt and 313 ms / 4-pkt
+    // slices at a true 10 Hz. Instantaneous slices read 5.3 / 12.8.
+    final r = RateSeries();
+    var t = 1000;
+    var total = 0;
+    var matched = 0;
+    var packets = 0;
+    r.addSnapshot(LinkStats(timestampMs: t, totalBytes: total));
+    for (var i = 0; i < 8; i++) {
+      final dt = i.isEven ? 187 : 313;
+      final dpk = i.isEven ? 1 : 4;
+      t += dt;
+      total += dpk * 55;
+      matched += dpk * 55;
+      packets += dpk;
+      r.addSnapshot(LinkStats(
+        timestampMs: t,
+        totalBytes: total,
+        matchedBytes: matched,
+        matchedPackets: packets,
+      ));
+    }
+    // Instantaneous still flickers slice to slice...
+    expect(r.latest!.packetRate, greaterThan(12.0));
+    // ...but the displayed windowed mean sits at the true rate.
+    final label = r.label(nowMs: t);
+    final shown = double.parse(label.split(' ').first);
+    expect(shown, inInclusiveRange(9.0, 11.0));
+  });
 }

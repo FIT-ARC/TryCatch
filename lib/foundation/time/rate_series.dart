@@ -12,11 +12,15 @@ class RateSample with TimedSample {
   final double unmatchedBps;
   final double packetRate;
 
+  /// Cumulative matched packets at snapshot time, for exact windowed means.
+  final int matchedPackets;
+
   const RateSample({
     required this.timestampMs,
     required this.matchedBps,
     required this.unmatchedBps,
     required this.packetRate,
+    this.matchedPackets = 0,
   });
 }
 
@@ -61,6 +65,7 @@ class RateSeries extends RingTimeSeries<RateSample> {
       unmatchedBps: (next.unmatchedBytes - prev.unmatchedBytes) / dtS,
       packetRate:
           (next.matchedPackets - prev.matchedPackets).clamp(0, 1 << 30) / dtS,
+      matchedPackets: next.matchedPackets,
     );
     push(sample);
     return sample;
@@ -72,7 +77,33 @@ class RateSeries extends RingTimeSeries<RateSample> {
     _prev = null;
   }
 
-  /// Live label: rate while fresh, age after 2s silence, no-data before first.
+  /// Mean packet rate over [window] ending at [nowMs], from cumulative
+  /// counters — exact regardless of slice sizes. Per-slice instantaneous
+  /// rates flip-flop with emission phase (e.g. alternating 187 ms / 313 ms
+  /// slices read 5.3 / 12.8 at a true 10 Hz), so the display never uses
+  /// a single slice.
+  double averagePacketRate(
+      {int? nowMs, Duration window = const Duration(seconds: 2)}) {
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    RateSample? first;
+    RateSample? last;
+    for (var i = 0; i < length; i++) {
+      final s = oldest(i);
+      if (s.timestampMs < now - window.inMilliseconds) continue;
+      if (s.timestampMs > now) continue;
+      first ??= s;
+      last = s;
+    }
+    if (first == null || last == null || identical(first, last)) {
+      return latest?.packetRate ?? 0.0;
+    }
+    final spanS = (last.timestampMs - first.timestampMs) / 1000.0;
+    if (spanS <= 0) return latest?.packetRate ?? 0.0;
+    return (last.matchedPackets - first.matchedPackets) / spanS;
+  }
+
+  /// Live label: windowed rate while fresh, age after 2s silence, no-data
+  /// before first.
   String label({int? nowMs, Duration window = const Duration(seconds: 2)}) {
     final last = latest;
     if (last == null) return 'no data';
@@ -80,10 +111,10 @@ class RateSeries extends RingTimeSeries<RateSample> {
     final ageMs = now - last.timestampMs;
     if (ageMs < 0) {
       AppLog.warn('RateSeries label clock skew: $ageMs ms');
-      return '${last.packetRate.toStringAsFixed(1)} pkt/s';
+      return '${averagePacketRate(nowMs: now, window: window).toStringAsFixed(1)} pkt/s';
     }
     if (ageMs <= window.inMilliseconds) {
-      return '${last.packetRate.toStringAsFixed(1)} pkt/s';
+      return '${averagePacketRate(nowMs: now, window: window).toStringAsFixed(1)} pkt/s';
     }
     if (ageMs < 1000) return '$ageMs ms ago';
     final s = ageMs / 1000;
