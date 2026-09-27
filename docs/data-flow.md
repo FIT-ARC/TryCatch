@@ -57,7 +57,7 @@ flowchart TD
     E -.->|"LinkStatsEvent\nmax 1 per 250 ms\n+ 500 ms heartbeat"| M[LinkStats consumers]
 ```
 
-- 250ms throttle: stats go out at most 4 Hz per chunk burst; the 500ms heartbeat forces one even with no traffic, so the UI graphs decay to zero instead of freezing.
+- 250ms throttle: stats go out at most 4 Hz per chunk burst; the 500ms heartbeat re-emits only when counters changed since the last snapshot — silence stays silent, and the UI derives link loss from snapshot age (rate label decays to "N s ago", graphs gap) instead of charting 0.0 heartbeats and spiking on resume.
 - `LinkStatsEvent` is link health only: cumulative byte counters (`totalBytes`, `matchedBytes`, `garbageBytes`, `crcErrorBytes`, `matchedPackets`, `crcErrors`). All rocket data travels in `PacketReceivedEvent` → `TelemetryFrame`.
 - Rocket data itself is never throttled or dropped: the worker forwards every decoded frame immediately, live `ingest()` stores + notifies per frame, replay batches each 50 ms tick into one rebuild with zero drops. (`TelemetryStore.notifyThrottled`, 80 ms, is currently uncalled.)
 - Files: [worker.dart](../packages/serial/lib/worker/worker.dart) · [recorder.dart](../packages/serial/lib/io/recorder.dart) · [connector.dart](../packages/serial/lib/connectors/connector.dart) · [telemetry_provider.dart](../lib/state/telemetry_provider.dart) · [channel_health_provider.dart](../lib/state/channel_health_provider.dart)

@@ -89,11 +89,32 @@ void workerMain(SendPort mainSendPort) async {
         crcErrors: parser.crcErrorCount,
       );
 
-  void emitStats({bool force = false}) {
+  LinkStats? lastEmitted;
+
+  bool sameCounters(LinkStats? a, LinkStats b) {
+    if (a == null) return false;
+    return a.totalBytes == b.totalBytes &&
+        a.matchedBytes == b.matchedBytes &&
+        a.garbageBytes == b.garbageBytes &&
+        a.crcErrorBytes == b.crcErrorBytes &&
+        a.matchedPackets == b.matchedPackets &&
+        a.crcErrors == b.crcErrors;
+  }
+
+  void emitStats({bool force = false, bool onlyIfChanged = false}) {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (!force && now - lastStatsEmitMs < 250) return;
+    final snap = snapshotStats();
+    if (onlyIfChanged && sameCounters(lastEmitted, snap)) {
+      // Silence, not news: emitting zero-delta heartbeats would refresh the
+      // UI's latest sample with a 0.0 rate (masking link-loss aging) and
+      // spike it on resume (whole-outage delta over one heartbeat). The UI
+      // derives staleness from snapshot age instead.
+      return;
+    }
     lastStatsEmitMs = now;
-    mainSendPort.send(LinkStatsEvent(snapshotStats()));
+    lastEmitted = snap;
+    mainSendPort.send(LinkStatsEvent(snap));
   }
 
   /// Switches the active connector, recreating the stream parser.
@@ -165,7 +186,7 @@ void workerMain(SendPort mainSendPort) async {
         markDisconnected('Port disconnected');
         return;
       }
-      if (status.isConnected) emitStats(force: true);
+      if (status.isConnected) emitStats(force: true, onlyIfChanged: true);
     });
   }
 

@@ -46,9 +46,17 @@ Future<Uint8List?> _loadTilePixels(int tx, int ty) async {
 
   Uint8List? rawBytes;
 
-  // 1. Disk cache (shared with the 3D view and the map precacher).
-  final cache = BuiltInMapCachingProvider.getOrCreateInstance();
-  if (cache.isSupported) {
+  // 1. Disk cache (shared with the 3D view and the map precacher). Cache
+  // creation itself can throw on platforms without a backing store — treat
+  // that as "no disk cache", not a fatal error (the network path below
+  // still applies).
+  BuiltInMapCachingProvider? cache;
+  try {
+    cache = BuiltInMapCachingProvider.getOrCreateInstance();
+  } catch (_) {
+    cache = null;
+  }
+  if (cache != null && cache.isSupported) {
     try {
       final hit = await cache.getTile(url);
       if (hit != null && hit.bytes.isNotEmpty) rawBytes = hit.bytes;
@@ -79,7 +87,7 @@ Future<Uint8List?> _loadTilePixels(int tx, int ty) async {
     }
 
     // Write back to disk cache (same TTL as map tiles) so future sessions hit.
-    if (rawBytes != null && cache.isSupported) {
+    if (rawBytes != null && cache != null && cache.isSupported) {
       try {
         await cache.putTile(
           url: url,

@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:trycatch/foundation/time/rate_series.dart';
 import 'package:trycatch/session/flight_reset.dart';
 import 'package:trycatch/services/recording_repository.dart';
 import 'package:trycatch/state/channel_health_provider.dart';
@@ -24,8 +26,21 @@ void main() {
 
   late SerialWorker worker;
   Timer? ping;
+  late Directory pathDir;
 
   setUpAll(() async {
+    // No network or tile disk cache under test: fail HTTP fast so terrain
+    // queries resolve to null immediately instead of hanging on timeouts.
+    HttpOverrides.global = _OfflineHttpOverrides();
+    // flutter_map's disk cache needs a cache dir: point path_provider at
+    // temp (its constructor otherwise throws an unhandled async error).
+    pathDir =
+        await Directory.systemTemp.createTemp('trycatch_path_test_');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => pathDir.path,
+    );
     worker = await SerialWorker.spawn();
     await worker.ready;
     ping = Timer.periodic(
@@ -35,6 +50,16 @@ void main() {
   });
 
   tearDownAll(() {
+    HttpOverrides.global = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      null,
+    );
+    // The tile cache may still hold its DB file open; best effort only.
+    try {
+      pathDir.deleteSync(recursive: true);
+    } catch (_) {}
     ping?.cancel();
     worker.dispose();
   });
@@ -306,6 +331,92 @@ void main() {
     });
   });
 
+  group('link-rate stability', () {
+    test('MOCK-BQ dropout: no zero-heartbeats, no resume spike', () async {
+      final container = newContainer();
+      final config = container.read(serialConfigProvider.notifier);
+      config.setPort('MOCK-BQ');
+      config.connect();
+      final arrivals = <({LinkStats snap, int atMs})>[];
+      final sub = worker.linkStatsStream.listen((snap) => arrivals.add(
+          (snap: snap, atMs: DateTime.now().millisecondsSinceEpoch)));
+      try {
+        await waitFor(
+          () => container.read(serialStatusProvider).value?.isConnected ?? false,
+          reason: 'MOCK-BQ never reported connected',
+        );
+        await waitFor(
+          () => container.read(telemetryStoreProvider).packetCount > 0,
+          reason: 'no live frames ingested',
+        );
+        // Ride into the ~5 s dropout: poll 2 s windows until the frame
+        // count stalls inside one (windows straddling the dropout edge
+        // still see pre-dropout traffic, so only a fully-stalled window
+        // counts).
+        var stalled = false;
+        final stallDeadline =
+            DateTime.now().add(const Duration(seconds: 16));
+        while (!stalled) {
+          if (DateTime.now().isAfter(stallDeadline)) break;
+          final baseline =
+              container.read(telemetryStoreProvider).packetCount;
+          await Future<void>.delayed(const Duration(seconds: 2));
+          stalled =
+              container.read(telemetryStoreProvider).packetCount == baseline;
+        }
+        // Ride out: frames resume on the next cycle.
+        final stalledAt =
+            container.read(telemetryStoreProvider).packetCount;
+        await waitFor(
+          () =>
+              container.read(telemetryStoreProvider).packetCount > stalledAt,
+          reason: 'link never resumed after dropout',
+          timeout: const Duration(seconds: 20),
+        );
+        await Future<void>.delayed(const Duration(seconds: 2));
+        expect(stalled, isTrue, reason: 'never observed a dropout stall');
+        expect(arrivals.length, greaterThan(2));
+      } finally {
+        await sub.cancel();
+        await disconnect(container);
+      }
+
+      // Consecutive snapshots always carry new counters: silence emits
+      // nothing, so the UI never charts 0.0 heartbeats mid-outage.
+      bool sameCounters(LinkStats a, LinkStats b) =>
+          a.totalBytes == b.totalBytes &&
+          a.matchedBytes == b.matchedBytes &&
+          a.garbageBytes == b.garbageBytes &&
+          a.crcErrorBytes == b.crcErrorBytes &&
+          a.matchedPackets == b.matchedPackets &&
+          a.crcErrors == b.crcErrors;
+      for (var i = 1; i < arrivals.length; i++) {
+        expect(sameCounters(arrivals[i - 1].snap, arrivals[i].snap), isFalse,
+            reason: 'zero-delta heartbeat at index $i');
+      }
+
+      // The outage surfaces as a snapshot gap, not zero samples.
+      var maxGap = 0;
+      for (var i = 1; i < arrivals.length; i++) {
+        final gap = arrivals[i].atMs - arrivals[i - 1].atMs;
+        if (gap > maxGap) maxGap = gap;
+      }
+      expect(maxGap, greaterThan(1500));
+
+      // Replayed through the shared series, the resume carries no spike:
+      // the outage delta spreads over the gap instead of one heartbeat.
+      final series = RateSeries();
+      var peak = 0.0;
+      for (final a in arrivals) {
+        final sample = series.addSnapshot(a.snap);
+        if (sample != null && sample.packetRate > peak) {
+          peak = sample.packetRate;
+        }
+      }
+      expect(peak, lessThan(30.0));
+    });
+  });
+
   group('session scope', () {
     test('FlightReset clears telemetry, commands and channel together',
         () async {
@@ -364,3 +475,21 @@ void main() {
 
 /// Exposes a [Ref] for APIs taking one (e.g. [FlightReset.clearFlightRef]).
 final _refProvider = Provider((ref) => ref);
+
+/// Fail-fast HTTP for tests: terrain tiles resolve to null without touching
+/// the network or the platform tile cache.
+class _OfflineHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      _FailingHttpClient();
+}
+
+class _FailingHttpClient implements HttpClient {
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) =>
+      Future.error(const SocketException('offline test'));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      super.noSuchMethod(invocation);
+}
