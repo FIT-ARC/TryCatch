@@ -4,6 +4,7 @@ import 'package:dead_reckoning/dead_reckoning.dart' show haversineDistanceM;
 import 'package:serial/serial.dart' show defaultConnectorId;
 
 import '../../core/flight_events.dart';
+import '../../core/format.dart';
 import '../../core/path_utils.dart';
 import '../../services/flight_trim.dart';
 import '../../state/launch_site_store.dart';
@@ -56,6 +57,13 @@ class RecordingInfo {
   /// Decimated GPS track (≤160 pts, oldest first) for the 3D orbit preview.
   List<TrackPoint> track = const [];
 
+  /// Flight start from the header (`null` when unreadable — falls back to
+  /// the file date).
+  DateTime? flightTime;
+
+  /// Date the flight happened (header start, else file date).
+  DateTime get flightDate => flightTime ?? modified;
+
   /// Flight milestones (launch / apogee / …) detected from the preview decode,
   /// in frame order — shown as markers in the trim view.
   List<FlightEvent> events = const [];
@@ -78,8 +86,50 @@ class RecordingInfo {
 
   String get directory => path.substring(0, path.length - name.length);
 
+  /// Renames the file on disk (names are just filenames, so clips keep
+  /// working). The `.bin` suffix is added when missing; existing files are
+  /// never overwritten; renaming onto itself is a no-op. Returns the new
+  /// path.
+  Future<String> renameTo(String fileName) async {
+    final raw = fileName.trim();
+    if (raw.isEmpty || raw.contains('/') || raw.contains(r'\')) {
+      throw StateError('Give the flight a plain file name.');
+    }
+    final clean = basename(raw);
+    final withExt = clean.endsWith('.bin') ? clean : '$clean.bin';
+    final dst = '$directory$withExt';
+    if (dst == path) return path;
+    if (await File(dst).exists()) {
+      throw StateError('A file with that name already exists.');
+    }
+    return (await File(path).rename(dst)).path;
+  }
+
   Future<void> delete() async {
     final f = File(path);
     if (await f.exists()) await f.delete();
   }
+}
+
+/// Groups recordings by flight day (header start, else file date),
+/// newest day first. Within-day order is preserved, so pass the list
+/// newest-first.
+Map<DateTime, List<RecordingInfo>> groupRecordingsByDay(
+    List<RecordingInfo> recordings) {
+  final byDay = <DateTime, List<RecordingInfo>>{};
+  for (final recording in recordings) {
+    final m = recording.flightDate;
+    final day = DateTime(m.year, m.month, m.day);
+    (byDay[day] ??= []).add(recording);
+  }
+  return byDay;
+}
+
+/// Day-group header in Czech: `Dnes` / `Včera` / `20. 9. 2026`.
+String recordingDayLabel(DateTime day, DateTime now) {
+  final today = DateTime(now.year, now.month, now.day);
+  final diff = today.difference(day).inDays;
+  if (diff == 0) return 'Dnes';
+  if (diff == 1) return 'Včera';
+  return formatCzechDate(day);
 }

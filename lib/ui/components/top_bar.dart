@@ -7,7 +7,6 @@ import '../../state/replay_controller.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import './brand_mark.dart';
-import './launch_site_button.dart';
 import './link_stats_button.dart';
 import './playback_bar.dart';
 import './recording_controls.dart';
@@ -17,7 +16,7 @@ import './serial_controls.dart';
 /// Always-visible top chrome ("Precision Light").
 ///
 /// Three zones: brand · centered live controls (port + link icon, combined
-/// stats, launch site, record) · menu. The side zones share one fixed width
+/// stats, record) · menu. The side zones share one fixed width
 /// so the center group sits on the true screen center. The center group keeps
 /// fixed-width slots so nothing shifts when the link comes up or values
 /// repaint. Reset lives in the menu. While a replay is active the live zones
@@ -99,8 +98,6 @@ class TopBar extends ConsumerWidget {
                       SerialControls(),
                       SizedBox(width: 8),
                       LinkStatsButton(),
-                      SizedBox(width: 8),
-                      LaunchSiteButton(),
                       SizedBox(width: 8),
                       RecordingControls(),
                     ],

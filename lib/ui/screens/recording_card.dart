@@ -25,6 +25,7 @@ class RecordingCard extends ConsumerStatefulWidget {
   final VoidCallback onPlay;
   final VoidCallback onDelete;
   final VoidCallback onTrim;
+  final VoidCallback onRenamed;
 
   const RecordingCard({
     super.key,
@@ -35,6 +36,7 @@ class RecordingCard extends ConsumerStatefulWidget {
     required this.onPlay,
     required this.onDelete,
     required this.onTrim,
+    required this.onRenamed,
   });
 
   @override
@@ -122,6 +124,49 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
     }
   }
 
+  /// Renames the file via a name dialog; the parent rescans on success.
+  Future<void> _rename() async {
+    final base = widget.info.name.replaceAll('.bin', '');
+    final controller = TextEditingController(text: base);
+    try {
+      final fileName = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Rename flight', style: TextStyle(fontSize: 16)),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'File name'),
+            onSubmitted: (_) =>
+                Navigator.of(dialogContext).pop(controller.text),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text),
+              child: const Text('Rename'),
+            ),
+          ],
+        ),
+      );
+      if (fileName == null || !mounted) return;
+      try {
+        await widget.info.renameTo(fileName);
+      } catch (e) {
+        if (!mounted) return;
+        ref.errorToast(e is StateError ? e.message : 'Could not rename.');
+        return;
+      }
+      widget.onRenamed();
+    } finally {
+      controller.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = widget.info;
@@ -138,7 +183,7 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
       if (info.maxAltM != null) 'max ${formatAltitudeM(info.maxAltM)}',
       _sizeLabel,
     ];
-    final date = formatDateTime(info.modified);
+    final date = formatCzechDateTime(info.flightDate);
 
     return AppCard(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
@@ -187,6 +232,8 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
                   switch (value) {
                     case 'trim':
                       widget.onTrim();
+                    case 'rename':
+                      _rename();
                     case 'extract':
                       final site = fileSite;
                       if (site != null) _saveLaunchSite(site);
@@ -203,6 +250,16 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
                         Icon(Icons.content_cut_outlined, size: 16),
                         SizedBox(width: 8),
                         Text('Trim…'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'rename',
+                    child: Row(
+                      children: [
+                        Icon(Icons.drive_file_rename_outline, size: 16),
+                        SizedBox(width: 8),
+                        Text('Rename…'),
                       ],
                     ),
                   ),

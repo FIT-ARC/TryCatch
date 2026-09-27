@@ -99,7 +99,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
         message: !connected
             ? 'Connect first — recording needs a live link'
             : !hasSite
-                ? 'Set a launch site first — recordings require one'
+                ? 'Set a launch site in Settings first — recordings require one'
                 : 'Record raw telemetry to a file',
         child: OutlinedButton.icon(
           onPressed: canRecord

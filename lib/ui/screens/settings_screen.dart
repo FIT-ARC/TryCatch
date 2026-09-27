@@ -5,8 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
+import '../../session/feedback.dart';
 import '../components/app_card.dart';
+import '../components/copy_button.dart';
+import '../components/launch_site_dialog.dart';
+import '../components/option_row.dart';
 import '../tiles/shared/map_tiles.dart';
+import '../../core/format.dart';
 import '../../state/launch_site_store.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
@@ -29,6 +34,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Timer? _noticeTimer;
   List<SiteCacheCoverage> _coverage = const [];
   bool _coverageReady = false;
+
+  /// Selects a preset by name (settings rows select inline; the dialog
+  /// only adds/edits).
+  Future<void> _selectSite(String name) async {
+    final presets =
+        ref.read(launchSiteProvider).value?.presets ?? const <LaunchSite>[];
+    for (final preset in presets) {
+      if (preset.name != name) continue;
+      await ref.read(launchSiteProvider.notifier).select(preset);
+      return;
+    }
+  }
+
+  /// Deletes a preset, offering undo on the toast.
+  Future<void> _deleteSite(LaunchSite preset) async {
+    final store = ref.read(launchSiteProvider.notifier);
+    final wasSelected =
+        ref.read(currentLaunchSiteProvider)?.name == preset.name;
+    await store.deletePreset(preset.name);
+    ref.successToast(
+      'Deleted "${preset.name}".',
+      actionLabel: 'Undo',
+      onAction: () {
+        store.savePreset(preset);
+        if (wasSelected) store.select(preset);
+      },
+    );
+  }
 
   @override
   void initState() {
@@ -237,19 +270,136 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final connectorId =
         ref.watch(activeConnectorIdProvider).value ?? defaultVisibleConnectorId;
     final replaying = ref.watch(replayProvider.select((s) => s.isActive));
-    final connected =
-        ref.watch(serialStatusProvider).value?.isConnected ?? false;
+    final serialStatus = ref.watch(serialStatusProvider).value;
+    final connected = serialStatus?.isConnected ?? false;
+    final recording = serialStatus?.isRecording ?? false;
+    final site = siteState.selected;
     // Locked whenever the link is up or a replay owns the session: switching
     // mid-stream wipes the live flight, and mid-recording it mixes framings
     // under one header stamp. Disconnect (or close the replay) to switch.
     final locked = replaying || connected;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: ListView(
-          padding: const EdgeInsets.all(AppDimens.pagePadding),
-          children: [
+    // Scroll viewport spans the full width so the scrollbar sits at the
+    // screen edge; the 640 column + side padding live inside it.
+    return ListView(
+      padding:
+          const EdgeInsets.symmetric(vertical: AppDimens.pagePadding),
+      children: [
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppDimens.pagePadding),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+            AppCard(
+              title: 'LAUNCH SITE',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Locked while recording: the file stamps this site.
+                  Text(
+                    recording
+                        ? 'Locked while recording — the file stamps this site.'
+                        : 'Recordings stamp this site into the file header. '
+                            'Recording stays disabled until one is set.',
+                    style: TextStyle(
+                        fontSize: 12.5, color: AppColors.mutedForeground),
+                  ),
+                  const SizedBox(height: 10),
+                  AbsorbPointer(
+                    absorbing: recording,
+                    child: Opacity(
+                      opacity: recording ? 0.45 : 1.0,
+                      child: RadioGroup<String>(
+                        groupValue: site?.name,
+                        onChanged: (name) {
+                          if (!recording && name != null) {
+                            _selectSite(name);
+                          }
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.stretch,
+                          children: [
+                            for (final preset in siteState.presets) ...[
+                              OptionRow(
+                                selected: preset.name == site?.name,
+                                onTap: recording
+                                    ? null
+                                    : () => _selectSite(preset.name),
+                                radioValue: preset.name,
+                                title: preset.name,
+                                subtitle:
+                                    '${formatLatLon(preset.latitude, preset.longitude)} · ${preset.altitudeMsl.toStringAsFixed(0)} m MSL',
+                                subtitleStyle: AppText.mono.copyWith(
+                                  fontSize: 10.5,
+                                  color: AppColors.mutedForeground,
+                                ),
+                                actions: [
+                                  CopyButton(
+                                      text: preset.toShareString(),
+                                      iconOnly: true),
+                                  if (!isMockLaunchSite(preset)) ...[
+                                    _RowAction(
+                                      tooltip: 'Edit site',
+                                      icon: Icons.edit_outlined,
+                                      onTap: recording
+                                          ? null
+                                          : () => showLaunchSiteDialog(
+                                              context,
+                                              edit: preset),
+                                    ),
+                                    _RowAction(
+                                      tooltip: 'Remove site',
+                                      icon: Icons.delete_outline,
+                                      onTap: recording
+                                          ? null
+                                          : () => _deleteSite(preset),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                            ],
+                            if (siteState.presets.isEmpty)
+                              Text(
+                                'No saved sites yet — add the first one.',
+                                style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: AppColors.mutedForeground),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: recording
+                          ? null
+                          : () => showLaunchSiteDialog(context),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 32),
+                        tapTargetSize:
+                            MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12),
+                      ),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Add site'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppDimens.gap),
             AppCard(
               title: 'CONNECTOR',
               child: Column(
@@ -288,14 +438,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             for (final connector in visibleConnectors) ...[
-                              _ConnectorRow(
-                                connector: connector,
+                              OptionRow(
                                 selected: connector.id == connectorId,
                                 onTap: locked
                                     ? null
                                     : () => ref
                                         .read(serialConfigProvider.notifier)
                                         .setConnector(connector.id),
+                                radioValue: connector.id,
+                                title: connector.displayName,
+                                subtitle: connector.description,
                               ),
                               const SizedBox(height: 6),
                             ],
@@ -497,95 +649,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ],
         ),
+        ),
       ),
+      ),
+      ],
     );
   }
 }
 
-/// One connector option: compact bordered row with a small radio, name +
-/// single-line description, and a check holding the trailing slot when
-/// selected (so rows never shift width between states).
-class _ConnectorRow extends StatelessWidget {
-  final TelemetryConnector connector;
-  final bool selected;
+/// Small icon action inside an [OptionRow]'s trailing slot.
+class _RowAction extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
   final VoidCallback? onTap;
 
-  const _ConnectorRow({
-    required this.connector,
-    required this.selected,
+  const _RowAction({
+    required this.tooltip,
+    required this.icon,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
-        onTap: onTap,
-        child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
-            border: Border.all(
-              // Same width in both states: color + tint + check carry the
-              // selection, so tapping never shifts row heights.
-              color: selected ? AppColors.primary : AppColors.border,
-              width: 1,
-            ),
-            color: selected
-                ? AppColors.primary.withValues(alpha: 0.06)
-                : Colors.transparent,
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 24,
-                height: 24,
-                child: Radio<String>(
-                  value: connector.id,
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize:
-                      MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      connector.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      connector.description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11.5, color: AppColors.mutedForeground),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Opacity(
-                opacity: selected ? 1.0 : 0.0,
-                child: Icon(
-                  Icons.check,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-              ),
-            ],
-          ),
+    return InkWell(
+      onTap: onTap,
+      mouseCursor: onTap == null
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      borderRadius: BorderRadius.circular(4),
+      child: Tooltip(
+        message: tooltip,
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(icon, size: 17),
         ),
       ),
     );

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:trycatch/services/prefs_keys.dart';
 import 'package:trycatch/state/launch_site_store.dart';
 import 'package:trycatch/state/telemetry_provider.dart';
+import 'package:trycatch/state/toast_store.dart';
 import 'package:trycatch/ui/screens/settings_screen.dart';
 
 Map<String, dynamic> _site(String name) => {
@@ -123,6 +124,24 @@ void main() {
       } finally {
         container.dispose();
       }
+    });
+
+    test('share string round-trips the site', () {
+      const site = LaunchSite(
+        name: 'Home (Prague) pad',
+        latitude: 50.0755,
+        longitude: 14.4378,
+        altitudeMsl: 403,
+      );
+      final shared = site.toShareString();
+      expect(shared.startsWith(launchSiteSharePrefix), isTrue);
+      final back = LaunchSite.parseShareString(shared);
+      expect(back?.name, site.name);
+      expect(back?.latitude, site.latitude);
+      expect(back?.longitude, site.longitude);
+      expect(back?.altitudeMsl, site.altitudeMsl);
+      expect(LaunchSite.parseShareString('nope'), isNull);
+      expect(LaunchSite.parseShareString('LAUNCHSITE1.!!!'), isNull);
     });
   });
 
@@ -267,7 +286,106 @@ void main() {
       expect(absorbers, isNotEmpty);
     });
 
-    testWidgets('selecting a connector moves no row heights', (tester) async {
+    testWidgets('launch site card selects inline with add action',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('LAUNCH SITE'), findsOneWidget);
+      // The site name also appears in the offline-maps rows below.
+      expect(find.text('Home'), findsWidgets);
+      expect(find.text('Add site'), findsOneWidget);
+      // Per-row management: share copies, edit and delete manage.
+      expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    });
+
+    testWidgets('launch site change locks while recording', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            serialStatusProvider.overrideWith(
+              (ref) => Stream.value(const SerialWorkerStatus(
+                isRecording: true,
+              )),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text('Locked while recording — the file stamps this site.'),
+        findsOneWidget,
+      );
+      final addButton =
+          find.widgetWithText(OutlinedButton, 'Add site');
+      expect(addButton, findsOneWidget);
+      expect(tester.widget<OutlinedButton>(addButton).onPressed, isNull);
+    });
+
+    testWidgets('row delete offers undo that restores the preset',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({
+        PrefsKeys.launchSites: jsonEncode({
+          'selected': _site('Home'),
+          'presets': [_site('Home')],
+        }),
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            home: Scaffold(body: SettingsScreen()),
+          ),
+        ),
+      );
+      await container.read(launchSiteProvider.future);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pump();
+      var state = container.read(launchSiteProvider).value!;
+      expect(state.presets.map((p) => p.name), isNot(contains('Home')));
+      final toast = container.read(toastStoreProvider).last;
+      expect(toast.actionLabel, 'Undo');
+
+      toast.onAction!();
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        state = container.read(launchSiteProvider).value!;
+        if (state.presets.any((p) => p.name == 'Home')) break;
+      }
+      expect(state.presets.map((p) => p.name), contains('Home'));
+      expect(state.selected?.name, 'Home');
+    });
+
+    testWidgets('selecting a connector moves no row heights',
+        (tester) async {
       SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(
         const ProviderScope(

@@ -271,6 +271,70 @@ void main() {
       }
     });
 
+    test('play drops the live link, stop stays disconnected', () async {
+      final container = newContainer();
+      final tempDir =
+          await Directory.systemTemp.createTemp('trycatch_flows_drop_');
+      try {
+        await connectMock(container);
+        final path =
+            '${tempDir.path}${Platform.pathSeparator}drop_flight.bin';
+        worker.send(StartRecordingCommand(
+          filePath: path,
+          launch: const LaunchRef(
+            latitude: 50.0,
+            longitude: 14.0,
+            mslM: 300,
+            name: 'Pad',
+          ),
+          connectorId: 'mock',
+        ));
+        await waitFor(
+          () =>
+              container.read(serialStatusProvider).value?.isRecording ?? false,
+          reason: 'worker never reported recording',
+        );
+        await Future<void>.delayed(const Duration(seconds: 1));
+        worker.send(const StopRecordingCommand());
+        await waitFor(
+          () =>
+              !(container.read(serialStatusProvider).value?.isRecording ??
+                  true),
+          reason: 'worker never stopped recording',
+        );
+
+        // Still connected here: play() itself drops the link.
+        expect(
+            container.read(serialStatusProvider).value?.isConnected, isTrue);
+        final replay = container.read(replayProvider.notifier);
+        await replay.play(path);
+        try {
+          await waitFor(
+            () => container.read(replayProvider).frames.isNotEmpty,
+            reason: 'replay never loaded',
+          );
+          // The disconnect round-trips the worker isolate, so it lands
+          // just after the locally-decoded frames.
+          await waitFor(
+            () =>
+                !(container.read(serialStatusProvider).value?.isConnected ??
+                    true),
+            reason: 'play() never dropped the live link',
+          );
+        } finally {
+          replay.stop();
+        }
+        // No auto-reconnect: back to live means picking Connect again.
+        expect(
+            container.read(serialStatusProvider).value?.isConnected, isFalse);
+        expect(container.read(telemetryStoreProvider).history.isEmpty, isTrue);
+      } finally {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    });
+
     test('replay restores the pre-play connector choice', () async {
       final container = newContainer();
       final tempDir =

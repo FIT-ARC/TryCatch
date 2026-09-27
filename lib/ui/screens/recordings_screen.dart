@@ -83,6 +83,10 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
             if (header.connectorId.isNotEmpty) {
               info.connectorId = header.connectorId;
             }
+            if (header.startMicros > 0) {
+              info.flightTime =
+                  DateTime.fromMicrosecondsSinceEpoch(header.startMicros);
+            }
             if (header.hasStats) {
               info.durationMs = header.durationMs;
               info.packets = header.packetCount;
@@ -99,7 +103,17 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
       }
     }
     _infoCache.removeWhere((key, _) => !seen.contains(key));
-    recordings.sort((a, b) => b.modified.compareTo(a.modified));
+    // Newest flight day first, alphabetical by file name within a day.
+    DateTime dayOf(RecordingInfo info) {
+      final d = info.flightDate;
+      return DateTime(d.year, d.month, d.day);
+    }
+
+    recordings.sort((a, b) {
+      final day = dayOf(b).compareTo(dayOf(a));
+      if (day != 0) return day;
+      return a.name.compareTo(b.name);
+    });
     return recordings;
   }
 
@@ -114,12 +128,12 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
 
   Future<void> _play(RecordingInfo recording) async {
     if (_loadingPath != null) return;
-    // Opening a replay clears live buffers and hides the radio UI, so
-    // confirm first when a recording is running or the radio is connected.
+    // Opening a replay clears live buffers, so confirm first when a
+    // recording is running. The live link is dropped by play() itself —
+    // no reconnect needed afterwards — so connectedness needs no confirm.
     // Replacing an already-open replay needs no confirmation.
     final serialStatus = ref.read(serialStatusProvider).value;
     final isRecording = serialStatus?.isRecording ?? false;
-    final isConnected = serialStatus?.isConnected ?? false;
     if (isRecording) {
       if (!context.mounted) return;
       final confirm = await showDialog<bool>(
@@ -144,30 +158,6 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
       );
       if (confirm != true) return;
       ref.read(serialConfigProvider.notifier).stopRecording();
-    } else if (isConnected) {
-      if (!context.mounted) return;
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Open replay while connected?'),
-          content: const Text(
-            'Live telemetry is paused during a replay and current live '
-            'data is cleared. The connection stays open — Back to live '
-            '(×) returns to it.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Open replay'),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true) return;
     }
     setState(() => _loadingPath = recording.path);
     try {
@@ -292,46 +282,74 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                 );
               }
 
-              return GridView.builder(
+              final byDay = groupRecordingsByDay(recordings);
+              final now = DateTime.now();
+
+              return ListView.builder(
                 padding: const EdgeInsets.fromLTRB(
                   AppDimens.pagePadding,
                   0,
                   AppDimens.pagePadding,
                   AppDimens.pagePadding,
                 ),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 440,
-                  // Content budget: 18 card padding + ~32 header + 6 + 200
-                  // preview + 6 + ~12 stats (≈ 274). The transport lives on
-                  // the preview (whole-preview tap target + center play
-                  // button) and the rest hides in the header … menu, so no
-                  // button rows and no dead space below the stats.
-                  mainAxisExtent: 284,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                ),
-                itemCount: recordings.length,
-                itemBuilder: (context, index) {
-                  final recording = recordings[index];
-                  final isLoaded = replay.filePath == recording.path;
-                  final cardLoading = _loadingPath == recording.path;
-                  return RecordingCard(
-                    info: recording,
-                    isLoaded: isLoaded,
-                    isLoading: cardLoading,
-                    busy: _loadingPath != null,
-                    onPlay: () => _play(recording),
-                    onDelete: () async {
-                      await recording.delete();
-                      setState(_reload);
-                    },
-                    onTrim: () async {
-                      final saved = await showDialog<bool>(
-                        context: context,
-                        builder: (_) => TrimDialog(info: recording),
-                      );
-                      if (saved == true) setState(_reload);
-                    },
+                itemCount: byDay.length,
+                itemBuilder: (context, group) {
+                  final day = byDay.keys.elementAt(group);
+                  final flights = byDay[day]!;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12, bottom: 8),
+                        child: Text(
+                          recordingDayLabel(day, now).toUpperCase(),
+                          style: AppText.microLabel.copyWith(
+                            letterSpacing: 1.4,
+                            color: AppColors.mutedForeground,
+                          ),
+                        ),
+                      ),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 440,
+                          // Content budget: 18 card padding + ~32 header + 6
+                          // + 200 preview + 6 + ~12 stats.
+                          mainAxisExtent: 284,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                        ),
+                        itemCount: flights.length,
+                        itemBuilder: (context, index) {
+                          final recording = flights[index];
+                          final isLoaded =
+                              replay.filePath == recording.path;
+                          final cardLoading =
+                              _loadingPath == recording.path;
+                          return RecordingCard(
+                            info: recording,
+                            isLoaded: isLoaded,
+                            isLoading: cardLoading,
+                            busy: _loadingPath != null,
+                            onPlay: () => _play(recording),
+                            onDelete: () async {
+                              await recording.delete();
+                              setState(_reload);
+                            },
+                            onTrim: () async {
+                              final saved = await showDialog<bool>(
+                                context: context,
+                                builder: (_) => TrimDialog(info: recording),
+                              );
+                              if (saved == true) setState(_reload);
+                            },
+                            onRenamed: () => setState(_reload),
+                          );
+                        },
+                      ),
+                    ],
                   );
                 },
               );

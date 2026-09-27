@@ -74,6 +74,16 @@ String formatDateTime(DateTime dt) =>
     '${dt.hour.toString().padLeft(2, '0')}:'
     '${dt.minute.toString().padLeft(2, '0')}';
 
+/// Czech date → `27. 9. 2026` (local, no leading zeros).
+String formatCzechDate(DateTime dt) =>
+    '${dt.day}. ${dt.month}. ${dt.year}';
+
+/// Czech date + time → `27. 9. 2026 14:03` (local).
+String formatCzechDateTime(DateTime dt) =>
+    '${formatCzechDate(dt)} '
+    '${dt.hour.toString().padLeft(2, '0')}:'
+    '${dt.minute.toString().padLeft(2, '0')}';
+
 /// Duration since the last packet → `850 ms ago` / `3.2 s ago` / `2m 5s ago`.
 String formatPacketAge(Duration d) {
   final s = d.inMilliseconds / 1000.0;

@@ -37,8 +37,9 @@ RateVerdict verdictFor(double unmatchedBps) {
 /// Single owner of link-rate history. Replaces PacketRateTracker +
 /// ChannelHealthTracker + per-widget private trackers.
 ///
-/// Fed from cumulative [LinkStats]; counter rewind (reconnect) clears history
-/// and re-baselines without emitting a bogus sample.
+/// Fed from cumulative [LinkStats]; counter rewind (reconnect) re-baselines
+/// without emitting a bogus sample, keeping history so the age readout
+/// survives reconnects.
 class RateSeries extends RingTimeSeries<RateSample> {
   LinkStats? _prev;
 
@@ -51,11 +52,12 @@ class RateSeries extends RingTimeSeries<RateSample> {
     final prev = _prev;
     _prev = next;
     if (prev == null) return null;
+    // Worker reset (reconnect): counters restarted. Re-baseline without
+    // dropping history, so the age readout ("last packet N s ago")
+    // survives reconnects instead of flashing "no data".
     if (next.totalBytes < prev.totalBytes ||
         next.matchedBytes < prev.matchedBytes ||
         next.timestampMs <= prev.timestampMs) {
-      clear();
-      _prev = next;
       return null;
     }
     final dtS = (next.timestampMs - prev.timestampMs) / 1000.0;

@@ -34,7 +34,7 @@ Verify downloads with `SHA256SUMS.txt` in the release.
 ## Quick start / how to use
 
 1. **Connect** — pick a port in the top bar and hit **Connect**. Use `MOCK` for the simulator (`MOCK-BQ` is the same flight but cuts out for ~5 s every ~15 s to test link-loss behavior; `MOCK-DC` randomly refuses opens, drops the link, and NAKs uplinks to test failure toasts), or the rocket's serial port for real hardware.
-2. **Set a launch site** — click the flag / `SET SITE` button in the top bar and pick a saved site (or save the rocket's current GPS as one). Recording stays disabled until a site is set.
+2. **Set a launch site** — open Settings → LAUNCH SITE and pick a saved site (or save the rocket's current GPS as one). Recording stays disabled until a site is set, and the site locks while recording.
 3. **Arrange the dashboard** — toggle **Edit layout** to drag dividers, swap tiles by dragging them onto each other, double-click a divider to flip horizontal/vertical, or use Add-tile / per-tile split. Tabs (`Ctrl+1..9`) are separate workspaces.
 4. **Record** — hit **Record** in the top bar during a live session. Files land in `Documents/TryCatch/recordings/`.
 5. **Replay** — open the Recordings screen, pick a flight (stat grid + 3D previews), hit play. Use the playback bar for seek/speed/loop, Space for pause/play, **Back to live** to exit.

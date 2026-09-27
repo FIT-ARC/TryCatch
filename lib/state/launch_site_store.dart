@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -42,7 +44,34 @@ class LaunchSite {
         longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
         altitudeMsl: (json['altitudeMsl'] as num?)?.toDouble() ?? 0,
       );
+
+  /// Short copy-pasteable string: `<prefix><base64url(json)>`, mirroring
+  /// the dead-reckoning tune share string.
+  String toShareString() {
+    final raw = utf8.encode(jsonEncode(toJson()));
+    return '$launchSiteSharePrefix${base64Url.encode(raw)}';
+  }
+
+  /// Parses [toShareString] output. Returns `null` on any format error.
+  static LaunchSite? parseShareString(String input) {
+    final text = input.trim();
+    if (!text.startsWith(launchSiteSharePrefix)) return null;
+    try {
+      final raw =
+          base64Url.decode(text.substring(launchSiteSharePrefix.length));
+      final decoded = jsonDecode(utf8.decode(raw));
+      if (decoded is! Map<String, dynamic>) return null;
+      final site = LaunchSite.fromJson(decoded);
+      if (site.name.isEmpty) return null;
+      return site;
+    } catch (_) {
+      return null;
+    }
+  }
 }
+
+/// Share-string prefix for copy-pasteable launch sites.
+const String launchSiteSharePrefix = 'LAUNCHSITE1.';
 
 /// Selected launch site + saved presets.
 class LaunchSiteState {

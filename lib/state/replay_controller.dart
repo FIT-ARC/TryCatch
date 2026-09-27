@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
-import './connector_provider.dart';
 import './launch_site_store.dart';
+import './telemetry_provider.dart';
 import '../core/app_config.dart';
 import '../core/channel_health.dart';
 import '../core/flight_events.dart';
@@ -230,7 +230,9 @@ class ReplayController extends SessionStore<ReplayState> {
   ///
   /// The recording header's connector is auto-selected (in-memory override,
   /// restored on [stop]) so states/commands/events resolve with the
-  /// recording's own vocabulary.
+  /// recording's own vocabulary. The live link is dropped up front — the
+  /// replay owns the session — and [stop] stays disconnected, so returning
+  /// to live is one tap on Connect.
   Future<void> play(String path) async {
     final initialSmoothing = state.smoothingEnabled;
     final initialLoop = state.loopEnabled;
@@ -277,6 +279,11 @@ class ReplayController extends SessionStore<ReplayState> {
         .set(loaded.connector.id, persist: false);
 
     _store.setReplaying(true);
+    // Drop the live link so the replay owns the session (no-op when
+    // already offline — which also keeps worker-less tests green).
+    if (ref.read(serialStatusProvider).value?.isConnected ?? false) {
+      ref.read(serialWorkerProvider).send(const DisconnectCommand());
+    }
     final site = launchSiteFromHeader(loaded.header);
     if (generation != _loadGeneration) {
       _store.setReplaying(false);
@@ -515,7 +522,8 @@ class ReplayController extends SessionStore<ReplayState> {
   @override
   void clear() => stop();
 
-  /// Stops playback and returns the store to live mode.
+  /// Stops playback and returns the store to live mode. The link stays
+  /// disconnected (play() dropped it) — reconnect is one tap on Connect.
   void stop() {
     // Invalidate any in-flight play() so its late async completion is
     // dropped instead of resurrecting a replay the user just closed.

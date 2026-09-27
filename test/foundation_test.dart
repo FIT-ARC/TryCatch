@@ -62,8 +62,20 @@ void main() {
     expect(r.isNotEmpty, isTrue);
     expect(r.label(nowMs: 2100).contains('pkt/s'), isTrue);
     expect(r.label(nowMs: 6000).contains('ago'), isTrue);
-    r.addSnapshot(const LinkStats(timestampMs: 3000, totalBytes: 10));
-    expect(r.isEmpty, isTrue);
+    // Counter rewind (reconnect) re-baselines without dropping history:
+    // the age readout survives instead of flashing "no data".
+    expect(
+        r.addSnapshot(const LinkStats(timestampMs: 3000, totalBytes: 10)),
+        isNull);
+    expect(r.isNotEmpty, isTrue);
+    expect(r.label(nowMs: 6000), contains('ago'));
+    // Fresh counters after the rewind resume the rate.
+    r.addSnapshot(const LinkStats(
+        timestampMs: 6500,
+        totalBytes: 560,
+        matchedBytes: 500,
+        matchedPackets: 5));
+    expect(r.label(nowMs: 6600).contains('pkt/s'), isTrue);
     r.clear();
     expect(r.isEmpty, isTrue);
   });
