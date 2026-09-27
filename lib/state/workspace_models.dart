@@ -1,5 +1,7 @@
 import './layout_tree.dart';
 
+import '../foundation/ids.dart';
+
 /// Leaf settings key carrying the 3D flight tiles' camera mode
 /// ([FlightCameraMode.name], e.g. `'onboard'`). Lives in the state layer so
 /// both the persistence format and the UI scope agree on the vocabulary.
@@ -54,13 +56,8 @@ class Workspace {
   }
 }
 
-/// Monotonic id generator (no external dependency).
-class GridIds {
-  static int _counter = 0;
-
-  static String next() {
-    _counter++;
-    return '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
-        '_${_counter.toRadixString(36)}';
-  }
+/// Monotonic id generator. Single owner is [Ids]; this alias keeps call
+/// sites reading until they migrate to `Ids.next()`.
+abstract final class GridIds {
+  static String next() => Ids.next();
 }

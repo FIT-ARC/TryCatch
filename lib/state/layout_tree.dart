@@ -12,6 +12,8 @@ import 'dart:ui' show Size;
 
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import '../foundation/ids.dart';
+
 /// Per-tile-type minimum size in logical pixels (from `TileRegistry`).
 typedef MinSizeLookup = Size Function(String tileType);
 
@@ -124,13 +126,8 @@ class SplitNode extends LayoutNode {
       };
 }
 
-int _splitIdCounter = 0;
-
-/// Unique split ids based on wall-clock time plus a process counter.
-String _nextSplitId() {
-  final t = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-  return 's${t}_${(_splitIdCounter++).toRadixString(36)}';
-}
+/// Unique split ids from the shared [Ids] generator.
+String _nextSplitId() => Ids.next('s');
 
 /// Leaf: one tile instance.
 class LeafNode extends LayoutNode {
