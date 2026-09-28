@@ -3,7 +3,7 @@ import './layout_tree.dart';
 import '../foundation/ids.dart';
 
 /// Leaf settings key carrying the 3D flight tiles' camera mode
-/// ([FlightCameraMode.name], e.g. `'onboard'`). Lives in the state layer so
+/// ([FlightCameraMode.name], e.g. `'orbit'`). Lives in the state layer so
 /// both the persistence format and the UI scope agree on the vocabulary.
 const String leafCameraModeKey = 'cameraMode';
 

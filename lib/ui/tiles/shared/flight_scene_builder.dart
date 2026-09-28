@@ -1,4 +1,4 @@
-/// Pure scene data types and builder functions shared by both 3D flight views.
+/// Pure scene data types and builder functions shared by the 3D flight views.
 ///
 /// Camera, rendering and widget code lives in [flight_3d_common.dart];
 /// this file has no Flutter dependency beyond [debugPrint].
@@ -14,20 +14,16 @@ import 'package:serial/serial.dart';
 import '../../../state/launch_site_store.dart';
 import '../../../state/replay_controller.dart';
 import '../../../state/telemetry_store.dart';
-/// Shared scene, camera and painter helpers for the 3D flight views (plain
-/// and satellite). Both tiles render the same [FlightScene] with the same
-/// cameras; only the ground differs.
-///
 /// World frame (right-handed, so the standard view matrix never mirrors):
 /// X east, Y up (AGL), Z **south** — because E×U=S. (A previous revision used
 /// +Z north, a left-handed frame that rendered east/west flipped.)
 ///
 /// The compass language is shared too: E amber, U green, N blue.
 
-/// Camera behaviour of the 3D flight views.
+/// User-selectable camera behaviour of the 3D flight views. The onboard
+/// strap-down lens is its own tile, not a mode here.
 enum FlightCameraMode {
   chase('Chase rocket', Icons.center_focus_strong),
-  onboard('Onboard', Icons.videocam),
   orbit('Orbit field', Icons.threesixty),
   free('Free orbit', Icons.control_camera);
 

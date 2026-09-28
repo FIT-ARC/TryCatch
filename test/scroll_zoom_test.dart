@@ -39,7 +39,7 @@ class _FramedStore extends TelemetryStore {
 }
 
 /// Wheel-zoom regression tests: the map, the shared flight-3D shell (used
-/// by both Flight 3D and Flight 3D Satellite) and the rocket orientation
+/// by the 3D Flight and Onboard camera tiles) and the rocket orientation
 /// view must all respond to mouse-wheel scroll.
 void main() {
   testWidgets('map tile zooms on wheel scroll', (tester) async {

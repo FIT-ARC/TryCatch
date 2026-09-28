@@ -14,6 +14,7 @@ import './tiles/highlights_tile.dart';
 import './tiles/map_tile.dart';
 import './tiles/max_altitude_tile.dart';
 import './tiles/nosecone_tile.dart';
+import './tiles/onboard_camera_tile.dart';
 import './tiles/rocket_3d_tile.dart';
 import './tiles/dead_reckoning_tile.dart';
 import './tiles/events_tile.dart';
@@ -104,7 +105,7 @@ abstract final class TileRegistry {
     ),
     TileDescriptor(
       id: 'flight_3d',
-      title: 'Flight 3D',
+      title: 'Flight path',
       description: '3D flight trail with launch site and camera modes',
       icon: Icons.view_in_ar_outlined,
       minSize: const Size(170, 120),
@@ -114,13 +115,23 @@ abstract final class TileRegistry {
     ),
     TileDescriptor(
       id: 'flight_3d_sat',
-      title: 'Flight 3D Satellite',
+      title: '3D Flight',
       description: '3D flight trail over satellite imagery (needs internet)',
       icon: Icons.satellite_alt_outlined,
       minSize: const Size(170, 120),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => Flight3dSatelliteTile(),
+    ),
+    TileDescriptor(
+      id: 'onboard_camera',
+      title: 'Onboard camera',
+      description: "Rocket's-eye view over satellite imagery (needs internet)",
+      icon: Icons.videocam_outlined,
+      minSize: const Size(170, 120),
+      immersive: true,
+      category: TileCategory.views,
+      builder: (context) => OnboardCameraTile(),
     ),
     TileDescriptor(
       id: 'stats',

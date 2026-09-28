@@ -646,18 +646,10 @@ void main() {
           siteName: null,
         );
 
-    FlightCamera onboard(
-      FlightScene scene, {
-      double az = 0,
-      double el = 0,
-      double zoom = 1,
-    }) =>
-        computeFlightCamera(
+    FlightCamera onboard(FlightScene scene, {double spin = 0}) =>
+        computeOnboardCamera(
           scene: scene,
-          mode: FlightCameraMode.onboard,
-          azimuthDeg: az,
-          elevationDeg: el,
-          zoom: zoom,
+          spinDeg: spin,
           aspect: 800 / 600,
         );
 
@@ -680,15 +672,14 @@ void main() {
       expect(south.z, closeTo(ch, 1e-9));
     });
 
-    test('lens rides at the rocket, zoom drives the lens not the distance',
-        () {
+    test('lens rides at the rocket with a fixed frame', () {
       final pos = Vector3(30, 200, -40);
-      final cam = onboard(sceneWith(pos: pos), zoom: 4);
+      final cam = onboard(sceneWith(pos: pos));
       expect(cam.eye.x, closeTo(pos.x, 1e-9));
       expect(cam.eye.y, closeTo(pos.y, 1e-9));
       expect(cam.eye.z, closeTo(pos.z, 1e-9));
       expect(cam.eye.distanceTo(cam.target), closeTo(10, 1e-9));
-      expect(cam.fovY, closeTo(flightFovY / 4, 1e-9));
+      expect(cam.fovY, closeTo(flightFovY, 1e-9));
     });
 
     test('roll spins the gaze around the nose', () {
@@ -736,7 +727,7 @@ void main() {
       final tilt = onboardDownTiltDeg * math.pi / 180;
       final ch = math.cos(tilt);
       final sh = math.sin(tilt);
-      final cam = onboard(sceneWith(pos: Vector3(0, 100, 0)), az: 20);
+      final cam = onboard(sceneWith(pos: Vector3(0, 100, 0)), spin: 20);
       final look = gaze(cam);
       final yawRad = (90 + 20) * math.pi / 180;
       expect(look.x, closeTo(ch * math.sin(yawRad), 1e-9));

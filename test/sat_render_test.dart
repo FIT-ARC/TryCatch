@@ -5,8 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:trycatch/ui/tiles/flight_3d_satellite_tile.dart';
 import 'package:trycatch/ui/tiles/shared/flight_3d_common.dart';
+import 'package:trycatch/ui/tiles/shared/sat_flight_painter.dart';
 import 'package:trycatch/ui/tiles/shared/satellite_ground.dart';
 import 'package:trycatch/ui/tiles/shared/slippy_math.dart';
 import 'package:vector_math/vector_math_64.dart' hide Colors;
@@ -141,10 +141,12 @@ void main() {
     final a = anchor();
     return SatFlightPainter(
       scene: scene,
-      mode: mode,
-      azimuthDeg: azimuthDeg,
-      elevationDeg: elevationDeg,
-      zoom: zoom,
+      lens: OrbitLens(
+        mode: mode,
+        azimuthDeg: azimuthDeg,
+        elevationDeg: elevationDeg,
+        zoom: zoom,
+      ),
       terrain: terrain,
       meshes: terrain == null
           ? null
@@ -1013,10 +1015,12 @@ void main() {
           tester,
           SatFlightPainter(
             scene: scene,
-            mode: FlightCameraMode.chase,
-            azimuthDeg: 0,
-            elevationDeg: 8,
-            zoom: 1,
+            lens: const OrbitLens(
+              mode: FlightCameraMode.chase,
+              azimuthDeg: 0,
+              elevationDeg: 8,
+              zoom: 1,
+            ),
             terrain:
                 SatelliteTerrain(outer: patch, pad: patch, dem: dem),
             meshes: (

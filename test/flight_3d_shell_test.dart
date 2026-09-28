@@ -1,47 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:trycatch/ui/components/tool_button.dart';
 import 'package:trycatch/ui/screens/tile_leaf_scope.dart';
+import 'package:trycatch/ui/tiles/shared/flight_3d_common.dart';
 import 'package:trycatch/ui/tiles/shared/flight_3d_shell.dart';
 
-/// Locks the onboard shell contract: fixed zoom, spin around the rocket's
-/// long axis only (vertical drags do nothing), double-tap recenters — while
-/// the other modes keep zooming and orbiting the shared angles.
+/// Locks the shared 3D flight shell contract: the camera-mode picker shows
+/// one button per mode (none for the fixed onboard lens), the persisted leaf
+/// mode is restored once, and mode changes are reported back to the leaf.
 void main() {
-  testWidgets('onboard blocks zoom and tilt, spins on one axis',
+  testWidgets('shell shows one button per picker mode, none when fixed',
       (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(home: Scaffold(body: _ShellHarness())),
+      MaterialApp(
+        home: Scaffold(
+          body: Flight3dShell(
+            painter: _DummyPainter(),
+            mode: FlightCameraMode.chase,
+            onMode: (_) {},
+            onZoomBy: (_) {},
+            onResetZoom: () {},
+            onOrbit: (_) {},
+          ),
+        ),
       ),
     );
-    final state =
-        tester.state<_ShellHarnessState>(find.byType(_ShellHarness));
-    state.setShellMode(FlightCameraMode.onboard);
     await tester.pump();
+    expect(
+        find.byType(ToolFab), findsNWidgets(FlightCameraMode.values.length));
 
-    // Zoom is fixed: wheel factors never land.
-    state.zoomBy(2.0);
-    state.zoomBy(0.5);
-    expect(state.zoom, 1.0);
-
-    // Vertical drags do nothing; horizontal drags spin the gaze.
-    state.orbitBy(const Offset(0, 50));
-    state.orbitBy(const Offset(30, -40));
-    expect(state.onboardAzimuthDeg, closeTo(348.0, 1e-9));
-
-    // Double-tap recenters the spin.
-    state.resetZoom();
-    expect(state.onboardAzimuthDeg, 0.0);
-    expect(state.zoom, 1.0);
-
-    // Other modes are unaffected: chase still zooms.
-    state.setShellMode(FlightCameraMode.chase);
-    state.zoomBy(2.0);
-    expect(state.zoom, 2.0);
-
-    // Unmount so the shell's orbit ticker stops with the widget.
-    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Flight3dShell(
+            painter: _DummyPainter(),
+            modes: const [],
+            onZoomBy: (_) {},
+            onResetZoom: () {},
+            onOrbit: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(ToolFab), findsNothing);
   });
 
   testWidgets('shell restores the persisted leaf mode once', (tester) async {
@@ -51,7 +54,7 @@ void main() {
           home: Scaffold(
             body: TileLeafScope.fromSettings(
               tileId: 'leaf1',
-              settings: const {leafCameraModeKey: 'onboard'},
+              settings: const {leafCameraModeKey: 'orbit'},
               onCameraMode: (_) {},
               child: const _ShellHarness(),
             ),
@@ -61,7 +64,7 @@ void main() {
     );
     final state =
         tester.state<_ShellHarnessState>(find.byType(_ShellHarness));
-    expect(state.mode, FlightCameraMode.onboard);
+    expect(state.mode, FlightCameraMode.orbit);
 
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
   });
@@ -91,6 +94,19 @@ void main() {
 
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
   });
+
+  test('onboard drag spin turns around the nose axis and wraps', () {
+    expect(spinAfterDrag(0, 30), closeTo(348, 1e-9));
+    expect(spinAfterDrag(348, -30), closeTo(0, 1e-9));
+  });
+}
+
+class _DummyPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ShellHarness extends ConsumerStatefulWidget {

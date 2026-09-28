@@ -25,7 +25,7 @@ Cross-area changes require explicit coordination (see §1.4).
 | **State / providers** | `lib/state/` | `workspace_test`, `workspace_reorder_test`, `replay_seek_test`, `display_smoothing_test`, `replay_launch_site_test`, `launch_site_flow_test` |
 | **Replay** | `lib/state/replay_controller.dart`, `lib/state/telemetry_store.dart` (replay paths) | `replay_seek_test`, `display_smoothing_test`, `mock_bq_test`, `flight_simulator_test` |
 | **Map tile** | `lib/ui/tiles/map_tile.dart`, `lib/ui/tiles/shared/tile_io.dart`, `lib/ui/tiles/shared/offline_fallback_tiles.dart` | `map_track_test`, `map_tiles_test`, `map_follow_regression_test` |
-| **3D / satellite tile** | `lib/ui/tiles/flight_3d_*.dart`, `lib/ui/tiles/shared/flight_3d_*`, `lib/ui/tiles/shared/satellite_ground.dart` | `flight_3d_scene_test`, `rocket_mesh_test`, `rocket_centering_test`, `sat_render_test`, `satellite_ground_test` |
+| **3D / satellite tile** | `lib/ui/tiles/flight_3d_*.dart`, `lib/ui/tiles/onboard_camera_tile.dart`, `lib/ui/tiles/shared/flight_3d_*`, `lib/ui/tiles/shared/sat_*`, `lib/ui/tiles/shared/satellite_*.dart` | `flight_3d_scene_test`, `flight_3d_shell_test`, `onboard_vignette_test`, `rocket_mesh_test`, `rocket_centering_test`, `sat_render_test`, `satellite_ground_test` |
 | **Charts / tiles** | `lib/ui/tiles/` (non-3D, non-map) | `chart_touch_test`, `time_series_decimation_test`, `scroll_zoom_test`, `dead_reckoning_tile_test`, `events_tile_test`, `trim_chart_test` |
 | **UI chrome** | `lib/ui/screens/`, `lib/ui/components/` | `top_bar_theme_test`, `brand_mark_theme_test`, `brand_navigates_home_test`, `link_stats_button_test`, `serial_controls_overflow_test`, `channel_health_test`, `channel_health_edit_mode_test`, `grid_render_test`, `flight_trim_test` |
 | **Theme** | `lib/theme/` | `top_bar_theme_test`, `brand_mark_theme_test` |
@@ -377,9 +377,9 @@ Immersive. Esri street / satellite (overzoom past 18). 1 GB disk cache. Precache
 
 ### 6.5 3D tiles
 
-All immersive. Metric scene east/up/south metres, origin = site or first fix. GPS trail only, dead reckoning as single violet point. Drop line, 1-2-5 ground grid with N/E labels. N/E/U compass. Chase/orbit-field/launch-pad/free cameras (80° cap). Wheel zoom, double-tap reset. World frame X east / Y up / Z south (right-handed; locked by `flight_3d_scene_test.dart`).
+All immersive. Metric scene east/up/south metres, origin = site or first fix. GPS trail only, dead reckoning as single violet point. Drop line, 1-2-5 ground grid with N/E labels. N/E/U compass. Three tiles: **Flight path** (plain ground), **3D Flight** (satellite ground), and **Onboard camera** (fixed strap-down lens over satellite ground). Orbit modes chase/orbit-field/free (80° cap), wheel zoom, double-tap reset. Onboard rides at the airframe looking out its side, nose up; drag spins the gaze around the long axis, double-tap recenters, no zoom or mode picker. World frame X east / Y up / Z south (right-handed; locked by `flight_3d_scene_test.dart`).
 
-Satellite tile drapes Esri imagery as a screen-space mesh (one node per ~21 px ray-cast; parent-tile fallback; ≥5 km²; failures uncached + 15 s backoff) with procedural sky. **Never** `Canvas.transform` perspective drape — silently paints nothing on Impeller/OpenGLES.
+Satellite ground (`SatFlightPainter` + `SatelliteTerrainState`, shared by 3D Flight and Onboard camera) drapes Esri imagery as a screen-space mesh (one node per ~21 px ray-cast; parent-tile fallback; ≥5 km²; failures uncached + 15 s backoff) with procedural sky. **Never** `Canvas.transform` perspective drape — silently paints nothing on Impeller/OpenGLES.
 
 **Performance** (`_paintMeshTier`): indexed drawing (up to 5× fewer vertex submissions), sub-pixel pad tier culling, quad-level frustum culling, static `Float32List` scratch buffers, inlined color caching, lazy `meshUvs`. 60-frame benchmark: 3,489 ms → 1,219 ms (median 57.7 → 20.2 ms).
 

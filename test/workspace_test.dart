@@ -133,7 +133,7 @@ void main() {
     });
 
     test('leaf settings round-trip through JSON', () {
-      const settings = {leafCameraModeKey: 'onboard'};
+      const settings = {leafCameraModeKey: 'free'};
       final root = SplitNode(
         vertical: false,
         ratio: 0.5,
@@ -150,9 +150,9 @@ void main() {
     test('setLeafSettings updates only the target leaf', () {
       final root = treeFromOrder([leaf('map'), leaf('flight_3d')]);
       final next = setLeafSettings(
-          root, 'w_flight_3d', {leafCameraModeKey: 'onboard'})!;
+          root, 'w_flight_3d', {leafCameraModeKey: 'free'})!;
       final byId = {for (final l in next.leaves) l.tileId: l};
-      expect(byId['w_flight_3d']!.settings[leafCameraModeKey], 'onboard');
+      expect(byId['w_flight_3d']!.settings[leafCameraModeKey], 'free');
       expect(byId['w_map']!.settings, isEmpty);
     });
 
@@ -160,14 +160,14 @@ void main() {
       LeafNode camLeaf(String id) => LeafNode(
           tileId: id,
           tileType: 'flight_3d',
-          settings: const {leafCameraModeKey: 'onboard'});
+          settings: const {leafCameraModeKey: 'free'});
 
       final swapped =
           swapLeaves(treeFromOrder([camLeaf('a'), leaf('map')]), 'a', 'w_map')!;
       final swappedById = {for (final l in swapped.leaves) l.tileId: l};
       // Ids travel with the content, settings included.
       expect(swappedById['a']!.tileType, 'flight_3d');
-      expect(swappedById['a']!.settings[leafCameraModeKey], 'onboard');
+      expect(swappedById['a']!.settings[leafCameraModeKey], 'free');
       expect(swappedById['w_map']!.tileType, 'map');
       expect(swappedById['w_map']!.settings, isEmpty);
 
@@ -179,7 +179,7 @@ void main() {
           retiled.leaves
               .firstWhere((l) => l.tileId == 'a')
               .settings[leafCameraModeKey],
-          'onboard');
+          'free');
 
       final moved = moveLeafBeside(
           treeFromOrder([camLeaf('a'), leaf('map'), leaf('stats')]),
@@ -190,7 +190,7 @@ void main() {
           moved.leaves
               .firstWhere((l) => l.tileId == 'a')
               .settings[leafCameraModeKey],
-          'onboard');
+          'free');
     });
 
     test('ignores unknown persisted fields', () {

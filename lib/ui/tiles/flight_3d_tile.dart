@@ -15,13 +15,12 @@ import './shared/rocket_mesh.dart';
 /// 3D flight path view: the rocket flies through a metric world (east/up/
 /// south metres relative to the launch site), leaving its trail behind it.
 /// The launch site is marked with a flag on a gridded ground plane, and the
-/// camera can chase the rocket, ride onboard looking to the side, orbit the
-/// whole field, or orbit freely.
+/// camera can chase the rocket, orbit the whole field, or orbit freely.
 ///
 /// Positions come from GPS fixes; a stale GPS estimate is shown as a single
 /// violet dead-reckoning point (never a trail). The rocket stands on its tail
 /// at the reported position. Scene, cameras and painters are shared with the
-/// satellite view ([Flight3dSatelliteTile]) via `flight_3d_common.dart`.
+/// satellite views via `flight_3d_common.dart`.
 class Flight3dTile extends ConsumerStatefulWidget {
   const Flight3dTile({super.key});
 
@@ -55,24 +54,12 @@ class _Flight3dWidgetState extends ConsumerState<Flight3dTile>
       return Center(child: WaitingForData());
     }
 
-    // Onboard eases the strap-down attitude one tick (jitter melts, jumps
-    // snap); every other mode renders the raw scene.
-    final renderScene =
-        mode == FlightCameraMode.onboard ? smoothOnboardScene(scene) : scene;
-
     return Flight3dShell(
       painter: _FlightPainter(
-        scene: renderScene,
+        scene: scene,
         mode: mode,
-        // Onboard spins locally around the long axis (strapped to the full
-        // attitude, never the shared orbit angles, fixed down-tilt only);
-        // every other mode shares one look direction.
-        azimuthDeg: mode == FlightCameraMode.onboard
-            ? onboardAzimuthDeg
-            : camera.azimuthDeg,
-        elevationDeg: mode == FlightCameraMode.onboard
-            ? 0.0
-            : camera.elevationDeg,
+        azimuthDeg: camera.azimuthDeg,
+        elevationDeg: camera.elevationDeg,
         zoom: zoom,
       ),
       mode: mode,
@@ -131,30 +118,24 @@ class _FlightPainter extends CustomPainter {
     paintFlightTrail(canvas, scene, cam.vp, size, tipOverride: anchor);
     paintLaunchSite(canvas, scene, cam.vp, size);
     paintDropLineAndDeadReckoning(canvas, scene, cam.vp, size, anchorOverride: anchor);
-    // Onboard the lens rides at the rocket looking to the side — the
-    // airframe itself stays out of its own view.
-    if (mode != FlightCameraMode.onboard) {
-      paintRocketMesh(
-        canvas,
-        size,
-        cam.vp,
-        cam.view,
-        cam.lightDir,
-        rocketPos: anchor,
-        pitchDeg: scene.pitchDeg,
-        yawDeg: scene.yawDeg,
-        rollDeg: scene.rollDeg,
-        scale: _rocketScale,
-        baseLift: -RocketMesh.cgY,
-        // Airframe configuration comes from the FSM state (cone pops at
-        // apogee, canopy renders under parachute only).
-        showNoseCone: scene.showNoseCone,
-        showParachute: scene.showParachute,
-      );
-    }
+    paintRocketMesh(
+      canvas,
+      size,
+      cam.vp,
+      cam.view,
+      cam.lightDir,
+      rocketPos: anchor,
+      pitchDeg: scene.pitchDeg,
+      yawDeg: scene.yawDeg,
+      rollDeg: scene.rollDeg,
+      scale: _rocketScale,
+      baseLift: -RocketMesh.cgY,
+      // Airframe configuration comes from the FSM state (cone pops at
+      // apogee, canopy renders under parachute only).
+      showNoseCone: scene.showNoseCone,
+      showParachute: scene.showParachute,
+    );
     paintCompass(canvas, size, cam.view);
-    // Lens glass last: the onboard vignette sits over the whole frame.
-    if (mode == FlightCameraMode.onboard) paintVignette(canvas, size);
   }
 
   @override

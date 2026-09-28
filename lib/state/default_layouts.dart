@@ -153,8 +153,8 @@ abstract final class DefaultLayouts {
           ratio: 0.6666666666666666,
           a: SplitNode(
             vertical: true,
-            ratio: 0.4952114924181964,
-            a: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d_sat', settings: const {'cameraMode': 'onboard'}),
+            ratio: 0.5,
+            a: LeafNode(tileId: GridIds.next(), tileType: 'onboard_camera'),
             b: LeafNode(tileId: GridIds.next(), tileType: 'highlights'),
           ),
           b: LeafNode(tileId: GridIds.next(), tileType: 'events'),
@@ -178,6 +178,6 @@ abstract final class DefaultLayouts {
   static Workspace flightPath() => Workspace(
     id: GridIds.next(),
     name: 'Flight path',
-    root: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d'),
+    root: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d', settings: const {'cameraMode': 'free'}),
   );
 }
