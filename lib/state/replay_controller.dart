@@ -154,12 +154,13 @@ final replayProvider = NotifierProvider<ReplayController, ReplayState>(
   ReplayController.new,
 );
 
-/// Flight milestones for the loaded replay, in flight-clock order.
+/// Flight milestones detected from the loaded replay's FSM transitions
+/// with the recording connector's own event table, in frame order.
 ///
-/// Transition markers come from the recording connector's own event table;
-/// data-driven apogee/touchdown fill the types the transitions never
-/// produce (firmware that jumps ascent→parachute with no apogee state can
-/// never fire those markers otherwise).
+/// Every marker is one connector-declared transition firing — no
+/// data-derived markers: a flight whose firmware skips states (no apogee
+/// report, no landed report) truthfully shows only the transitions it
+/// made. See `detectFlightEvents`.
 ///
 /// Derived from the pre-decoded frames list identity, so it computes once per
 /// loaded recording — not on every playhead tick. Empty outside a replay or
@@ -167,14 +168,7 @@ final replayProvider = NotifierProvider<ReplayController, ReplayState>(
 final replayFlightEventsProvider = Provider<List<FlightEvent>>((ref) {
   final frames = ref.watch(replayProvider.select((s) => s.frames));
   final connector = ref.watch(activeConnectorProvider);
-  final transition = detectFlightEvents(frames, eventDefs: connector.events);
-  final have = {for (final e in transition) e.type};
-  final dataDriven = [
-    for (final e in detectDataDrivenEvents(frames))
-      if (e.type == null || !have.contains(e.type)) e,
-  ];
-  return [...transition, ...dataDriven]
-    ..sort((a, b) => a.positionMs.compareTo(b.positionMs));
+  return detectFlightEvents(frames, eventDefs: connector.events);
 });
 
 /// One filed uplink attempt with its flight-clock position.

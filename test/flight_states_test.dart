@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
-import 'package:trycatch/core/flight_events.dart';
 import 'package:trycatch/core/flight_states.dart';
 
 TelemetryFrame _frame(int ms, int fsm, [double alt = 0]) => TelemetryFrame(
@@ -57,33 +56,6 @@ void main() {
     test('before the first frame yields null, empty yields null', () {
       expect(segmentAt(flight(), -1000), isNull);
       expect(segmentAt(const [], 0), isNull);
-    });
-  });
-
-  group('detectDataDrivenEvents', () {
-    test('apogee at peak altitude, touchdown on return', () {
-      final frames = [
-        for (var s = 0; s <= 20; s++)
-          _frame(s * 1000, 4, s <= 10 ? s * 10.0 : (20 - s) * 10.0),
-      ];
-      final events = detectDataDrivenEvents(frames);
-      expect(events.map((e) => e.type),
-          [FlightEventType.apogee, FlightEventType.touchdown]);
-      expect(events[0].positionMs, 10000);
-      expect(events[1].positionMs, 20000);
-    });
-
-    test('flat bench yields nothing', () {
-      final frames = [for (var s = 0; s <= 20; s++) _frame(s * 1000, 4, 1.0)];
-      expect(detectDataDrivenEvents(frames), isEmpty);
-    });
-
-    test('flight that never lands yields apogee only', () {
-      final frames = [
-        for (var s = 0; s <= 20; s++) _frame(s * 1000, 2, s * 10.0),
-      ];
-      final events = detectDataDrivenEvents(frames);
-      expect(events.map((e) => e.type), [FlightEventType.apogee]);
     });
   });
 }
