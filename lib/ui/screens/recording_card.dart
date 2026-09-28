@@ -7,7 +7,8 @@ import 'package:serial/serial.dart' show connectorById;
 
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
-import '../../services/flight_trim.dart' show buildAltProfile, buildTrackProfile;
+import '../../services/flight_trim.dart'
+    show buildAltProfile, buildTrackProfile;
 import '../../services/recording_repository.dart';
 import '../../session/feedback.dart';
 import '../../state/launch_site_store.dart';
@@ -146,8 +147,7 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text),
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
               child: const Text('Rename'),
             ),
           ],
@@ -183,7 +183,7 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
       if (info.maxAltM != null) 'max ${formatAltitudeM(info.maxAltM)}',
       _sizeLabel,
     ];
-    final date = formatCzechDateTime(info.flightDate);
+    final date = formatDateTime(info.flightDate);
 
     return AppCard(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),

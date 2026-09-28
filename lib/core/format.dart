@@ -50,9 +50,8 @@ double replayXInterval(double totalSeconds) {
 }
 
 /// Metres → `12 m` / `12.3 m` (no decimals past 100 m, `—` when null).
-String formatAltitudeM(double? m) => m == null
-    ? '—'
-    : '${m.toStringAsFixed(m.abs() >= 100 ? 0 : 1)} m';
+String formatAltitudeM(double? m) =>
+    m == null ? '—' : '${m.toStringAsFixed(m.abs() >= 100 ? 0 : 1)} m';
 
 /// Metres → `850 m` / `1.24 km` (kilometres past 1000 m).
 String formatDistanceM(double metres) => metres >= 1000
@@ -67,20 +66,12 @@ String formatLatLon(double lat, double lon) =>
 String formatLatLonPlain(double lat, double lon) =>
     '${lat.toStringAsFixed(6)}, ${lon.toStringAsFixed(6)}';
 
-/// Date → `2026-09-09 14:03` (local).
+/// Date → `27. 9. 2026` (local, no leading zeros).
+String formatDate(DateTime dt) => '${dt.day}. ${dt.month}. ${dt.year}';
+
+/// Date + time → `27. 9. 2026 14:03` (local).
 String formatDateTime(DateTime dt) =>
-    '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
-    '${dt.day.toString().padLeft(2, '0')} '
-    '${dt.hour.toString().padLeft(2, '0')}:'
-    '${dt.minute.toString().padLeft(2, '0')}';
-
-/// Czech date → `27. 9. 2026` (local, no leading zeros).
-String formatCzechDate(DateTime dt) =>
-    '${dt.day}. ${dt.month}. ${dt.year}';
-
-/// Czech date + time → `27. 9. 2026 14:03` (local).
-String formatCzechDateTime(DateTime dt) =>
-    '${formatCzechDate(dt)} '
+    '${formatDate(dt)} '
     '${dt.hour.toString().padLeft(2, '0')}:'
     '${dt.minute.toString().padLeft(2, '0')}';
 

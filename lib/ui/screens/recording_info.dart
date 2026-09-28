@@ -115,7 +115,8 @@ class RecordingInfo {
 /// newest day first. Within-day order is preserved, so pass the list
 /// newest-first.
 Map<DateTime, List<RecordingInfo>> groupRecordingsByDay(
-    List<RecordingInfo> recordings) {
+  List<RecordingInfo> recordings,
+) {
   final byDay = <DateTime, List<RecordingInfo>>{};
   for (final recording in recordings) {
     final m = recording.flightDate;
@@ -125,11 +126,11 @@ Map<DateTime, List<RecordingInfo>> groupRecordingsByDay(
   return byDay;
 }
 
-/// Day-group header in Czech: `Dnes` / `Včera` / `20. 9. 2026`.
+/// Day-group header: `Today` / `Yesterday` / `20. 9. 2026`.
 String recordingDayLabel(DateTime day, DateTime now) {
   final today = DateTime(now.year, now.month, now.day);
   final diff = today.difference(day).inDays;
-  if (diff == 0) return 'Dnes';
-  if (diff == 1) return 'Včera';
-  return formatCzechDate(day);
+  if (diff == 0) return 'Today';
+  if (diff == 1) return 'Yesterday';
+  return formatDate(day);
 }

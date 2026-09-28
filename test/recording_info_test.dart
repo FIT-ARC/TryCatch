@@ -7,11 +7,7 @@ Future<RecordingInfo> _file(Directory dir, String name) async {
   final file = File('${dir.path}${Platform.pathSeparator}$name');
   await file.writeAsBytes(const [1, 2, 3]);
   final stat = await file.stat();
-  return RecordingInfo(
-    path: file.path,
-    sizeBytes: 3,
-    modified: stat.modified,
-  );
+  return RecordingInfo(path: file.path, sizeBytes: 3, modified: stat.modified);
 }
 
 void main() {
@@ -51,10 +47,10 @@ void main() {
 
   group('groupRecordingsByDay', () {
     RecordingInfo at(DateTime modified) => RecordingInfo(
-          path: '/x/${modified.millisecondsSinceEpoch}.bin',
-          sizeBytes: 0,
-          modified: modified,
-        );
+      path: '/x/${modified.millisecondsSinceEpoch}.bin',
+      sizeBytes: 0,
+      modified: modified,
+    );
 
     test('groups newest day first, keeps within-day order', () {
       final now = DateTime(2026, 9, 27, 12);
@@ -71,8 +67,8 @@ void main() {
         DateTime(2026, 9, 20),
       ]);
       expect(grouped[DateTime(2026, 9, 27)]!.length, 2);
-      expect(recordingDayLabel(DateTime(2026, 9, 27), now), 'Dnes');
-      expect(recordingDayLabel(DateTime(2026, 9, 26), now), 'Včera');
+      expect(recordingDayLabel(DateTime(2026, 9, 27), now), 'Today');
+      expect(recordingDayLabel(DateTime(2026, 9, 26), now), 'Yesterday');
       expect(recordingDayLabel(DateTime(2026, 9, 20), now), '20. 9. 2026');
     });
   });
