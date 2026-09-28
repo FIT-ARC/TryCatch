@@ -155,27 +155,29 @@ class MockConnector extends TelemetryConnector {
 
   @override
   List<ConnectorEventDef> get events => const [
-    ConnectorEventDef(
-      label: 'Launch',
-      fromStateId: 1, // armed
-      toStateId: 2,
-    ), // ascent
-    ConnectorEventDef(
-      label: 'Apogee',
-      fromStateId: 2, // ascent
-      toStateId: 3,
-    ), // apogee
-    ConnectorEventDef(
-      label: 'Parachute',
-      fromStateId: 3, // apogee
-      toStateId: 4,
-    ), // parachute
-    ConnectorEventDef(
-      label: 'Touchdown',
-      fromStateId: 4, // parachute
-      toStateId: 5,
-    ), // landed
-  ];
+        ConnectorEventDef(
+          label: 'Launch',
+          fromStateId: 1, // armed
+          toStateId: 2, // ascent
+        ),
+        ConnectorEventDef(
+          label: 'Apogee',
+          fromStateId: 2, // ascent
+          toStateId: 3, // apogee
+          // Firmware without an apogee state jumps straight here.
+          additionalTransitions: [ConnectorTransition(2, 4)],
+        ),
+        ConnectorEventDef(
+          label: 'Parachute',
+          fromStateId: 3, // apogee
+          toStateId: 4, // parachute
+        ),
+        ConnectorEventDef(
+          label: 'Touchdown',
+          fromStateId: 4, // parachute
+          toStateId: 5, // landed
+        ),
+      ];
 
   @override
   FieldCapabilities get capabilities => FieldCapabilities.all;

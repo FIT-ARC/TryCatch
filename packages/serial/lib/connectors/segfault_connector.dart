@@ -474,10 +474,16 @@ class SegfaultConnector extends TelemetryConnector {
 
   @override
   List<ConnectorEventDef> get events => const [
-    ConnectorEventDef(label: 'Launch', fromStateId: 1, toStateId: 2),
-    ConnectorEventDef(label: 'Apogee', fromStateId: 2, toStateId: 3),
-    ConnectorEventDef(label: 'Parachute', fromStateId: 3, toStateId: 4),
-  ];
+        ConnectorEventDef(label: 'Launch', fromStateId: 1, toStateId: 2),
+        ConnectorEventDef(
+          label: 'Apogee',
+          fromStateId: 2,
+          toStateId: 3,
+          // Firmware without an apogee state jumps straight here.
+          additionalTransitions: [ConnectorTransition(2, 4)],
+        ),
+        ConnectorEventDef(label: 'Parachute', fromStateId: 3, toStateId: 4),
+      ];
 
   @override
   FieldCapabilities get capabilities => const FieldCapabilities({

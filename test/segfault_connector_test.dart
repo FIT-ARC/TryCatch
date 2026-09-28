@@ -66,15 +66,18 @@ void main() {
     });
 
     test('publishes launch/apogee/parachute events', () {
+      String show(ConnectorEventDef e) =>
+          '${e.label} ${e.fromStateId}->${e.toStateId}'
+          '${[
+            for (final t in e.additionalTransitions)
+              ' +${t.fromStateId}->${t.toStateId}'
+          ].join()}';
       expect(
+        [for (final e in segfaultConnector.events) show(e)],
         [
-          for (final e in segfaultConnector.events)
-            (e.label, e.fromStateId, e.toStateId)
-        ],
-        [
-          ('Launch', 1, 2),
-          ('Apogee', 2, 3),
-          ('Parachute', 3, 4),
+          'Launch 1->2',
+          'Apogee 2->3 +2->4',
+          'Parachute 3->4',
         ],
       );
     });

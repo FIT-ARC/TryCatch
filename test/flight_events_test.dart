@@ -104,6 +104,26 @@ void main() {
       );
     });
 
+    test('multi-transition events fire on any listed jump', () {
+      const defs = [
+        ConnectorEventDef(
+          label: 'Apogee',
+          fromStateId: 2,
+          toStateId: 3,
+          additionalTransitions: [ConnectorTransition(2, 4)],
+        ),
+      ];
+      // Direct ascent→parachute jump (firmware without an apogee state).
+      final events = detectFlightEvents(
+        [_frame(0, FsmState.ascent), _frame(100, FsmState.parachute)],
+        eventDefs: defs,
+      );
+      expect(events, hasLength(1));
+      expect(events.single.label, 'Apogee');
+      expect(events.single.type, FlightEventType.apogee);
+      expect(events.single.transitionLabel, 'Ascent → Parachute');
+    });
+
     test('connector-specific transitions surface untyped', () {
       const defs = [
         ConnectorEventDef(label: 'Bench', fromStateId: 6, toStateId: 7),

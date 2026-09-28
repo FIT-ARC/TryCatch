@@ -149,7 +149,21 @@ class ConnectorCommand {
   });
 }
 
+/// One state transition that can fire an event.
+class ConnectorTransition {
+  final int fromStateId;
+  final int toStateId;
+
+  const ConnectorTransition(this.fromStateId, this.toStateId);
+}
+
 /// One flight milestone derived from a connector's state transitions.
+///
+/// Most milestones are one transition ([fromStateId] → [toStateId]);
+/// firmware that skips states lists the extra jumps in
+/// [additionalTransitions] (e.g. apogee fires on ascent→apogee where
+/// reported, or on the direct ascent→parachute jump where no apogee
+/// state exists).
 class ConnectorEventDef {
   /// Short human-readable name (e.g. `'Launch'`).
   final String label;
@@ -160,14 +174,28 @@ class ConnectorEventDef {
   /// State id after the transition.
   final int toStateId;
 
+  final List<ConnectorTransition> additionalTransitions;
+
   const ConnectorEventDef({
     required this.label,
     required this.fromStateId,
     required this.toStateId,
+    this.additionalTransitions = const [],
   });
 
-  /// Human-readable transition subtitle, e.g. `Armed → Ascent`.
-  String transitionLabel(String Function(int id) labelFor) =>
+  /// Every transition that fires this event, primary first.
+  Iterable<ConnectorTransition> get transitions sync* {
+    yield ConnectorTransition(fromStateId, toStateId);
+    yield* additionalTransitions;
+  }
+
+  bool matches(int fromStateId, int toStateId) => transitions.any((t) =>
+      t.fromStateId == fromStateId && t.toStateId == toStateId);
+
+  /// Human-readable subtitle for the transition that actually fired, e.g.
+  /// `Armed → Ascent`.
+  String transitionLabel(
+          String Function(int id) labelFor, int fromStateId, int toStateId) =>
       '${labelFor(fromStateId)} → ${labelFor(toStateId)}';
 }
 

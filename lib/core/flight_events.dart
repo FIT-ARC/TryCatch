@@ -78,13 +78,15 @@ class FlightEvent {
 }
 
 /// Maps a connector event definition to the style vocabulary by matching
-/// the nominal state-id pair, or `null` for connector-specific events
-/// outside the nominal profile.
+/// any of its transitions against the nominal state-id pairs, or `null`
+/// for connector-specific events outside the nominal profile.
 FlightEventType? flightEventTypeForDef(ConnectorEventDef def) {
   for (final candidate in FlightEventType.values) {
-    if (candidate.from.id == def.fromStateId &&
-        candidate.to.id == def.toStateId) {
-      return candidate;
+    for (final t in def.transitions) {
+      if (candidate.from.id == t.fromStateId &&
+          candidate.to.id == t.toStateId) {
+        return candidate;
+      }
     }
   }
   return null;
@@ -95,9 +97,9 @@ FlightEventType? flightEventTypeForDef(ConnectorEventDef def) {
 ///
 /// Matching is driven by the connector's event table ([eventDefs],
 /// defaulting to [connector]'s — defaulting in turn to the MOCK
-/// connector): only the table's exact transitions count; anything else
-/// (skipped states, debug states, repeats of the same state) is ignored.
-/// Empty or single-frame inputs yield no events.
+/// connector): only a table's listed transitions count; anything else
+/// (debug states, repeats of the same state) is ignored. Empty or
+/// single-frame inputs yield no events.
 List<FlightEvent> detectFlightEvents(
   List<TelemetryFrame> frames, {
   List<ConnectorEventDef>? eventDefs,
@@ -115,7 +117,7 @@ List<FlightEvent> detectFlightEvents(
     if (prev == curr) continue;
     ConnectorEventDef? def;
     for (final candidate in defs) {
-      if (candidate.fromStateId == prev && candidate.toStateId == curr) {
+      if (candidate.matches(prev, curr)) {
         def = candidate;
         break;
       }
@@ -125,7 +127,7 @@ List<FlightEvent> detectFlightEvents(
       FlightEvent(
         type: flightEventTypeForDef(def),
         label: def.label,
-        transitionLabel: def.transitionLabel(labelFor),
+        transitionLabel: def.transitionLabel(labelFor, prev, curr),
         frameIndex: i,
         positionMs: frames[i].receivedAtMs - t0,
         receivedAtMs: frames[i].receivedAtMs,

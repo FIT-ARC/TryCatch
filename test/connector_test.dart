@@ -57,16 +57,19 @@ void main() {
     });
 
     test('publishes the nominal flight events', () {
+      String show(ConnectorEventDef e) =>
+          '${e.label} ${e.fromStateId}->${e.toStateId}'
+          '${[
+            for (final t in e.additionalTransitions)
+              ' +${t.fromStateId}->${t.toStateId}'
+          ].join()}';
       expect(
+        [for (final e in mockConnector.events) show(e)],
         [
-          for (final e in mockConnector.events)
-            (e.label, e.fromStateId, e.toStateId)
-        ],
-        [
-          ('Launch', 1, 2),
-          ('Apogee', 2, 3),
-          ('Parachute', 3, 4),
-          ('Touchdown', 4, 5),
+          'Launch 1->2',
+          'Apogee 2->3 +2->4',
+          'Parachute 3->4',
+          'Touchdown 4->5',
         ],
       );
     });
