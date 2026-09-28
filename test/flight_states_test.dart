@@ -26,24 +26,37 @@ void main() {
     });
   });
 
-  group('stateSegmentProgress', () {
-    // States: 1 for 0-10 s, 2 for 10-30 s, 4 after.
+  group('segmentAt', () {
+    // States: 1 for 0-9 s, 2 for 10-29 s, 4 after.
     List<TelemetryFrame> flight() => [
           for (var s = 0; s <= 40; s++)
             _frame(s * 1000, s < 10 ? 1 : (s < 30 ? 2 : 4)),
         ];
 
-    test('fraction through the run containing the playhead', () {
+    test('resolves the run containing the playhead', () {
       final frames = flight();
-      expect(stateSegmentProgress(frames, 4500, 1), closeTo(0.5, 1e-9));
-      expect(stateSegmentProgress(frames, 19500, 2), closeTo(0.5, 1e-9));
-      expect(stateSegmentProgress(frames, 0, 1), 0);
+      final mid = segmentAt(frames, 4500)!;
+      expect(mid.stateId, 1);
+      expect(mid.entryMs, 0);
+      expect(mid.exitMs, 9000);
+      final later = segmentAt(frames, 19500)!;
+      expect(later.stateId, 2);
+      expect(later.entryMs, 10000);
+      expect(later.exitMs, 29000);
     });
 
-    test('unknown state and empty input yield zero', () {
+    test('same position always yields the same segment', () {
       final frames = flight();
-      expect(stateSegmentProgress(frames, 5000, 9), 0);
-      expect(stateSegmentProgress(const [], 0, 1), 0);
+      final a = segmentAt(frames, 15000)!;
+      final b = segmentAt(frames, 15000)!;
+      expect(a.entryMs, b.entryMs);
+      expect(a.exitMs, b.exitMs);
+      expect(a.stateId, b.stateId);
+    });
+
+    test('before the first frame yields null, empty yields null', () {
+      expect(segmentAt(flight(), -1000), isNull);
+      expect(segmentAt(const [], 0), isNull);
     });
   });
 

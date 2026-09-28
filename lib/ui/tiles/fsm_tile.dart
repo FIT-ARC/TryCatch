@@ -128,13 +128,24 @@ class _FsmWidgetState extends ConsumerState<FsmTile> {
     ];
     final current = connector.stateForId(latest.fsmStateId);
     final color = AppColors.connectorStateColor(connector, current.id);
-    final timeInState = _timeInState(state);
     final currentIndex = pipeline.indexWhere((s) => s.id == current.id);
     final connected =
         ref.watch(serialStatusProvider).value?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
     final replaying = replay.isActive;
     final enabled = connected && !replaying;
+    // Replay readouts are pure functions of timeline position (segment of
+    // the full pre-decoded flight): pauses, seeks and speeds can't perturb
+    // them the way ingested-history math can.
+    final segment = replaying && replay.frames.length >= 2
+        ? segmentAt(replay.frames, replay.positionMs)
+        : null;
+    final timeInState = segment != null
+        ? formatTimeInState(Duration(
+            milliseconds: replay.frames.first.receivedAtMs +
+                replay.positionMs -
+                segment.entryMs))
+        : _timeInState(state);
 
     String tooltipFor(ConnectorFsmState s) {
       if (!connected) return 'Connect first';
@@ -238,11 +249,14 @@ class _FsmWidgetState extends ConsumerState<FsmTile> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: _ProgressBar(
-                progress: replaying && replay.frames.length >= 2
-                    // Replay: fraction through the current state run, from
-                    // the full pre-decoded flight — not pipeline stages.
-                    ? stateSegmentProgress(
-                        replay.frames, replay.positionMs, current.id)
+                progress: segment != null
+                    ? (segment.exitMs <= segment.entryMs
+                        ? 1.0
+                        : ((replay.frames.first.receivedAtMs +
+                                        replay.positionMs -
+                                        segment.entryMs) /
+                                    (segment.exitMs - segment.entryMs))
+                                .clamp(0.0, 1.0))
                     : currentIndex < 0
                         ? 0
                         : (currentIndex + 1) / pipeline.length,
