@@ -20,7 +20,7 @@ Cross-area changes require explicit coordination (see §1.4).
 | Area | Canonical paths | Pinning tests |
 |---|---|---|
 | **Connectors** | `packages/serial/lib/connectors/`, `packages/serial/lib/telemetry/`, `packages/serial/lib/io/` | `connector_test`, `frame_codec_test`, `packet_parser_test`, `recorder_test`, `recording_header_test`, `file_parser_test` |
-| **Dead reckoning** | `packages/dead_reckoning/`, `lib/state/dead_reckoning_tune_store.dart`, `lib/ui/screens/dead_reckoning_lab_tab.dart` | package `dead_reckoning_test` (50), `dead_reckoning_tune_store_test`, `dead_reckoning_lab_tab_test`, `elevation_service_test` |
+| **Dead reckoning** | `packages/dead_reckoning/`, `lib/core/dead_reckoning_adapter.dart`, `lib/ui/tiles/dead_reckoning_tile.dart` | package `dead_reckoning_test`, `dead_reckoning_tile_test`, `elevation_service_test` |
 | **Core logic** | `lib/core/` | `ring_buffer_test`, `packet_rate_tracker_test`, `flight_events_test`, `highlights_test` |
 | **State / providers** | `lib/state/` | `workspace_test`, `workspace_reorder_test`, `replay_seek_test`, `display_smoothing_test`, `replay_launch_site_test`, `launch_site_flow_test` |
 | **Replay** | `lib/state/replay_controller.dart`, `lib/state/telemetry_store.dart` (replay paths) | `replay_seek_test`, `display_smoothing_test`, `mock_bq_test`, `flight_simulator_test` |
@@ -106,7 +106,7 @@ If your task genuinely requires touching another agent's area:
 - Flutter SDK ^3.13, installed at `C:\Users\wwwho\flutter`. Desktop shells for Windows, Linux, macOS.
 - Always run with `--release` for evaluation — debug builds are janky and misrepresent performance.
 - `flutter analyze` + `flutter test` are the only CI gates. Both must be green before any handoff.
-- Current passing test count: **508** (458 root `flutter test` + 50 `packages/dead_reckoning` `dart test` — update this when you finish).
+- Current passing test count: **506** (493 root `flutter test` + 13 `packages/dead_reckoning` `dart test` — update this when you finish).
 
 ### 2.2 Dependencies (key constraints)
 
@@ -309,15 +309,15 @@ lib/
    theme/             app_colors (palette + AppThemeMode + tokens), app_theme
 packages/serial/     connectors/ (interface + registry + mock),
                      framing, codec, worker isolate, mock simulator
-packages/dead_reckoning/  estimator + position + tune + eval + geo
+packages/dead_reckoning/  project + position + sample + geo
                      (pure Dart; app maps frames via dead_reckoning_adapter)
 ```
 
 ### 4.1 TelemetryStore
 
-Ingest pre-decoded connector frames, dead reckoning estimator (`packages/dead_reckoning`), ring buffers (9000 ≈ 15 min @10 Hz), auto-reset on port change + connector change, skips live ingestion while replaying, 80 ms throttle. `history`/`deadReckoningHistory` are zero-copy live views. Dead reckoning is a live-only gap filler: points enter history while GPS is silent ≥1 s; a 100 ms timer extrapolates through total link loss (live only). `deadReckoningStaleMs` (1000) is the shared stale threshold. Tuning arrives via `setDeadReckoningTune()` (in-memory; lab + persistence are a follow-up).
+Ingest pre-decoded connector frames, dead reckoning projection (`packages/dead_reckoning`), ring buffers (9000 ≈ 15 min @10 Hz), auto-reset on port change + connector change, skips live ingestion while replaying, 80 ms throttle. `history`/`deadReckoningHistory` are zero-copy live views. Dead reckoning is a live-only gap filler: a stateless function of the last packet + elapsed time (last position + velocity·dt + ½·acceleration·dt², acceleration from the longitudinal accel channel rotated onto the nose plus gravity; flat ground plane at 0 with touchdown freeze). Points enter history while GPS is silent ≥1 s; a 100 ms timer projects through total link loss (live only). `deadReckoningStaleMs` (1000) is the shared stale threshold.
 
-Persisted keys (`services/prefs_keys.dart`, no version suffixes): `trycatch.workspaces`, `trycatch.launch_sites`, `trycatch.dark_mode`, `trycatch.connector_id`, `trycatch.dead_reckoning_tune`.
+Persisted keys (`services/prefs_keys.dart`, no version suffixes): `trycatch.workspaces`, `trycatch.launch_sites`, `trycatch.dark_mode`, `trycatch.connector_id`.
 
 ### 4.2 Known weak points (out of scope — do not fix without a dedicated task)
 

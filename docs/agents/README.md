@@ -103,8 +103,6 @@
 
 ## 8. Known exceptions (do not "fix" without a task)
 
-* `DeadReckoningTuneController` stays sync-`Notifier`: the estimator
-  needs defaults before async prefs load. Uses compact-or-JSON parse.
 * `core/packet_rate_tracker.dart` + `core/channel_health.dart`
   `ChannelHealthTracker` stay for their unit tests; no widget may use
   them — widgets read `channelHealthProvider.series`.

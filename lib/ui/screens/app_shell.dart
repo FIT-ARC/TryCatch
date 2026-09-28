@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/replay_controller.dart';
-import './dead_reckoning_lab_tab.dart';
 import './monitor_screen.dart';
 import './recordings_screen.dart';
 import './settings_screen.dart';
@@ -74,7 +73,6 @@ class AppShell extends ConsumerWidget {
                       DashboardScreen(),
                       RecordingsScreen(),
                       MonitorScreen(),
-                      DeadReckoningLabTab(),
                       SettingsScreen(),
                     ],
                   ),

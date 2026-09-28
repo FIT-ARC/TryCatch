@@ -13,7 +13,8 @@ import '../components/position_readout.dart';
 import '../components/waiting_for_data.dart';
 
 /// Dead-reckoning estimate panel: the ground-side gap filler that bridges
-/// GPS / link outages by integrating the last known velocity.
+/// GPS / link outages by projecting the last packet forward (velocity +
+/// acceleration + gravity).
 ///
 /// Live-only and loss-gated:
 /// * disabled during replays (the store never computes dead reckoning then

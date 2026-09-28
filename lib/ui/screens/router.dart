@@ -6,7 +6,6 @@ enum AppScreen {
   dashboard('Dashboard', Icons.rocket_outlined),
   flights('Recorded flights', Icons.history),
   monitor('Channel health', Icons.monitor_heart_outlined),
-  deadReckoning('Dead reckoning', Icons.explore_outlined),
   settings('Settings', Icons.settings_outlined);
 
   const AppScreen(this.label, this.icon);
@@ -15,7 +14,7 @@ enum AppScreen {
   final IconData icon;
 }
 
-/// Currently displayed screen. Simple switcher — the app has exactly five
+/// Currently displayed screen. Simple switcher — the app has exactly four
 /// flat screens, so a full router is not warranted.
 final appRouterProvider =
     NotifierProvider<AppRouter, AppScreen>(AppRouter.new);

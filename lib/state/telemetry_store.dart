@@ -8,10 +8,8 @@ import 'package:dead_reckoning/dead_reckoning.dart';
 import '../foundation/store.dart';
 import '../core/app_config.dart';
 import '../core/dead_reckoning_adapter.dart';
-import '../core/elevation_math.dart';
 import '../core/flight_stats.dart' as stats;
 import '../core/ring_buffer.dart';
-import '../services/elevation_service.dart';
 import './telemetry_provider.dart';
 
 /// Aggregate of everything the dashboard knows about the current flight.
@@ -100,21 +98,19 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
 
   late RingBuffer<TelemetryFrame> _history;
   late RingBuffer<DeadReckoningPosition> _deadReckoningHistory;
-  final DeadReckoningEstimator _deadReckoningEstimator =
-      DeadReckoningEstimator();
+
+  /// Last packet seen (live only): every dead reckoning projection is a
+  /// pure function of this sample plus elapsed time, so the store keeps
+  /// the data, not an estimator.
+  DeadReckoningSample? _lastPacket;
+
+  /// Frame time of the last packet carrying a GPS fix. History points are
+  /// only pushed while the fix is stale, so the map trail fills real GPS
+  /// gaps instead of duplicating the live track.
+  int? _lastFixMs;
 
   /// Frame time of the last point pushed to the dead reckoning history.
   int _lastDeadReckoningMs = 0;
-
-  /// z=12 tile key ("12/x/y") for the last terrain elevation query.  A new
-  /// query is fired only when the rocket moves into a different tile (≈6 km
-  /// at 50° lat) — within one tile the cached Future is reused instantly.
-  String? _lastElevTileKey;
-
-  /// Terrain shape along the flight: tile key → MSL elevation. Fed to the
-  /// estimator as spatial samples so the ground clamp follows ridges and
-  /// valleys instead of one global floor.
-  final Map<String, double> _terrainElevations = {};
 
   /// Ground-side extrapolation timer while the link itself is silent.
   Timer? _deadReckoningTicker;
@@ -186,25 +182,15 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     // GPS track as-is (no synthetic estimates).
     DeadReckoningPosition? deadReckoning;
     if (!state.replaying) {
-      deadReckoning = _deadReckoningEstimator.update(
-        deadReckoningSampleFromFrame(frame),
-      );
-      if (deadReckoning != null &&
-          _shouldPushDeadReckoning(frame.receivedAtMs)) {
+      final packet = _lastPacket =
+          deadReckoningSampleFromFrame(frame);
+      if (frame.gpsHasFix) _lastFixMs = frame.receivedAtMs;
+      deadReckoning = projectDeadReckoning(last: packet, elapsedS: 0);
+      if (_shouldPushDeadReckoning(frame.receivedAtMs)) {
         _deadReckoningHistory.push(deadReckoning);
         _lastDeadReckoningMs = frame.receivedAtMs;
       }
       _ensureDeadReckoningTicker();
-      // Query terrain elevation whenever the fix moves into a new z=12 tile
-      // (≈6 km at 50° lat). The elevation_service memory-caches per tile, so
-      // a cache hit resolves synchronously; misses fall through to the disk
-      // cache and then the network. The estimator uses the result as its
-      // ground-collision floor via setTerrainFloor(), merging it with the
-      // GPS-min heuristic via max() — so a bad terrain value can only raise
-      // the clamp, never lower it below a confirmed fix.
-      if (frame.gpsHasFix) {
-        _maybeQueryTerrain(frame.latitude, frame.longitude);
-      }
     }
 
     if (state.replaying) {
@@ -253,21 +239,20 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     );
   }
 
-  /// Dead reckoning is only computed while GPS is stale: with a fresh fix
-  /// the fix itself is the best estimate and the estimator would just
-  /// duplicate the GPS track. Once GPS has been silent for over
-  /// deadReckoningStaleMs, extrapolate.
+  /// Dead reckoning points enter history only while the GPS fix is stale:
+  /// with a fresh fix the fix itself is on the GPS track and a projection
+  /// would just duplicate it. Once the fix has been silent for over
+  /// deadReckoningStaleMs, project from the last packet.
   bool _shouldPushDeadReckoning(int nowMs) {
-    final lastFix = _deadReckoningEstimator.lastFixAtMs;
-    if (lastFix == null || nowMs - lastFix < deadReckoningStaleMs) {
+    final fixMs = _lastFixMs;
+    if (fixMs == null || nowMs - fixMs < deadReckoningStaleMs) {
       return false;
     }
     return nowMs - _lastDeadReckoningMs >= deadReckoningUpdateIntervalMs;
   }
 
-  /// Keeps extrapolating dead reckoning at [deadReckoningUpdateIntervalMs]
-  /// even when no packets arrive at all (link loss), using the last known
-  /// velocity.
+  /// Keeps projecting dead reckoning at [deadReckoningUpdateIntervalMs]
+  /// even when no packets arrive at all (link loss), from the last packet.
   void _ensureDeadReckoningTicker() {
     if (_deadReckoningTicker != null) return;
     _deadReckoningTicker = Timer.periodic(
@@ -283,8 +268,12 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     // Data still flowing — the frame path owns dead reckoning updates.
     if (now - latest.receivedAtMs < deadReckoningStaleMs) return;
 
-    final deadReckoning = _deadReckoningEstimator.extrapolate(now);
-    if (deadReckoning == null) return;
+    final anchor = _lastPacket;
+    if (anchor == null) return;
+    final deadReckoning = projectDeadReckoning(
+      last: anchor,
+      elapsedS: (now - anchor.receivedAtMs) / 1000,
+    );
     if (deadReckoning.atMs - _lastDeadReckoningMs <
         deadReckoningUpdateIntervalMs) {
       return;
@@ -294,8 +283,8 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     _rebuildState();
   }
 
-  /// Clears the flight (new connection, new replay...). Drops history, DR,
-  /// estimator, terrain cache and ticker; keeps the replaying flag.
+  /// Clears the flight (new connection, new replay...). Drops history, the
+  /// last packet, DR history and ticker; keeps the replaying flag.
   /// Disk untouched. Use [reset] only during migration.
   @override
   void clear() => reset();
@@ -303,10 +292,9 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   void reset({String? sourceName}) {
     _history.clear();
     _deadReckoningHistory.clear();
-    _deadReckoningEstimator.reset();
-    _terrainElevations.clear();
+    _lastPacket = null;
+    _lastFixMs = null;
     _lastDeadReckoningMs = 0;
-    _lastElevTileKey = null;
     _deadReckoningTicker?.cancel();
     _deadReckoningTicker = null;
     _lastNotifyMs = 0;
@@ -316,38 +304,6 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
       sourceName: sourceName ?? '',
       replaying: state.replaying,
     );
-  }
-
-  /// Fires a terrain elevation query for [lat]/[lon] when the rocket has
-  /// moved into a new z=12 Terrarium tile. The result is fed back to the dead
-  /// estimator asynchronously via [setTerrainFloor]; any failure is silently
-  /// swallowed — the estimator falls back to the GPS-min heuristic.
-  void _maybeQueryTerrain(double lat, double lon) {
-    final key = elevationTileKey(lat, lon);
-    if (key == _lastElevTileKey) return; // same tile — cached Future is enough
-    _lastElevTileKey = key;
-    elevationMsl(lat, lon).then((msl) {
-      if (msl == null) return;
-      _deadReckoningEstimator.setTerrainFloor(msl);
-      _terrainElevations[key] = msl;
-      if (_terrainElevations.length > 128) {
-        _terrainElevations.remove(_terrainElevations.keys.first);
-      }
-      _deadReckoningEstimator.setTerrainSamples([
-        for (final entry in _terrainElevations.entries)
-          DeadReckoningTerrainSample(
-            latitude: elevationTileCenter(entry.key).latitude,
-            longitude: elevationTileCenter(entry.key).longitude,
-            elevationMsl: entry.value,
-          ),
-      ]);
-    });
-  }
-
-  /// Replaces the estimator tuning (e.g. from the tuning lab). Takes effect
-  /// on subsequent samples; already-integrated offsets are kept as-is.
-  void setDeadReckoningTune(DeadReckoningTune tune) {
-    _deadReckoningEstimator.tune = tune;
   }
 
   /// Marks whether the current data is a replay.
@@ -381,14 +337,22 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   }
 
   /// Rebuilds the state object so tiles watching the provider repaint from
-  /// the (already mutated) ring buffers. Always republishes the estimator's
-  /// current position: during a link loss the extrapolator advances it
-  /// with no new frames, and without this the exposed position would freeze
-  /// at the last fix (indistinguishable from GPS).
+  /// the (already mutated) ring buffers. Always republishes the projection
+  /// from the last packet: during a link loss the ticker advances it with
+  /// no new frames, and without this the exposed position would freeze at
+  /// the last packet (indistinguishable from GPS).
   void _rebuildState() {
+    final last = _lastPacket;
     state = _copyWithCurrent(
       latest: _history.isEmpty ? null : _history[0],
-      deadReckoning: _deadReckoningEstimator.position,
+      deadReckoning: state.replaying || last == null
+          ? state.deadReckoning
+          : projectDeadReckoning(
+              last: last,
+              elapsedS:
+                  (DateTime.now().millisecondsSinceEpoch - last.receivedAtMs) /
+                      1000,
+            ),
     );
   }
 

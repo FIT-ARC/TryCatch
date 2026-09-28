@@ -50,18 +50,16 @@ flowchart TD
 
 Files: [telemetry_provider.dart](../lib/state/telemetry_provider.dart) · [connector_provider.dart](../lib/state/connector_provider.dart) · [recording_provider.dart](../lib/state/recording_provider.dart) · [replay_controller.dart](../lib/state/replay_controller.dart) · [launch_site_store.dart](../lib/state/launch_site_store.dart)
 
-## App chrome: layout · theme · tuning
+## App chrome: layout · theme
 
 ```mermaid
 flowchart LR
     WS[workspaceProvider\ntabs + grid layout] --> DASH[dashboard]
     TM[themeModeProvider] --> ALL[all screens]
-    DT[deadReckoningTuneProvider] --> LAB[tuning lab]
-    DT --> STORE2[telemetryStoreProvider]
     RD[recordingsDirectoryProvider] --> REC[recordings screen]
 ```
 
-Files: [workspace_controller.dart](../lib/state/workspace_controller.dart) · [theme_mode_provider.dart](../lib/state/theme_mode_provider.dart) · [dead_reckoning_tune_store.dart](../lib/state/dead_reckoning_tune_store.dart)
+Files: [workspace_controller.dart](../lib/state/workspace_controller.dart) · [theme_mode_provider.dart](../lib/state/theme_mode_provider.dart)
 
 ## TelemetryState vs ReplayState
 
@@ -127,13 +125,11 @@ flowchart LR
         L[trycatch.launch_sites]
         D[trycatch.dark_mode]
         C[trycatch.connector_id]
-        T[trycatch.dead_reckoning_tune]
     end
     W --> WS[workspaceProvider]
     L --> LS2[launchSiteProvider]
     D --> TM[themeModeProvider\n+ AppThemeMode singleton]
     C --> CID2[activeConnectorIdProvider]
-    T --> DT[deadReckoningTuneProvider]
 ```
 
 - No version suffixes on keys; corrupt values fall back to defaults, never crash.
