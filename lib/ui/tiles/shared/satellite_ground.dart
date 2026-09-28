@@ -10,6 +10,7 @@ import 'package:vector_math/vector_math_64.dart';
 
 import '../../../core/elevation_math.dart'
     show demTileUrl, terrariumHeight;
+import '../../../state/launch_site_store.dart' show LaunchSite;
 import '../../../theme/app_colors.dart';
 import './tile_io.dart';
 import './slippy_math.dart';
@@ -583,6 +584,15 @@ Future<SatellitePatch?> fetchTerrainMid({
 }) =>
     _cachedTier(_midCache, lat, lon, satMidHalfMeters, fetcher,
         targetPixels: satMidTargetPixels, maxTileRadius: satMidTileRadius);
+
+/// Scene ground for the satellite tile: the DEM height at the pad once
+/// elevation is in, so pad furniture sits exactly on the draped terrain
+/// instead of floating above/below it on a stamp-vs-DEM disagreement.
+/// Falls back to the configured site (map/sky stages before the DEM).
+LaunchSite? resolveSceneSite(LaunchSite? site, ElevationGrid? dem) {
+  if (site == null || dem == null) return site;
+  return site.copyWith(altitudeMsl: dem.datumMsl);
+}
 
 /// Fetches the (cached) fixed three-tier terrain centred on [lat]/[lon]:
 /// outer 20×20 km context, mid 10×10 km flight area, sharp 2.5×2.5 km pad

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dead_reckoning/dead_reckoning.dart' show metresPerDegreeLat;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trycatch/core/elevation_math.dart' show terrariumHeight;
+import 'package:trycatch/state/launch_site_store.dart' show LaunchSite;
 import 'package:trycatch/ui/tiles/shared/satellite_ground.dart';
 import 'package:trycatch/ui/tiles/shared/slippy_math.dart';
 import 'package:vector_math/vector_math_64.dart';
@@ -600,6 +601,42 @@ void main() {
       expect(orderNearEast.iEastFirst, isTrue);
     });
   });
+
+  group('pad grounding', () {
+    const site = LaunchSite(
+      name: 'Pad',
+      latitude: 50.0,
+      longitude: 14.0,
+      altitudeMsl: 403,
+    );
+
+    ElevationGrid flatDem(double datum) => ElevationGrid(
+          northLat: 50.01,
+          southLat: 49.99,
+          westLon: 13.99,
+          eastLon: 14.01,
+          datumMsl: datum,
+          cols: 2,
+          rows: 2,
+          heights: Float32List.fromList([390, 390, 390, 390]),
+        );
+
+    test('scene site follows DEM datum once elevation is in', () {
+      expect(resolveSceneSite(site, null), same(site));
+      expect(resolveSceneSite(null, flatDem(390)), isNull);
+      final grounded = resolveSceneSite(site, flatDem(390))!;
+      expect(grounded.latitude, 50.0);
+      expect(grounded.longitude, 14.0);
+      expect(grounded.name, 'Pad');
+      expect(grounded.altitudeMsl, 390);
+    });
+
+    test('terrain at pad renders at furniture plane', () {
+      // Datum IS the DEM height at the pad: relief there is 0, so pad
+      // furniture (y=0) sits exactly on the drape.
+      final dem = flatDem(390);
+      final cosLat0 = math.cos(50.0 * math.pi / 180);
+      expect(dem.sampleRel(0, 0, 50.0, 14.0, cosLat0), closeTo(0, 1e-6));
+    });
+  });
 }
-
-

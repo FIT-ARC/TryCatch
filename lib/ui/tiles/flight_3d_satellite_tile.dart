@@ -126,7 +126,10 @@ class _Flight3dSatelliteWidgetState
     fetchSatelliteTerrain(
       lat: anchor.lat,
       lon: anchor.lon,
-      groundMslM: anchor.groundMsl,
+      // No stamped datum: the grid centres itself on the DEM height at the
+      // pad, so the draped terrain meets the pad furniture exactly instead
+      // of floating above/below it on a stamp-vs-DEM disagreement.
+      groundMslM: null,
     ).then((terrain) {
       if (!mounted) return;
       // Drop stale arrivals (a newer size was requested meanwhile).
@@ -157,19 +160,23 @@ class _Flight3dSatelliteWidgetState
     // Airframe flags resolve with the active connector (auto-selected to
     // the recording's connector during playback).
     final connector = ref.watch(activeConnectorProvider);
+    // Ground the scene on the terrain height at the pad once elevation is
+    // in (same datum the drape uses, so furniture never floats); the
+    // configured site before that.
+    final sceneSite = resolveSceneSite(site, _terrain?.dem);
     final FlightScene? scene;
     if (replay.isActive && replay.frames.isNotEmpty) {
       scene = buildReplayScene(
         frames: replay.frames,
         positionMs: replay.positionMs,
-        site: site,
+        site: sceneSite,
         smoothingEnabled: replay.smoothingEnabled,
         connector: connector,
       );
     } else {
-      scene = buildFlightScene(state, site, connector: connector);
+      scene = buildFlightScene(state, sceneSite, connector: connector);
     }
-    final anchor = flightAnchor(state, site);
+    final anchor = flightAnchor(state, sceneSite);
     if (scene == null || anchor == null) {
       return Center(child: WaitingForData());
     }
