@@ -30,6 +30,11 @@ const _matchThreshold = 30.0;
 const _flightBoxLat = 0.02;
 const _flightBoxLon = 0.02;
 
+/// OG sensor scales (same firmware the SegFault codec documents).
+const _gPerLsb = 1 / 2048.0;
+const _gravity = 9.80665;
+const _dpsPerLsb = 16.4;
+
 class _Row {
   final DateTime time;
   final double lat;
@@ -39,9 +44,39 @@ class _Row {
   final String fsm;
   final double roll;
   final double pitch;
+  final double ax;
+  final double ay;
+  final double az;
+  final double gx;
+  final double gy;
+  final double gz;
+  final double valt;
+  final int ky;
+  final int pid;
+  final int tms;
+  final bool hasFix;
 
-  _Row(this.time, this.lat, this.lon, this.alt, this.battery, this.fsm,
-      this.roll, this.pitch);
+  _Row(
+    this.time,
+    this.lat,
+    this.lon,
+    this.alt,
+    this.battery,
+    this.fsm,
+    this.roll,
+    this.pitch, {
+    this.ax = 0,
+    this.ay = 0,
+    this.az = 2048,
+    this.gx = 0,
+    this.gy = 0,
+    this.gz = 0,
+    this.valt = 0,
+    this.ky = 0,
+    this.pid = 0,
+    this.tms = 0,
+    this.hasFix = true,
+  });
 }
 
 double? _num(String s) => double.tryParse(s);
@@ -75,6 +110,14 @@ Future<void> main(List<String> args) async {
   final inputPath = positional[0];
   final outputPath = positional[1];
   final prepend = !flags.contains('--no-prepend');
+
+  // Overwrites must not depend on OS rename-over-existing semantics
+  // (finalize swaps a tmp file into place): clear first.
+  final existing = File(outputPath);
+  if (await existing.exists()) {
+    await existing.delete();
+    stdout.writeln('removed previous $outputPath');
+  }
 
   // Flight session = highest max altitude.
   sessions.sort((a, b) => _maxAlt(b).compareTo(_maxAlt(a)));
@@ -163,34 +206,45 @@ Future<void> main(List<String> args) async {
   stdout.writeln('collapsed to ${retimed.length} frames '
       '(${(100 * (frames.length - retimed.length) / frames.length).toStringAsFixed(1)}% duplicates)');
 
-  // Prepend pad prologue when the file starts at launch.
+  // Prepend pad prologue when the file starts at launch. Every value is
+  // measured: dynamics use the OG raw scales (verified 1 g at rest).
   var prepended = 0;
   if (prepend && (frames.first.fsmStateId == 0 || frames.first.fsmStateId == 1)) {
     final liftoff = _liftoffTrueMs(retimed);
     final prologue = selectPadPrologue(
       [
-        for (final r in flight)
-          CsvSiteSample(
-            trueMs: r.time.millisecondsSinceEpoch,
-            latitude: r.lat,
-            longitude: r.lon,
-            baroAltitude: r.alt,
-            batteryVoltage: r.battery,
-            fsm: r.fsm,
-            rollDeg: r.roll,
-            pitchDeg: r.pitch,
-          ),
+        for (final sessionsRow in sessions)
+          for (final r in sessionsRow)
+            CsvSiteSample(
+              trueMs: r.time.millisecondsSinceEpoch,
+              latitude: r.lat,
+              longitude: r.lon,
+              baroAltitude: r.alt,
+              batteryVoltage: r.battery,
+              fsm: r.fsm,
+              rollDeg: r.roll,
+              pitchDeg: r.pitch,
+              accelX: r.ax * _gPerLsb * _gravity,
+              accelY: r.ay * _gPerLsb * _gravity,
+              accelZ: r.az * _gPerLsb * _gravity,
+              gyroX: r.gx / _dpsPerLsb,
+              gyroY: r.gy / _dpsPerLsb,
+              gyroZ: r.gz / _dpsPerLsb,
+              velocityDown: -r.valt,
+              hallRaw: r.ky.round(),
+              packetId: r.pid,
+              wireTimestampMs: r.tms & 0xFFFF,
+              hasFix: r.hasFix,
+            ),
       ],
       liftoff,
     );
-    final signature = retimed.first;
     final built = <TelemetryFrame>[];
     for (var i = 0; i < prologue.length; i++) {
       final fsmId = ogFsmToMock(prologue[i].fsm);
       if (fsmId == null) continue;
       built.add(padFrameFrom(
         row: prologue[i],
-        padSignature: signature,
         sequence: -1, // resequenced below
         fsmStateId: fsmId,
       ));
@@ -343,6 +397,16 @@ Future<List<List<_Row>>> _readSessions(String csvPath) async {
   final cFsm = col('fsmState');
   final cRoll = col('orientation_roll');
   final cPitch = col('orientation_pitch');
+  final cAx = col('raw_accelX');
+  final cAy = col('raw_accelY');
+  final cAz = col('raw_accelZ');
+  final cGx = col('raw_gyroX');
+  final cGy = col('raw_gyroY');
+  final cGz = col('raw_gyroZ');
+  final cValt = col('velocity_altitude');
+  final cKy = col('raw_ky024Analog');
+  final cPid = col('packetId');
+  final cTms = col('timestampMs');
 
   final rows = <_Row>[];
   for (var i = 1; i < lines.length; i++) {
@@ -359,6 +423,8 @@ Future<List<List<_Row>>> _readSessions(String csvPath) async {
         alt > 1500) {
       continue;
     }
+    int intCol(int ci, int fallback) =>
+        int.tryParse(c[ci].trim()) ?? fallback;
     rows.add(_Row(
       time.toUtc(),
       lat,
@@ -368,6 +434,17 @@ Future<List<List<_Row>>> _readSessions(String csvPath) async {
       c[cFsm],
       _num(c[cRoll]) ?? 0,
       _num(c[cPitch]) ?? 0,
+      ax: _num(c[cAx]) ?? 0,
+      ay: _num(c[cAy]) ?? 0,
+      az: _num(c[cAz]) ?? 2048,
+      gx: _num(c[cGx]) ?? 0,
+      gy: _num(c[cGy]) ?? 0,
+      gz: _num(c[cGz]) ?? 0,
+      valt: _num(c[cValt]) ?? 0,
+      ky: intCol(cKy, 0),
+      pid: intCol(cPid, 0),
+      tms: intCol(cTms, 0),
+      hasFix: c[cLat].trim().isNotEmpty && c[cLon].trim().isNotEmpty,
     ));
   }
   rows.sort((a, b) => a.time.compareTo(b.time));

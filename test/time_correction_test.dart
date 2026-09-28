@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:serial/serial.dart';
 import 'package:trycatch/services/time_correction.dart';
 
 void main() {
@@ -72,15 +71,26 @@ void main() {
           fsm: fsm,
           rollDeg: 0,
           pitchDeg: 0,
+          accelX: 0,
+          accelY: 0,
+          accelZ: 9.81,
+          gyroX: 0,
+          gyroY: 0,
+          gyroZ: 0,
+          velocityDown: 0,
+          hallRaw: 2000,
+          packetId: 0,
+          wireTimestampMs: t & 0xFFFF,
+          hasFix: true,
         );
 
-    test('keeps idle pad rows before liftoff only', () {
+    test('keeps idle pad rows before liftoff only, sorted by time', () {
       final rows = [
-        row(1000, '00', 1),
-        row(2000, '01', 2),
-        row(3000, '02', 5), // stray transition: out
         row(4000, '04', 100), // airborne: out
         row(5000, '00', 1), // after liftoff: out
+        row(2000, '01', 2),
+        row(1000, '00', 1),
+        row(3000, '02', 5), // stray transition: out
       ];
       final prologue = selectPadPrologue(rows, 4500);
       expect(prologue.map((r) => r.trueMs), [1000, 2000]);
@@ -88,19 +98,7 @@ void main() {
   });
 
   group('padFrameFrom', () {
-    test('takes position/time/battery from the row, dynamics from signature',
-        () {
-      const signature = TelemetryFrame(
-        flags: 3,
-        gpsAltitude: 403,
-        accelX: -0.2,
-        accelY: -0.2,
-        accelZ: 3.24,
-        gyroX: 4.0,
-        heading: 90,
-        yaw: 45,
-        hallRaw: 2154,
-      );
+    test('maps measured fields, zeroes only what the format lacks', () {
       const row = CsvSiteSample(
         trueMs: 123456789,
         latitude: 49.8,
@@ -110,9 +108,20 @@ void main() {
         fsm: '01',
         rollDeg: 1.5,
         pitchDeg: -2.5,
+        accelX: 0.1,
+        accelY: -0.2,
+        accelZ: 9.81,
+        gyroX: 0.5,
+        gyroY: -0.5,
+        gyroZ: 1.0,
+        velocityDown: 0.3,
+        hallRaw: 2144,
+        packetId: 77,
+        wireTimestampMs: 54321,
+        hasFix: true,
       );
-      final frame = padFrameFrom(
-          row: row, padSignature: signature, sequence: 7, fsmStateId: 1);
+      final frame =
+          padFrameFrom(row: row, sequence: 7, fsmStateId: 1);
       expect(frame.receivedAtMs, 123456789);
       expect(frame.sequence, 7);
       expect(frame.latitude, 49.8);
@@ -120,11 +129,15 @@ void main() {
       expect(frame.batteryVoltage, 4.01);
       expect(frame.roll, 1.5);
       expect(frame.pitch, -2.5);
-      expect(frame.velocityDown, 0);
-      expect(frame.accelZ, 3.24);
-      expect(frame.heading, 90);
-      expect(frame.hallRaw, 2154);
+      expect(frame.velocityDown, 0.3);
+      expect(frame.accelZ, 9.81);
+      expect(frame.gyroX, 0.5);
+      expect(frame.hallRaw, 2144);
       expect(frame.fsmStateId, 1);
+      expect(frame.velocityNorth, 0);
+      expect(frame.heading, 0);
+      expect(frame.yaw, 0);
+      expect(frame.gpsAltitude, 0);
     });
   });
 }

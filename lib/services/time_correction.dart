@@ -85,6 +85,24 @@ class CsvSiteSample {
   final double rollDeg;
   final double pitchDeg;
 
+  /// Body-frame specific force in m/s² (already in SI units).
+  final double accelX;
+  final double accelY;
+  final double accelZ;
+
+  /// Angular rate in deg/s.
+  final double gyroX;
+  final double gyroY;
+  final double gyroZ;
+
+  /// Vertical speed, down-positive (MOCK convention).
+  final double velocityDown;
+
+  final int hallRaw;
+  final int packetId;
+  final int wireTimestampMs;
+  final bool hasFix;
+
   const CsvSiteSample({
     required this.trueMs,
     required this.latitude,
@@ -94,19 +112,31 @@ class CsvSiteSample {
     required this.fsm,
     required this.rollDeg,
     required this.pitchDeg,
+    required this.accelX,
+    required this.accelY,
+    required this.accelZ,
+    required this.gyroX,
+    required this.gyroY,
+    required this.gyroZ,
+    required this.velocityDown,
+    required this.hallRaw,
+    required this.packetId,
+    required this.wireTimestampMs,
+    required this.hasFix,
   });
 }
 
 /// Pre-launch prologue: pad-idle rows strictly before [liftoffTrueMs].
 /// Only `00`/`01` states inside the flight box qualify; anything else
-/// (stray transitions, outliers) is left out.
+/// (stray transitions, outliers) is left out. Output is sorted by time
+/// regardless of input order.
 List<CsvSiteSample> selectPadPrologue(
   List<CsvSiteSample> rows,
   int liftoffTrueMs, {
   double centerLat = 49.797,
   double centerLon = 16.697,
 }) {
-  return [
+  final prologue = [
     for (final r in rows)
       if (r.trueMs < liftoffTrueMs &&
           (r.fsm == '00' || r.fsm == '01') &&
@@ -116,42 +146,44 @@ List<CsvSiteSample> selectPadPrologue(
           r.baroAltitude <= 50)
         r,
   ];
+  prologue.sort((a, b) => a.trueMs.compareTo(b.trueMs));
+  return prologue;
 }
 
-/// Synthesizes a pad-sit MOCK frame for a prologue row.
-///
-/// Position, baro, battery, attitude and time come from the row; dynamics
-/// copy the file's own pad signature (a sitting rocket has no dynamics to
-/// get wrong, and this keeps the splice seamless).
+/// Builds a MOCK pad-sit frame from a log row. Every byte is measured or
+/// format-mandated: position, baro, battery, attitude, accel, gyro,
+/// vertical speed, hall, packet id and wire timestamp come from the row;
+/// horizontal velocity, heading, yaw and GPS altitude are zero — exactly
+/// what a real SegFault capture carries, since the format has no fields
+/// for them.
 TelemetryFrame padFrameFrom({
   required CsvSiteSample row,
-  required TelemetryFrame padSignature,
   required int sequence,
   required int fsmStateId,
 }) {
   return TelemetryFrame(
     receivedAtMs: row.trueMs,
-    flags: padSignature.flags,
+    flags: row.hasFix ? FrameFlags.gpsFix | FrameFlags.gpsFix3d : 0,
     sequence: sequence,
     latitude: row.latitude,
     longitude: row.longitude,
-    gpsAltitude: padSignature.gpsAltitude,
+    gpsAltitude: 0,
     baroAltitude: row.baroAltitude,
     velocityNorth: 0,
     velocityEast: 0,
-    velocityDown: 0,
-    accelX: padSignature.accelX,
-    accelY: padSignature.accelY,
-    accelZ: padSignature.accelZ,
-    gyroX: padSignature.gyroX,
-    gyroY: padSignature.gyroY,
-    gyroZ: padSignature.gyroZ,
-    heading: padSignature.heading,
+    velocityDown: row.velocityDown,
+    accelX: row.accelX,
+    accelY: row.accelY,
+    accelZ: row.accelZ,
+    gyroX: row.gyroX,
+    gyroY: row.gyroY,
+    gyroZ: row.gyroZ,
+    heading: 0,
     roll: row.rollDeg,
     pitch: row.pitchDeg,
-    yaw: padSignature.yaw,
+    yaw: 0,
     batteryVoltage: row.batteryVoltage,
-    hallRaw: padSignature.hallRaw,
+    hallRaw: row.hallRaw,
     fsmStateId: fsmStateId,
   );
 }
