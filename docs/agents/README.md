@@ -25,7 +25,7 @@
 * Toasts are feedback, not flight — never cleared here.
 * Adding a flight-scoped store: extend `SessionStore`, add one line to
   `FlightReset`, add a case to `test/flight_reset_test.dart`.
-* `top_bar.dart` Clear dialog calls only `FlightReset`. No direct
+* `settings_screen.dart` Clear dialog calls only `FlightReset`. No direct
   `telemetry.reset()` + `commandLog.clear()` pairs.
 
 ## 3. Time-series: one interface

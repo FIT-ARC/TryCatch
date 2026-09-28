@@ -6,6 +6,7 @@ import 'package:serial/serial.dart';
 
 import '../../theme/app_colors.dart';
 import '../../session/feedback.dart';
+import '../../session/flight_reset.dart';
 import '../components/app_card.dart';
 import '../components/copy_button.dart';
 import '../components/launch_site_dialog.dart';
@@ -15,6 +16,7 @@ import '../../core/format.dart';
 import '../../state/launch_site_store.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
+import '../../state/telemetry_store.dart';
 
 /// Settings screen: connector, offline maps, appearance and about.
 /// Launch sites live in the top-bar site dialog.
@@ -45,6 +47,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(launchSiteProvider.notifier).select(preset);
       return;
     }
+  }
+
+  /// Clears the flight buffers via FlightReset: telemetry, commands,
+  /// channel history. Disabled with no data or mid-replay by the caller.
+  Future<void> _confirmClearFlight(BuildContext context) {
+    return showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear buffers?'),
+        content: const Text(
+          'This discards the current flight — track, max values and '
+          'averages — and starts fresh. Recordings on disk are kept.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.destructive),
+            onPressed: () {
+              // Drop focus first: yanking a focused subtree out from under
+              // the engine while every tile flips to "waiting" at once.
+              FocusManager.instance.primaryFocus?.unfocus();
+              FlightReset.clearFlight(ref);
+              Navigator.of(dialogContext).pop();
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Deletes a preset, offering undo on the toast.
@@ -279,6 +314,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // framings under one header stamp. Disconnect (or close the replay)
     // to switch.
     final locked = replaying || connected || recording;
+    // Clearing mid-replay would corrupt the replay state.
+    final hasData =
+        ref.watch(telemetryStoreProvider.select((s) => s.packetCount > 0));
+    final canClear = hasData && !replaying;
 
     // Scroll viewport spans the full width so the scrollbar sits at the
     // screen edge; the 640 column + side padding live inside it.
@@ -296,6 +335,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+            AppCard(
+              title: 'FLIGHT DATA',
+              // Own Material: a ListTile paints its splash on the nearest
+              // Material ancestor (see APPEARANCE below).
+              child: Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Clear buffers'),
+                  subtitle: Text(
+                    'Discards the current flight and starts fresh. '
+                    'Recordings on disk are kept.',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.mutedForeground),
+                  ),
+                  trailing: FilledButton(
+                    onPressed: canClear
+                        ? () => _confirmClearFlight(context)
+                        : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.destructive,
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize:
+                          MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16),
+                    ),
+                    child: const Text('Clear'),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppDimens.gap),
             AppCard(
               title: 'LAUNCH SITE',
               trailing: Row(

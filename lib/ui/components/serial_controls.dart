@@ -7,22 +7,20 @@ import '../../core/app_config.dart';
 import '../../session/feedback.dart';
 import '../../state/telemetry_provider.dart';
 
-/// Compact connection control for the top bar: port picker and link action
-/// fused into one pill — the segments share the outer border with square
-/// inner corners, so they read as a single button.
+/// Compact connection control for the top bar: port picker, rescan and link
+/// action fused into one pill — the segments share the outer border with
+/// square inner corners, so they read as a single button.
 ///
-/// The port segment opens a popup (ports + rescan); the link segment is an
-/// icon-only connect/disconnect. The outer width is fixed so the bar never
-/// shifts when the link comes up.
+/// The port segment opens a popup; the middle segment rescans; the link
+/// segment is an icon-only connect/disconnect. The outer width is fixed so
+/// the bar never shifts when the link comes up.
 class SerialControls extends ConsumerWidget {
-  /// Sentinel menu value that triggers a port rescan instead of a pick.
-  static const _rescanValue = '__rescan__';
-
   /// Nominal segment widths: the outer slot matches [AppConfig.topBarChipWidth]
   /// (same as the other top-bar chips) while the picker segment flexes into
-  /// whatever the border and link segment leave over.
+  /// whatever the borders and fixed segments leave over.
   static const double pickerWidth =
-      AppConfig.topBarChipWidth - actionWidth - 1;
+      AppConfig.topBarChipWidth - actionWidth - refreshWidth - 2;
+  static const double refreshWidth = 32;
   static const double actionWidth = 32;
 
   const SerialControls({super.key});
@@ -60,7 +58,7 @@ class SerialControls extends ConsumerWidget {
       // Total slot stays fixed so siblings never shift; the border paints
       // inside these bounds (insetting the child by 1 px each side), so the
       // picker segment flexes into whatever remains instead of exact-fitting.
-      width: pickerWidth + actionWidth + 1,
+      width: pickerWidth + refreshWidth + actionWidth + 2,
       height: 32,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
@@ -100,13 +98,7 @@ class SerialControls extends ConsumerWidget {
                         borderRadius:
                             BorderRadius.circular(AppDimens.radiusSmall),
                         padding: EdgeInsets.zero,
-                        onSelected: (p) {
-                          if (p == _rescanValue) {
-                            notifier.refreshPorts();
-                            return;
-                          }
-                          notifier.setPort(p);
-                        },
+                        onSelected: notifier.setPort,
                         itemBuilder: (context) => [
                           for (final p in ports)
                             PopupMenuItem(
@@ -117,16 +109,6 @@ class SerialControls extends ConsumerWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          const PopupMenuItem(
-                            value: _rescanValue,
-                            child: Row(
-                              children: [
-                                Icon(Icons.refresh, size: 14),
-                                SizedBox(width: 6),
-                                Text('Rescan'),
-                              ],
-                            ),
-                          ),
                         ],
                         child: _SegmentLabel(
                           text: connecting ??
@@ -141,7 +123,42 @@ class SerialControls extends ConsumerWidget {
               ),
             ),
           ),
-          // Inner hairline joining the two segments.
+          // Rescan segment: circular-arrow refresh between the dropdown and
+          // the link action. Hidden while connected (port switching needs a
+          // disconnect first) — the picker flexes into the freed space and
+          // the outer width stays fixed, so siblings never shift.
+          if (!connected) ...[
+            // Inner hairline joining the picker and rescan segments.
+            Container(
+              width: 1,
+              height: 18,
+              color: AppColors.border,
+            ),
+            SizedBox(
+              width: refreshWidth,
+              height: 32,
+              child: Tooltip(
+                message: 'Rescan for serial ports',
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: notifier.refreshPorts,
+                    child: Container(
+                      alignment: Alignment.center,
+                      color: Colors.transparent,
+                      child: Icon(
+                        Icons.refresh,
+                        size: 17,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          // Inner hairline joining the link segment to its neighbor.
           Container(
             width: 1,
             height: 18,

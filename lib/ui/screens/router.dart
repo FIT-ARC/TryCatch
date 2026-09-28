@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Top-level screens reachable from the hamburger menu.
+/// Top-level screens reachable from the top-bar quick nav.
 enum AppScreen {
-  dashboard('Dashboard', Icons.space_dashboard_outlined),
-  flights('Recorded flights', Icons.flight_outlined),
+  dashboard('Dashboard', Icons.rocket_outlined),
+  flights('Recorded flights', Icons.history),
   monitor('Channel health', Icons.monitor_heart_outlined),
   deadReckoning('Dead reckoning', Icons.explore_outlined),
   settings('Settings', Icons.settings_outlined);
