@@ -647,7 +647,7 @@ Future<SatelliteTerrain?> fetchSatelliteTerrain({
 
 // ── Elevation (Terrarium DEM relief) ─────────────────────────────────────────
 // [demTileUrl]/[terrariumHeight] live in `core/elevation_math.dart` (single
-// source) alongside `elevation_service`.
+// source, shared with the tile precache).
 
 /// DEM zoom: z12 tiles are ~6.3 km wide at 50° latitude, so a 5×5 window
 /// covers the whole 20 km terrain with margin.
