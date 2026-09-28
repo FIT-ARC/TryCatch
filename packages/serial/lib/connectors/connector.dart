@@ -112,6 +112,11 @@ class ConnectorFsmState {
   /// Whether this state is part of the nominal flight pipeline.
   final bool pipeline;
 
+  /// Whether the vehicle is verifiably on the pad/ground in this state
+  /// (pre-launch idle/armed, landed). 3D views pin the rocket to pad
+  /// height here instead of rendering baro drift as levitation.
+  final bool grounded;
+
   const ConnectorFsmState({
     required this.id,
     required this.label,
@@ -120,6 +125,7 @@ class ConnectorFsmState {
     required this.hasParachute,
     required this.showsParachute,
     this.pipeline = true,
+    this.grounded = false,
   });
 }
 

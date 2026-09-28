@@ -37,6 +37,11 @@ void main() {
       expect(mockConnector.stateForId(4).showsParachute, isTrue);
       expect(mockConnector.stateForId(5).showsParachute, isFalse);
       expect(mockConnector.stateForId(5).hasParachute, isTrue);
+      // Pad/landed states are grounded for pad-height rendering.
+      expect(
+        [for (final s in states.where((s) => s.grounded)) s.id],
+        [0, 1, 5],
+      );
       // Unmapped ids fall back to unknown.
       expect(mockConnector.stateForId(0x42).id, 255);
       expect(mockConnector.unknownStateId, 255);

@@ -148,6 +148,35 @@ void main() {
       expect(pad.showNoseCone, isTrue);
       expect(pad.showParachute, isFalse);
     });
+
+    test('grounded states pin the rocket and trail to pad height', () {
+      TelemetryState stateWith(FsmState s, double alt) {
+        final frame = TelemetryFrame(
+          flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+          latitude: 50.0,
+          longitude: 14.0,
+          gpsAltitude: 300,
+          baroAltitude: alt,
+          fsmStateId: s.id,
+        );
+        final history = RingBuffer<TelemetryFrame>(16)..push(frame);
+        return TelemetryState(
+          history: history,
+          deadReckoningHistory: RingBuffer<DeadReckoningPosition>(16),
+          latest: frame,
+        );
+      }
+
+      // Baro drift on the pad renders as sitting on the pad, not hovering.
+      final pad = buildFlightScene(stateWith(FsmState.armed, 8.0), null)!;
+      expect(pad.rocketPos.y, 0);
+      expect(pad.trail.map((p) => p.y), everyElement(0));
+
+      // Aloft states keep the reported altitude untouched.
+      final flying =
+          buildFlightScene(stateWith(FsmState.ascent, 100.0), null)!;
+      expect(flying.rocketPos.y, 100.0);
+    });
   });
 
   group('flightGroundGrid', () {

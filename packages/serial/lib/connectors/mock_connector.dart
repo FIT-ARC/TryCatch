@@ -106,6 +106,9 @@ class MockConnector extends TelemetryConnector {
         state != FsmState.debugUnlocked &&
         state != FsmState.debugLocked &&
         state != FsmState.unknown,
+    grounded: state == FsmState.idle ||
+        state == FsmState.armed ||
+        state == FsmState.landed,
   );
 
   static const List<FsmState> _ordered = [

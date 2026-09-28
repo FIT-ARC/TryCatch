@@ -34,6 +34,11 @@ void main() {
       expect(segfaultConnector.stateForId(3).hasParachute, isFalse);
       expect(segfaultConnector.stateForId(0x42).id, 255);
       expect(segfaultConnector.unknownStateId, 255);
+      // Pre-launch states sit on the pad in 3D views.
+      expect(
+        [for (final s in states.where((s) => s.grounded)) s.id],
+        [0, 1],
+      );
     });
 
     test('publishes commands + state-request bytes + descriptions', () {

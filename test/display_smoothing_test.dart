@@ -30,7 +30,9 @@ const _site = LaunchSite(
 );
 
 /// Frames on a slow eastward drift with 1e-5 deg quantization alternation
-/// (the real wire grid: ~0.72 m steps at this latitude).
+/// (the real wire grid: ~0.72 m steps at this latitude). Ascending state:
+/// grounded (idle/armed) frames pin to pad height, which would collapse
+/// this climb.
 List<TelemetryFrame> driftFrames(int count) => [
       for (var i = 0; i < count; i++)
         TelemetryFrame(
@@ -44,6 +46,7 @@ List<TelemetryFrame> driftFrames(int count) => [
           accelX: 0,
           accelY: 0,
           accelZ: 9.81,
+          fsmStateId: 2,
         ),
     ];
 

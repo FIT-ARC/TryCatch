@@ -44,15 +44,9 @@ class PlaybackBar extends ConsumerWidget {
         // Isolated leaf consumer: rebuilds only when playing/finished/loading
         // changes — not on every positionMs tick.
         const _PlayPauseButton(),
-        Text(
-          '${formatMinSec(position)} / ${formatMinSec(duration)}',
-          style: AppText.mono.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: AppColors.mutedForeground,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
+        // Fixed-width clock: position pads to the duration's minute width
+        // ("7:42 / 17:29") so scrubbing never shifts siblings as digits grow.
+        _ClockText(position: position, duration: duration),
         const SizedBox(width: 4),
         Expanded(
           child: Padding(
@@ -72,6 +66,35 @@ class PlaybackBar extends ConsumerWidget {
         // Isolated leaf consumer: rebuilds only when loop/loading changes.
         const _LoopButton(),
       ],
+    );
+  }
+}
+
+/// Fixed-width clock readout: the position pads with leading zeros to the
+/// duration's minute width, so the row never shifts while scrubbing.
+class _ClockText extends StatelessWidget {
+  final int position;
+  final int duration;
+
+  const _ClockText({required this.position, required this.duration});
+
+  @override
+  Widget build(BuildContext context) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    String clock(int ms) {
+      final totalS = ms ~/ 1000;
+      return '${two(totalS ~/ 60)}:${two(totalS % 60)}';
+    }
+
+    return Text(
+      '${clock(position)} / ${clock(duration)}',
+      maxLines: 1,
+      style: AppText.mono.copyWith(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: AppColors.mutedForeground,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
     );
   }
 }

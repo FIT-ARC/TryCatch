@@ -351,6 +351,7 @@ class SegfaultConnector extends TelemetryConnector {
       hasNosecone: true,
       hasParachute: false,
       showsParachute: false,
+      grounded: true,
     ),
     ConnectorFsmState(
       id: 1,
@@ -359,6 +360,7 @@ class SegfaultConnector extends TelemetryConnector {
       hasNosecone: true,
       hasParachute: false,
       showsParachute: false,
+      grounded: true,
     ),
     ConnectorFsmState(
       id: 2,
