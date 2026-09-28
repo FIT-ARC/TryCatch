@@ -6,7 +6,7 @@
 /// | Off | Size | Field           | Type  | Notes                                   |
 /// |-----|------|-----------------|-------|-----------------------------------------|
 /// | 0   | 4    | magic           | u32   | 0x54435233 ('TCR3')                     |
-/// | 4   | 2    | payloadLength   | u16   | Wire framing of the body (52, mock)     |
+/// | 4   | 2    | payloadLength   | u16   | Wire framing of the body (per-connector)  |
 /// | 6   | 2    | flags           | u16   | Bit 0: launch site present              |
 /// |     |      |                 |       | Bit 1: stats present                    |
 /// | 8   | 8    | startMicros     | i64   | First chunk timestamp (µs epoch)        |
@@ -48,7 +48,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../connectors/registry.dart';
-import '../constants.dart';
 import '../telemetry/frame_codec.dart' show crc16CCITT;
 import '../telemetry/sent_command.dart';
 import '../worker/protocol.dart';
@@ -79,7 +78,7 @@ const int recordingFlagStats = 1 << 1;
 
 /// Fixed header of a recording file. See the library doc for the layout.
 class RecordingHeader {
-  /// Wire framing of the body (always [TelemetryFraming.payloadLength]).
+  /// Wire framing of the body (the recording connector's framing).
   final int payloadLength;
 
   final bool hasLaunchSite;
@@ -549,7 +548,7 @@ Future<RecordingHeader?> finalizeRecordingFile(
 
     final body = encodeTelemetryBody(chunks);
     final finalized = RecordingHeader(
-      payloadLength: TelemetryFraming.payloadLength,
+      payloadLength: connector.framingPayloadLength,
       hasLaunchSite: true,
       hasStats: true,
       startMicros: chunks.first.tsUs,

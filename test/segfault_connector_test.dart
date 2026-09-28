@@ -139,6 +139,43 @@ void main() {
       expect(parser.crcErrorCount, 0);
     });
 
+    test('flight-frame translation round-trips within wire quantum', () {
+      // Representative mid-flight values: encode like
+      // tool/translate_connector.dart does, decode back, compare.
+      final packet = SegfaultPacketCodec.encodePacket(
+        packetId: 300, // wraps u8, like a long flight
+        stateFlags: 4,
+        accelXMps2: 1.657,
+        accelYMps2: 9.542,
+        accelZMps2: 0.776,
+        gyroXDps: 4.45,
+        gyroYDps: -19.09,
+        gyroZDps: 2.44,
+        aglM: 320.4,
+        batteryV: 4.0,
+        latitude: 49.797,
+        longitude: 16.697,
+        verticalUpMps: 11.5,
+        ky024: 2154,
+      );
+      final frame = SegfaultPacketCodec.decode(packet, receivedAtMs: 7)!;
+      expect(frame.sequence, 300 & 0xFF);
+      expect(frame.fsmStateId, 4);
+      expect(frame.baroAltitude, closeTo(320.4, 0.06));
+      expect(frame.velocityDown, closeTo(-11.5, 0.06));
+      expect(frame.accelX, closeTo(1.657, 0.01));
+      expect(frame.gyroY, closeTo(-19.09, 0.05));
+      expect(frame.batteryVoltage, closeTo(4.0, 0.011));
+      expect(frame.hallRaw, 2154);
+      expect(frame.latitude, closeTo(49.797, 1.2e-5));
+      // Dropped without replacement: horizontal velocity, yaw/heading,
+      // GPS altitude. Roll/pitch re-derive from accel.
+      expect(frame.velocityNorth, 0);
+      expect(frame.yaw, 0);
+      expect(frame.heading, 0);
+      expect(frame.gpsAltitude, 0);
+    });
+
     test('parser hunts sync, tolerates splits and garbage', () {
       final parser = segfaultConnector.createParser();
       final a = SegfaultPacketCodec.encodePacket(packetId: 1, stateFlags: 0);

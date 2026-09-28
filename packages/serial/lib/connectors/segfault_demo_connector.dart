@@ -27,6 +27,7 @@ import 'connector.dart';
 import 'segfault_connector.dart'
     show
         SegfaultConnectorParser,
+        SegfaultFraming,
         SegfaultPacketCodec,
         segfaultMagicC,
         segfaultMagicG;
@@ -47,6 +48,9 @@ class SegfaultDemoConnector extends TelemetryConnector {
   @override
   ConnectorStreamParser createParser() =>
       SegfaultConnectorParser(assumeGpsFix: false);
+
+  @override
+  int get framingPayloadLength => SegfaultFraming.payloadLength;
 
   static const List<ConnectorFsmState> _states = [
     ConnectorFsmState(

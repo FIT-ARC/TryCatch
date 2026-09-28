@@ -228,6 +228,10 @@ abstract class TelemetryConnector {
   /// Creates a fresh stateful stream parser for one session.
   ConnectorStreamParser createParser();
 
+  /// Wire payload length stamped into recording headers, so readers know
+  /// the framing the body was written with (52 mock, 31 segfault family).
+  int get framingPayloadLength;
+
   /// Every FSM state this rocket can report, in display order.
   ///
   /// Includes the unknown fallback ([unknownStateId]) so [stateForId] can

@@ -341,6 +341,8 @@ class SegfaultConnector extends TelemetryConnector {
   @override
   ConnectorStreamParser createParser() => SegfaultConnectorParser();
 
+  @override
+  int get framingPayloadLength => SegfaultFraming.payloadLength;
   static const List<ConnectorFsmState> _states = [
     ConnectorFsmState(
       id: 0,

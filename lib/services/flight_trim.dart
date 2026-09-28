@@ -59,7 +59,8 @@ Future<int> trimRecording({
     await writeRecordingFile(
       dstPath,
       RecordingHeader(
-        payloadLength: TelemetryFraming.payloadLength,
+        payloadLength: connectorById(srcConnectorId)?.framingPayloadLength ??
+            TelemetryFraming.payloadLength,
         connectorId: srcConnectorId,
       ),
       kept,

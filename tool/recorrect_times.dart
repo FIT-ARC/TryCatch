@@ -228,7 +228,7 @@ Future<void> main(List<String> args) async {
   await writeRecordingFile(
     outputPath,
     RecordingHeader(
-      payloadLength: TelemetryFraming.payloadLength,
+      payloadLength: connector.framingPayloadLength,
       connectorId: header.connectorId,
     ),
     outChunks,

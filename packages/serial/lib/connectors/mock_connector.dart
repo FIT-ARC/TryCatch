@@ -9,6 +9,7 @@ library;
 
 import 'dart:typed_data';
 
+import '../constants.dart';
 import '../io/packet_parser.dart';
 import '../telemetry/frame_codec.dart';
 import '../telemetry/rocket_commands.dart';
@@ -73,6 +74,9 @@ class MockConnector extends TelemetryConnector {
 
   @override
   ConnectorStreamParser createParser() => MockConnectorParser();
+
+  @override
+  int get framingPayloadLength => TelemetryFraming.payloadLength;
 
   /// ARGB tile colors per state (light-mode reference of the app `fsm*`
   /// palette — see `AppPalette`. The UI resolves the active light/dark

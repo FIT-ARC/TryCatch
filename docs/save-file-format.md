@@ -20,7 +20,7 @@ flowchart LR
 | Off | Size | Field | Type | Notes |
 |-----|------|-------|------|-------|
 | 0 | 4 | magic | u32 | `0x54435233` (`TCR3`) |
-| 4 | 2 | payloadLength | u16 | Wire framing, 52 for mock |
+| 4 | 2 | payloadLength | u16 | Wire framing, per connector (52 mock, 31 segfault family) |
 | 6 | 2 | flags | u16 | bit0 = site present, bit1 = stats present |
 | 8 | 8 | startMicros | i64 | First chunk timestamp, µs epoch |
 | 16 | 8 | endMicros | i64 | Last chunk timestamp |
