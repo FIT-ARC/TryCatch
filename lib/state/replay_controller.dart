@@ -238,7 +238,14 @@ class ReplayController extends SessionStore<ReplayState> {
   /// recording's own vocabulary. The live link is dropped up front — the
   /// replay owns the session — and [stop] stays disconnected, so returning
   /// to live is one tap on Connect.
-  Future<void> play(String path) async {
+  Future<void> play(String path) => _play(path, bundled: false);
+
+  /// Loads and plays a read-only bundled asset (`assets/recordings/*.bin`)
+  /// without touching disk. The asset key doubles as the replay's
+  /// [ReplayState.filePath] identity.
+  Future<void> playAsset(String assetKey) => _play(assetKey, bundled: true);
+
+  Future<void> _play(String source, {required bool bundled}) async {
     final initialSmoothing = state.smoothingEnabled;
     final initialLoop = state.loopEnabled;
     final generation = ++_loadGeneration;
@@ -248,19 +255,21 @@ class ReplayController extends SessionStore<ReplayState> {
     _index = 0;
     _store.setReplaying(false);
     // Publish a loading state immediately so the UI can show a spinner
-    // while the (potentially large) file decodes.
+    // while the (potentially large) source decodes.
     state = ReplayState(
-      filePath: path,
+      filePath: source,
       isLoading: true,
       smoothingEnabled: initialSmoothing,
       loopEnabled: initialLoop,
     );
 
-    final loaded = await RecordingRepository.loadReplay(path);
+    final loaded = bundled
+        ? await RecordingRepository.loadReplayFromAsset(source)
+        : await RecordingRepository.loadReplay(source);
     if (generation != _loadGeneration) return;
     if (loaded == null) {
       state = ReplayState(
-        filePath: path,
+        filePath: source,
         durationMs: 0,
         errorMsg:
             'Unsupported recording — expected a v3 recording with a header, launch site and known connector.',
@@ -297,7 +306,7 @@ class ReplayController extends SessionStore<ReplayState> {
     if (site == null) {
       _store.setReplaying(false);
       state = ReplayState(
-        filePath: path,
+        filePath: source,
         durationMs: 0,
         errorMsg:
             'Unsupported recording — expected a launch site in the header.',
@@ -312,7 +321,7 @@ class ReplayController extends SessionStore<ReplayState> {
       return;
     }
     state = ReplayState(
-      filePath: path,
+      filePath: source,
       playing: true,
       speed: 1,
       positionMs: 0,

@@ -50,6 +50,11 @@ flutter:
     assets:
         - assets/icon.png
         - assets/icon.ico
+        # Sample flights: every .bin in this directory is listed read-only in
+        # Recorded flights and replayed straight from the asset (never copied).
+        # Assets are bundled at build time, so adding/removing a file needs a
+        # full restart (a hot reload keeps the previous asset bundle).
+        - assets/recordings/
 
 flutter_launcher_icons:
     image_path: "assets/icon.png"

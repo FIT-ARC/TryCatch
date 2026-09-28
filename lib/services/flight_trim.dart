@@ -1,6 +1,11 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:serial/serial.dart';
+
+import '../foundation/time/decimation.dart';
+import '../foundation/time/time_series.dart';
 
 /// Raw recording chunk I/O + trimming ("save part of a flight").
 ///
@@ -118,14 +123,69 @@ Future<DecodedFlight> decodeRecordingFrames(String path) async {
       : const DecodedFlight([]);
 }
 
-/// Decimates baro altitudes for thumbnails/graphs (≤160 points).
-List<double> buildAltProfile(List<TelemetryFrame> frames) {
-  final alts = [for (final f in frames) f.baroAltitude];
-  if (alts.length > 160) {
-    final step = alts.length / 160;
-    return [for (var i = 0; i < 160; i++) alts[(i * step).floor()]];
+/// [decodeRecordingFrames] for a recording held in memory (bundled asset):
+/// same connector-driven reassembly, no file on disk.
+Future<DecodedFlight> decodeRecordingFramesFromBytes(Uint8List bytes) async {
+  final data = decodeRecordingBytes(bytes);
+  final connector = data == null ? null : connectorById(data.header.connectorId);
+  if (data == null || connector == null) {
+    return const DecodedFlight([]);
   }
-  return alts;
+  final parser = connector.createParser();
+  final frames = <TelemetryFrame>[];
+  for (final chunk in data.chunks) {
+    frames.addAll(parser.feed(chunk.payload, timestampMs: chunk.tsMs));
+  }
+  return frames.isNotEmpty
+      ? DecodedFlight(frames)
+      : const DecodedFlight([]);
+}
+
+/// One decimated altitude sample: barometric altitude at [timeMs], a
+/// flight-clock offset from the first decoded frame.
+///
+/// Pairing each value with its own timestamp keeps a spiky profile aligned
+/// with the flight-event markers even when frames are unevenly spaced — a
+/// long idle gap before or after the flight no longer stretches the flight
+/// part across the whole chart.
+class AltitudePoint {
+  final int timeMs;
+  final double altitude;
+
+  const AltitudePoint(this.timeMs, this.altitude);
+}
+
+/// Target number of points in a decimated altitude profile.
+const int maxAltProfilePoints = 160;
+
+/// Decimates baro altitudes for thumbnails/graphs (≤[maxAltProfilePoints]
+/// points), tagging every point with its flight-clock time.
+///
+/// Short flights keep every frame. Longer ones bucket by time and keep each
+/// bucket's minimum and maximum (spike-safe, so a narrow apogee is not
+/// skipped), and the resulting x positions follow the recording clock rather
+/// than frame order.
+List<AltitudePoint> buildAltProfile(List<TelemetryFrame> frames) {
+  if (frames.isEmpty) return const [];
+  final t0 = frames.first.receivedAtMs;
+  List<AltitudePoint> tagged(Iterable<TelemetryFrame> source) => [
+        for (final frame in source)
+          AltitudePoint(frame.receivedAtMs - t0, frame.baroAltitude),
+      ];
+  if (frames.length <= maxAltProfilePoints) return tagged(frames);
+  final spanMs = frames.last.receivedAtMs - t0;
+  final bucketMs = math.max(1, spanMs ~/ (maxAltProfilePoints ~/ 2));
+  final series = ListTimeSeries<TelemetryFrame>(
+    (frame) => frame.receivedAtMs,
+    frames,
+  );
+  final decimated = decimate<TelemetryFrame>(
+    series,
+    (frame) => (frame.receivedAtMs - t0) ~/ bucketMs,
+    [(frame) => frame.baroAltitude],
+    maxPoints: maxAltProfilePoints,
+  );
+  return tagged(decimated);
 }
 
 /// Decimates GPS fixes for 3D previews (≤160 points, oldest first).

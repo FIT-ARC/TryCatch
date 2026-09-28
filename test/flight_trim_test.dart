@@ -189,14 +189,94 @@ void main() {
       }
     });
 
+    test('decodeRecordingFramesFromBytes mirrors the file decode', () async {
+      final dir = await _tempDir();
+      try {
+        final stream = <int>[];
+        for (var i = 0; i < 20; i++) {
+          stream.addAll(FrameCodec.encodePacket(TelemetryFrame(
+            sequence: i,
+            baroAltitude: i * 10.0,
+          )));
+        }
+        final chunks = [
+          RecordingChunk(tsUs: 1000000, payload: Uint8List.fromList(stream)),
+        ];
+        final path = '${dir.path}${Platform.pathSeparator}bytes.bin';
+        await writeRecordingFile(
+          path,
+          const RecordingHeader(
+            payloadLength: TelemetryFraming.payloadLength,
+            connectorId: 'mock',
+          ),
+          chunks,
+        );
+        final bytes = await File(path).readAsBytes();
+        final parsed = decodeRecordingBytes(bytes);
+        expect(parsed, isNotNull);
+        expect(parsed!.chunks.length, 1);
+        final flight = await decodeRecordingFramesFromBytes(bytes);
+        expect(flight.frames.length, 20);
+        expect(flight.frames.last.baroAltitude, 190);
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('decodeRecordingBytes rejects headerless bytes', () {
+      expect(
+        decodeRecordingBytes(Uint8List.fromList(List.filled(200, 0))),
+        isNull,
+      );
+    });
+
     test('track profile keeps fixes only', () {
       final frames = [
         const TelemetryFrame(flags: FrameFlags.gpsFix, baroAltitude: 1),
         const TelemetryFrame(baroAltitude: 2),
-        const TelemetryFrame(flags: FrameFlags.gpsFix, baroAltitude: 3),
+        const TelemetryFrame(
+          flags: FrameFlags.gpsFix,
+          baroAltitude: 3,
+          receivedAtMs: 20,
+        ),
       ];
-      expect(buildAltProfile(frames), [1, 2, 3]);
+      expect(
+        [for (final p in buildAltProfile(frames)) p.altitude],
+        [1, 2, 3],
+      );
       expect(buildTrackProfile(frames).length, 2);
+    });
+
+    test('altitude profile is time-tagged and spike-safe', () {
+      // A long idle at 10 Hz, then a one-second burst to 500 m, then idle.
+      // Uniform-by-index decimation would stretch the burst across the chart;
+      // the time-tagged profile keeps it near its real 50% position.
+      final frames = <TelemetryFrame>[];
+      for (var i = 0; i < 300; i++) {
+        frames.add(TelemetryFrame(
+          receivedAtMs: i * 100,
+          baroAltitude: 0,
+        ));
+      }
+      for (var i = 0; i < 10; i++) {
+        frames.add(TelemetryFrame(
+          receivedAtMs: 30000 + i * 100,
+          baroAltitude: i * 50.0,
+        ));
+      }
+      for (var i = 0; i < 300; i++) {
+        frames.add(TelemetryFrame(
+          receivedAtMs: 31000 + i * 100,
+          baroAltitude: 0,
+        ));
+      }
+      final profile = buildAltProfile(frames);
+      expect(profile.length, lessThanOrEqualTo(maxAltProfilePoints));
+      final peak = profile.reduce((a, b) => a.altitude >= b.altitude ? a : b);
+      expect(peak.altitude, 450);
+      // Flight clock runs 0..60.9 s; the spike sits at 30..31 s.
+      expect(peak.timeMs, inInclusiveRange(30000, 31000));
+      expect(profile.last.timeMs, 60900);
     });
   });
 }

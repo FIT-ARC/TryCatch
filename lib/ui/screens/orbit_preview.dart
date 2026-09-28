@@ -138,7 +138,7 @@ class _OrbitPreviewState extends State<OrbitPreview>
 /// sparkline (no fix, single point, or decode that yielded altitudes only).
 class OrbitOrSparkline extends StatelessWidget {
   final List<TrackPoint> track;
-  final List<double> altProfile;
+  final List<AltitudePoint> altProfile;
 
   const OrbitOrSparkline({
     super.key,
@@ -162,10 +162,11 @@ class OrbitOrSparkline extends StatelessWidget {
   }
 }
 
-/// Altitude sparkline thumbnail: min/max-normalised polyline + soft fill.
+/// Altitude sparkline thumbnail: min/max-normalised polyline + soft fill,
+/// plotted against the flight clock so the profile keeps its real shape.
 /// Flat/empty profiles render a quiet midline instead of crashing.
 class _SparklinePainter extends CustomPainter {
-  final List<double> values;
+  final List<AltitudePoint> values;
   final Color color;
 
   const _SparklinePainter({required this.values, required this.color});
@@ -175,9 +176,9 @@ class _SparklinePainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
     var lo = double.infinity;
     var hi = double.negativeInfinity;
-    for (final v in values) {
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+    for (final p in values) {
+      if (p.altitude < lo) lo = p.altitude;
+      if (p.altitude > hi) hi = p.altitude;
     }
     if (!lo.isFinite || (hi - lo).abs() < 1e-9) {
       final y = size.height / 2;
@@ -192,12 +193,18 @@ class _SparklinePainter extends CustomPainter {
     }
     const pad = 3.0;
     final n = values.length;
-    Offset pt(int i) => Offset(
-          pad + (size.width - 2 * pad) * (n == 1 ? 0.5 : i / (n - 1)),
-          pad +
-              (size.height - 2 * pad) *
-                  (1 - (values[i] - lo) / (hi - lo)),
-        );
+    final spanMs = values.last.timeMs - values.first.timeMs;
+    Offset pt(int i) {
+      final xFrac = spanMs <= 0
+          ? (n == 1 ? 0.5 : i / (n - 1))
+          : (values[i].timeMs - values.first.timeMs) / spanMs;
+      return Offset(
+        pad + (size.width - 2 * pad) * xFrac,
+        pad +
+            (size.height - 2 * pad) *
+                (1 - (values[i].altitude - lo) / (hi - lo)),
+      );
+    }
     final path = Path()..moveTo(pt(0).dx, pt(0).dy);
     for (var i = 1; i < n; i++) {
       path.lineTo(pt(i).dx, pt(i).dy);

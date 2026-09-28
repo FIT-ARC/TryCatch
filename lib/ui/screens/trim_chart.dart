@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
+import '../../services/flight_trim.dart' show AltitudePoint;
 import '../../theme/app_colors.dart';
 import '../components/flight_event_style.dart';
 
@@ -12,7 +13,7 @@ import '../components/flight_event_style.dart';
 /// surrounding card/dialog touch the filesystem and can't run in the
 /// fake-async test zone.
 class TrimChart extends StatelessWidget {
-  final List<double> values;
+  final List<AltitudePoint> values;
   final List<FlightEvent> events;
   final int totalMs;
   final int startMs;
@@ -50,6 +51,7 @@ class TrimChart extends StatelessWidget {
               child: CustomPaint(
                 painter: _TrimChartPainter(
                   values: values,
+                  totalMs: totalMs,
                   startFrac: startFrac,
                   endFrac: endFrac,
                   color: color,
@@ -81,9 +83,9 @@ class TrimChart extends StatelessWidget {
 
   /// Resolves each event to a dot centre on the altitude curve: x from the
   /// flight-clock fraction (the same time base as the kept-window edges), y
-  /// from the decimated profile value nearest that fraction. Dots landing
-  /// within one diameter of an earlier dot nudge downward so stacked markers
-  /// never paint on top of each other; x (the true position) never moves.
+  /// from the nearest profile point in time. Dots landing within one diameter
+  /// of an earlier dot nudge downward so stacked markers never paint on top
+  /// of each other; x (the true position) never moves.
   List<_TrimDot> _placeDots(double w, double h) {
     final dots = <_TrimDot>[];
     if (events.isEmpty ||
@@ -95,19 +97,25 @@ class TrimChart extends StatelessWidget {
     }
     var lo = double.infinity;
     var hi = double.negativeInfinity;
-    for (final v in values) {
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+    for (final p in values) {
+      if (p.altitude < lo) lo = p.altitude;
+      if (p.altitude > hi) hi = p.altitude;
     }
     final flat = values.length < 2 || !lo.isFinite || (hi - lo).abs() < 1e-9;
     const pad = 4.0;
     double yAt(double frac) {
       if (flat) return h / 2;
-      final idx = (frac * (values.length - 1)).round().clamp(
-        0,
-        values.length - 1,
-      );
-      return pad + (h - 2 * pad) * (1 - (values[idx] - lo) / (hi - lo));
+      final targetMs = frac * totalMs;
+      var idx = 0;
+      var best = double.infinity;
+      for (var i = 0; i < values.length; i++) {
+        final d = (values[i].timeMs - targetMs).abs();
+        if (d < best) {
+          best = d;
+          idx = i;
+        }
+      }
+      return pad + (h - 2 * pad) * (1 - (values[idx].altitude - lo) / (hi - lo));
     }
 
     for (final event in events) {
@@ -165,13 +173,15 @@ class _TrimDot {
 /// window at full strength with edge markers. (Event dots are widgets
 /// overlaid by [TrimChart], not paint, so they keep tooltips.)
 class _TrimChartPainter extends CustomPainter {
-  final List<double> values;
+  final List<AltitudePoint> values;
+  final int totalMs;
   final double startFrac;
   final double endFrac;
   final Color color;
 
   const _TrimChartPainter({
     required this.values,
+    required this.totalMs,
     required this.startFrac,
     required this.endFrac,
     required this.color,
@@ -182,17 +192,22 @@ class _TrimChartPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0 || values.length < 2) return;
     var lo = double.infinity;
     var hi = double.negativeInfinity;
-    for (final v in values) {
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+    for (final p in values) {
+      if (p.altitude < lo) lo = p.altitude;
+      if (p.altitude > hi) hi = p.altitude;
     }
     if (!lo.isFinite || (hi - lo).abs() < 1e-9) return;
     const pad = 4.0;
     final n = values.length;
-    Offset pt(int i) => Offset(
-      pad + (size.width - 2 * pad) * i / (n - 1),
-      pad + (size.height - 2 * pad) * (1 - (values[i] - lo) / (hi - lo)),
-    );
+    Offset pt(int i) {
+      final xFrac = totalMs <= 0
+          ? (n == 1 ? 0.5 : i / (n - 1))
+          : (values[i].timeMs / totalMs).clamp(0.0, 1.0);
+      return Offset(
+        pad + (size.width - 2 * pad) * xFrac,
+        pad + (size.height - 2 * pad) * (1 - (values[i].altitude - lo) / (hi - lo)),
+      );
+    }
     final path = Path()..moveTo(pt(0).dx, pt(0).dy);
     for (var i = 1; i < n; i++) {
       path.lineTo(pt(i).dx, pt(i).dy);
@@ -228,6 +243,7 @@ class _TrimChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TrimChartPainter old) =>
       !identical(old.values, values) ||
+      old.totalMs != totalMs ||
       old.startFrac != startFrac ||
       old.endFrac != endFrac ||
       old.color != color;

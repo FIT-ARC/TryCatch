@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
+import '../../services/recording_repository.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
 import '../../session/feedback.dart';
@@ -50,6 +51,9 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
   /// path + size + mtime) so refreshes don't re-parse unchanged files.
   /// Headers yield duration/packets/max-alt/connector straight from the
   /// fixed header.
+  ///
+  /// Read-only bundled assets under `assets/recordings/` are listed next to
+  /// the user's files (keyed by asset path) without copying them to disk.
   final _infoCache = <String, RecordingInfo>{};
 
   Future<List<RecordingInfo>> _scanRecordings() async {
@@ -77,22 +81,7 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
           modified: stat.modified,
         );
         try {
-          final header = await tryReadRecordingHeader(entity.path);
-          if (header != null) {
-            info.launchSite = launchSiteFromHeader(header);
-            if (header.connectorId.isNotEmpty) {
-              info.connectorId = header.connectorId;
-            }
-            if (header.startMicros > 0) {
-              info.flightTime =
-                  DateTime.fromMicrosecondsSinceEpoch(header.startMicros);
-            }
-            if (header.hasStats) {
-              info.durationMs = header.durationMs;
-              info.packets = header.packetCount;
-              info.maxAltM = header.maxBaroAltM;
-            }
-          }
+          _applyHeader(info, await tryReadRecordingHeader(entity.path));
         } catch (_) {
           // Header read is best-effort; the card decode fills stats instead.
         }
@@ -100,6 +89,28 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
         recordings.add(info);
       } catch (_) {
         // Skip unreadable files.
+      }
+    }
+    for (final assetKey in await RecordingRepository.bundledRecordingKeys()) {
+      seen.add(assetKey);
+      final cached = _infoCache[assetKey];
+      if (cached != null) {
+        recordings.add(cached);
+        continue;
+      }
+      try {
+        final bytes = await RecordingRepository.readAssetBytes(assetKey);
+        final info = RecordingInfo(
+          path: assetKey,
+          sizeBytes: bytes.lengthInBytes,
+          modified: DateTime.fromMillisecondsSinceEpoch(0),
+          origin: RecordingOrigin.bundled,
+        );
+        _applyHeader(info, RecordingHeader.decode(bytes));
+        _infoCache[assetKey] = info;
+        recordings.add(info);
+      } catch (_) {
+        // Skip unreadable assets; they stay out of the grid.
       }
     }
     _infoCache.removeWhere((key, _) => !seen.contains(key));
@@ -115,6 +126,24 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
       return a.name.compareTo(b.name);
     });
     return recordings;
+  }
+
+  /// Fills a recording's header-derived metadata (launch site, connector,
+  /// flight time and stats) from [header], skipping a null/unreadable one.
+  void _applyHeader(RecordingInfo info, RecordingHeader? header) {
+    if (header == null) return;
+    info.launchSite = launchSiteFromHeader(header);
+    if (header.connectorId.isNotEmpty) {
+      info.connectorId = header.connectorId;
+    }
+    if (header.startMicros > 0) {
+      info.flightTime = DateTime.fromMicrosecondsSinceEpoch(header.startMicros);
+    }
+    if (header.hasStats) {
+      info.durationMs = header.durationMs;
+      info.packets = header.packetCount;
+      info.maxAltM = header.maxBaroAltM;
+    }
   }
 
   Future<void> _openFolder() async {
@@ -161,7 +190,12 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
     }
     setState(() => _loadingPath = recording.path);
     try {
-      await ref.read(replayProvider.notifier).play(recording.path);
+      final replay = ref.read(replayProvider.notifier);
+      if (recording.isBundled) {
+        await replay.playAsset(recording.path);
+      } else {
+        await replay.play(recording.path);
+      }
     } finally {
       if (mounted) setState(() => _loadingPath = null);
     }

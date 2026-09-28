@@ -63,7 +63,9 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
   /// the file header are kept; the decode only adds the visual profiles.
   Future<void> _loadPreview() async {
     try {
-      final flight = await RecordingRepository.decodePreview(widget.info.path);
+      final flight = widget.info.isBundled
+          ? await RecordingRepository.decodePreviewFromAsset(widget.info.path)
+          : await RecordingRepository.decodePreview(widget.info.path);
       if (!mounted) return;
       setState(() {
         final info = widget.info;
@@ -171,16 +173,22 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
   Widget build(BuildContext context) {
     final info = widget.info;
     final isLoaded = widget.isLoaded;
+    final bundled = info.isBundled;
     final presets =
         ref.watch(launchSiteProvider).value?.presets ?? const <LaunchSite>[];
     final fileSite = info.launchSite;
     final showExtractSite =
         fileSite != null && !isLaunchSiteSaved(presets, fileSite);
-    final canTrim = info.durationMs != null && info.durationMs! > 2000;
+    final canTrim =
+        !bundled && info.durationMs != null && info.durationMs! > 2000;
+    // Bundled samples are read-only: rename/trim/delete are not offered, so
+    // the menu collapses to "Extract site" (or hides entirely).
+    final showMenu = !bundled || showExtractSite;
     final stats = <String>[
       if (info.durationMs != null) formatMinSec(info.durationMs!),
       if (info.packets != null) '${info.packets} packets',
       if (info.maxAltM != null) 'max ${formatAltitudeM(info.maxAltM)}',
+      if (bundled) 'bundled',
       _sizeLabel,
     ];
     final date = formatDateTime(info.flightDate);
@@ -225,75 +233,79 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                tooltip: 'Recording actions',
-                iconSize: 18,
-                onSelected: (value) {
-                  switch (value) {
-                    case 'trim':
-                      widget.onTrim();
-                    case 'rename':
-                      _rename();
-                    case 'extract':
-                      final site = fileSite;
-                      if (site != null) _saveLaunchSite(site);
-                    case 'delete':
-                      widget.onDelete();
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'trim',
-                    enabled: canTrim,
-                    child: const Row(
-                      children: [
-                        Icon(Icons.content_cut_outlined, size: 16),
-                        SizedBox(width: 8),
-                        Text('Trim…'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'rename',
-                    child: Row(
-                      children: [
-                        Icon(Icons.drive_file_rename_outline, size: 16),
-                        SizedBox(width: 8),
-                        Text('Rename…'),
-                      ],
-                    ),
-                  ),
-                  if (showExtractSite)
-                    PopupMenuItem(
-                      value: 'extract',
-                      enabled: !_savingSite,
-                      child: Row(
-                        children: [
-                          const Icon(Icons.pin_drop_outlined, size: 16),
-                          const SizedBox(width: 8),
-                          Text(_savingSite ? 'Saving…' : 'Extract site'),
-                        ],
+              if (showMenu)
+                PopupMenuButton<String>(
+                  tooltip: 'Recording actions',
+                  iconSize: 18,
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'trim':
+                        widget.onTrim();
+                      case 'rename':
+                        _rename();
+                      case 'extract':
+                        final site = fileSite;
+                        if (site != null) _saveLaunchSite(site);
+                      case 'delete':
+                        widget.onDelete();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (!bundled) ...[
+                      const PopupMenuItem(
+                        value: 'rename',
+                        child: Row(
+                          children: [
+                            Icon(Icons.drive_file_rename_outline, size: 16),
+                            SizedBox(width: 8),
+                            Text('Rename'),
+                          ],
+                        ),
                       ),
-                    ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.delete_outline,
-                          size: 16,
-                          color: AppColors.destructive,
+                      PopupMenuItem(
+                        value: 'trim',
+                        enabled: canTrim,
+                        child: const Row(
+                          children: [
+                            Icon(Icons.content_cut_outlined, size: 16),
+                            SizedBox(width: 8),
+                            Text('Trim'),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Delete',
-                          style: TextStyle(color: AppColors.destructive),
+                      ),
+                    ],
+                    if (showExtractSite)
+                      PopupMenuItem(
+                        value: 'extract',
+                        enabled: !_savingSite,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.pin_drop_outlined, size: 16),
+                            const SizedBox(width: 8),
+                            Text(_savingSite ? 'Saving…' : 'Extract site'),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                      ),
+                    if (!bundled)
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              size: 16,
+                              color: AppColors.destructive,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Delete',
+                              style: TextStyle(color: AppColors.destructive),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 6),

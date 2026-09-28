@@ -33,9 +33,18 @@ bool isLaunchSiteSaved(
   return false;
 }
 
+/// Where a recording's bytes live: a user file on disk or a read-only
+/// bundled asset (`assets/recordings/`).
+enum RecordingOrigin { file, bundled }
+
 /// Metadata + decoded preview about one `.bin` recording.
 class RecordingInfo {
+  /// Asset key for [RecordingOrigin.bundled], file path for
+  /// [RecordingOrigin.file].
   final String path;
+
+  /// Whether this recording is a read-only bundled asset.
+  final RecordingOrigin origin;
   final int sizeBytes;
   final DateTime modified;
   int? durationMs;
@@ -51,8 +60,9 @@ class RecordingInfo {
   /// so previews still decode with something).
   String connectorId = defaultConnectorId;
 
-  /// Decimated barometric altitude series (≤160 pts) for thumbnails.
-  List<double> altProfile = const [];
+  /// Decimated barometric altitude profile (≤160 time-tagged points) for
+  /// thumbnails and the trim graph.
+  List<AltitudePoint> altProfile = const [];
 
   /// Decimated GPS track (≤160 pts, oldest first) for the 3D orbit preview.
   List<TrackPoint> track = const [];
@@ -76,11 +86,16 @@ class RecordingInfo {
     required this.path,
     required this.sizeBytes,
     required this.modified,
+    this.origin = RecordingOrigin.file,
     this.durationMs,
     this.packets,
     this.maxAltM,
     this.launchSite,
   });
+
+  /// Bundled recordings are shipped read-only; they cannot be renamed,
+  /// trimmed or deleted.
+  bool get isBundled => origin == RecordingOrigin.bundled;
 
   String get name => basename(path);
 
@@ -89,8 +104,11 @@ class RecordingInfo {
   /// Renames the file on disk (names are just filenames, so clips keep
   /// working). The `.bin` suffix is added when missing; existing files are
   /// never overwritten; renaming onto itself is a no-op. Returns the new
-  /// path.
+  /// path. Bundled recordings are read-only and refuse.
   Future<String> renameTo(String fileName) async {
+    if (isBundled) {
+      throw StateError('Bundled recordings are read-only.');
+    }
     final raw = fileName.trim();
     if (raw.isEmpty || raw.contains('/') || raw.contains(r'\')) {
       throw StateError('Give the flight a plain file name.');
@@ -106,6 +124,7 @@ class RecordingInfo {
   }
 
   Future<void> delete() async {
+    if (isBundled) return;
     final f = File(path);
     if (await f.exists()) await f.delete();
   }

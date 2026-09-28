@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:trycatch/core/flight_events.dart';
+import 'package:trycatch/services/flight_trim.dart' show AltitudePoint;
 import 'package:trycatch/ui/components/flight_event_style.dart';
 import 'package:trycatch/ui/screens/trim_chart.dart';
 
@@ -18,11 +19,18 @@ List<FlightEvent> _nominalEvents() => detectFlightEvents([
       _frame(5000, FsmState.landed),
     ]);
 
-const _ramp = [0.0, 10.0, 25.0, 45.0, 30.0, 5.0];
+const _ramp = [
+  AltitudePoint(0, 0),
+  AltitudePoint(1000, 10),
+  AltitudePoint(2000, 25),
+  AltitudePoint(3000, 45),
+  AltitudePoint(4000, 30),
+  AltitudePoint(5000, 5),
+];
 
 Future<void> _pumpChart(
   WidgetTester tester, {
-  List<double> values = _ramp,
+  List<AltitudePoint> values = _ramp,
   List<FlightEvent>? events,
   int totalMs = 5000,
   int startMs = 0,

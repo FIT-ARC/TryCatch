@@ -43,6 +43,19 @@ void main() {
       expect(() => info.renameTo('  '), throwsStateError);
       expect(() => info.renameTo('../evil'), throwsStateError);
     });
+
+    test('bundled recordings are read-only', () async {
+      final info = RecordingInfo(
+        path: 'assets/recordings/sample.bin',
+        sizeBytes: 1,
+        modified: DateTime(2026),
+        origin: RecordingOrigin.bundled,
+      );
+      expect(info.isBundled, isTrue);
+      expect(info.name, 'sample.bin');
+      expect(() => info.renameTo('other'), throwsStateError);
+      await info.delete(); // No-op, never touches the asset.
+    });
   });
 
   group('groupRecordingsByDay', () {

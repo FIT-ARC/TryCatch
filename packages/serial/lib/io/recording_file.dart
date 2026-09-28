@@ -407,6 +407,59 @@ Future<List<SentCommand>> readRecordingCommands(String path) async {
   }
 }
 
+/// A recording parsed from an in-memory byte buffer: its header, telemetry
+/// chunks and command log.
+class RecordingData {
+  final RecordingHeader header;
+  final List<RecordingChunk> chunks;
+  final List<SentCommand> commands;
+
+  const RecordingData({
+    required this.header,
+    required this.chunks,
+    required this.commands,
+  });
+}
+
+/// Parses a complete recording held in memory (e.g. a bundled asset),
+/// mirroring [tryReadRecordingHeader] / [readRecordingChunks] /
+/// [readRecordingCommands] so asset-backed recordings decode identically to
+/// files. Returns `null` when the header is missing or invalid.
+RecordingData? decodeRecordingBytes(Uint8List bytes) {
+  final header = RecordingHeader.decode(bytes);
+  if (header == null) return null;
+  final (start, end) = _telemetryRange(header, bytes.length);
+  final chunks = <RecordingChunk>[];
+  var cursor = start;
+  while (cursor + 12 <= end) {
+    final chunkHeader = ByteData.sublistView(bytes, cursor, cursor + 12);
+    final tsUs = chunkHeader.getInt64(0, Endian.big);
+    final len = chunkHeader.getUint32(8, Endian.big);
+    if (len > 4 * 1024 * 1024 || cursor + 12 + len > end) break;
+    chunks.add(RecordingChunk(
+      tsUs: tsUs,
+      payload: Uint8List.sublistView(bytes, cursor + 12, cursor + 12 + len),
+    ));
+    cursor += 12 + len;
+  }
+  final commands = <SentCommand>[];
+  final offset = header.commandsOffset;
+  if (header.commandCount > 0 &&
+      offset >= recordingHeaderLength &&
+      offset < bytes.length) {
+    final available = (bytes.length - offset) ~/ SentCommand.recordLength;
+    final count = header.commandCount.clamp(0, available);
+    for (var i = 0; i < count; i++) {
+      final from = offset + i * SentCommand.recordLength;
+      final cmd = SentCommand.decode(
+        Uint8List.sublistView(bytes, from, from + SentCommand.recordLength),
+      );
+      if (cmd != null) commands.add(cmd);
+    }
+  }
+  return RecordingData(header: header, chunks: chunks, commands: commands);
+}
+
 /// Walks the chunk stream in `[pos, end)`.
 Future<List<RecordingChunk>> _readChunks(
     RandomAccessFile raf, int pos, int end) async {

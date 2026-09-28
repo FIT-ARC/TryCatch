@@ -42,7 +42,10 @@ class _TrimDialogState extends ConsumerState<TrimDialog> {
     // Self-heal: if the card preview never decoded (stale/empty profile),
     // decode on demand so the altitude graph and event markers still show.
     if (widget.info.altProfile.length < 2 || !widget.info.previewDone) {
-      RecordingRepository.decodePreview(widget.info.path).then((flight) {
+      final preview = widget.info.isBundled
+          ? RecordingRepository.decodePreviewFromAsset(widget.info.path)
+          : RecordingRepository.decodePreview(widget.info.path);
+      preview.then((flight) {
         if (!mounted || flight.isEmpty) return;
         setState(() {
           if (widget.info.altProfile.length < 2) {
@@ -67,6 +70,10 @@ class _TrimDialogState extends ConsumerState<TrimDialog> {
   }
 
   Future<void> _save() async {
+    if (widget.info.isBundled) {
+      setState(() => _error = 'Bundled recordings are read-only.');
+      return;
+    }
     final fileName = _name.text.trim();
     if (fileName.isEmpty || basename(fileName) != fileName) {
       setState(() => _error = 'Give the clip a plain file name.');
