@@ -64,11 +64,15 @@ int mapGridToTrue(List<TimeAnchor> anchors, int gridMs) {
   return (last.trueMs + slope * (gridMs - last.gridMs)).round();
 }
 
-/// OG firmware state id → MOCK connector state id, mirroring the original
-/// converter (`00`/`01` pad → armed, `02` ascent, `04` parachute).
-/// Returns `null` for states with no MOCK equivalent (row skipped).
+/// OG firmware state id → MOCK connector state id.
+///
+/// `00` is the pad-idle state, `01` armed — kept distinct (unlike the legacy
+/// converter, which folded both into armed and reported 40 idle minutes as
+/// armed). `02` ascent, `04` parachute. Returns `null` for states with no
+/// MOCK equivalent (row skipped).
 int? ogFsmToMock(String og) => switch (og) {
-      '00' || '01' => 1,
+      '00' => 0,
+      '01' => 1,
       '02' => 2,
       '04' => 4,
       _ => null,

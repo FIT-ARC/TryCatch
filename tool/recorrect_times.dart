@@ -165,6 +165,7 @@ Future<void> main(List<String> args) async {
 
   // Anchors by trajectory match.
   final rawAnchors = <TimeAnchor>[];
+  final anchorCodes = <String>[];
   for (final row in flight) {
     var best = double.infinity;
     var bestGrid = -1;
@@ -181,6 +182,7 @@ Future<void> main(List<String> args) async {
     }
     if (best <= _matchThreshold) {
       rawAnchors.add(TimeAnchor(bestGrid, row.time.millisecondsSinceEpoch));
+      anchorCodes.add(row.fsm);
     }
   }
   // Anchors arrive in log time order already (flight rows sorted).
@@ -193,15 +195,41 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  // Re-time + collapse runs, keeping first-of-run.
+  // Arming truth: latest log time still reporting pad-idle. Body frames
+  // stamped armed before that were decoded from `00` rows by the legacy
+  // converter — restore them to idle so a 40-minute pad doesn't replay
+  // as one long armed state.
+  var armTimeMs = -1;
+  for (var i = 0; i < rawAnchors.length; i++) {
+    if (anchorCodes[i] == '00' &&
+        rawAnchors[i].trueMs > armTimeMs) {
+      armTimeMs = rawAnchors[i].trueMs;
+    }
+  }
+  if (armTimeMs >= 0) {
+    stdout.writeln('arming at '
+        '${DateTime.fromMillisecondsSinceEpoch(armTimeMs, isUtc: true).toIso8601String()}');
+  }
+
+  // Re-time + collapse runs, keeping first-of-run. Pre-arming frames the
+  // legacy converter stamped armed go back to idle (see armTimeMs).
   final retimed = <TelemetryFrame>[];
   TelemetryFrame? prev;
+  var rearmed = 0;
   for (final f in frames) {
     final t = mapGridToTrue(anchors, f.receivedAtMs);
+    var fsm = f.fsmStateId;
+    if (armTimeMs >= 0 && fsm == 1 && t < armTimeMs) {
+      fsm = 0;
+      rearmed++;
+    }
     if (prev != null && _sameSample(prev, f)) continue;
-    final nf = _withTime(f, t);
+    final nf = _withFsm(_withTime(f, t), fsm);
     retimed.add(nf);
-    prev = f;
+    prev = nf;
+  }
+  if (rearmed > 0) {
+    stdout.writeln('restored $rearmed pre-arming frames to idle.');
   }
   stdout.writeln('collapsed to ${retimed.length} frames '
       '(${(100 * (frames.length - retimed.length) / frames.length).toStringAsFixed(1)}% duplicates)');
@@ -309,7 +337,34 @@ Future<void> main(List<String> args) async {
 bool _sameSample(TelemetryFrame a, TelemetryFrame b) =>
     a.latitude == b.latitude &&
     a.longitude == b.longitude &&
-    a.baroAltitude == b.baroAltitude;
+    a.baroAltitude == b.baroAltitude &&
+    a.fsmStateId == b.fsmStateId;
+
+TelemetryFrame _withFsm(TelemetryFrame f, int fsmStateId) => TelemetryFrame(
+      receivedAtMs: f.receivedAtMs,
+      flags: f.flags,
+      sequence: f.sequence,
+      latitude: f.latitude,
+      longitude: f.longitude,
+      gpsAltitude: f.gpsAltitude,
+      baroAltitude: f.baroAltitude,
+      velocityNorth: f.velocityNorth,
+      velocityEast: f.velocityEast,
+      velocityDown: f.velocityDown,
+      accelX: f.accelX,
+      accelY: f.accelY,
+      accelZ: f.accelZ,
+      gyroX: f.gyroX,
+      gyroY: f.gyroY,
+      gyroZ: f.gyroZ,
+      heading: f.heading,
+      roll: f.roll,
+      pitch: f.pitch,
+      yaw: f.yaw,
+      batteryVoltage: f.batteryVoltage,
+      hallRaw: f.hallRaw,
+      fsmStateId: fsmStateId,
+    );
 
 TelemetryFrame _withTime(TelemetryFrame f, int ms) => TelemetryFrame(
       receivedAtMs: ms,

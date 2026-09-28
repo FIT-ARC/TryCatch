@@ -51,8 +51,8 @@ void main() {
   });
 
   group('ogFsmToMock', () {
-    test('mirrors the original converter', () {
-      expect(ogFsmToMock('00'), 1);
+    test('mirrors the pad/armed/flight states', () {
+      expect(ogFsmToMock('00'), 0);
       expect(ogFsmToMock('01'), 1);
       expect(ogFsmToMock('02'), 2);
       expect(ogFsmToMock('04'), 4);

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../core/format.dart';
+import '../../core/flight_states.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
@@ -131,7 +132,8 @@ class _FsmWidgetState extends ConsumerState<FsmTile> {
     final currentIndex = pipeline.indexWhere((s) => s.id == current.id);
     final connected =
         ref.watch(serialStatusProvider).value?.isConnected ?? false;
-    final replaying = ref.watch(replayProvider).isActive;
+    final replay = ref.watch(replayProvider);
+    final replaying = replay.isActive;
     final enabled = connected && !replaying;
 
     String tooltipFor(ConnectorFsmState s) {
@@ -236,9 +238,14 @@ class _FsmWidgetState extends ConsumerState<FsmTile> {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: _ProgressBar(
-                progress: currentIndex < 0
-                    ? 0
-                    : (currentIndex + 1) / pipeline.length,
+                progress: replaying && replay.frames.length >= 2
+                    // Replay: fraction through the current state run, from
+                    // the full pre-decoded flight — not pipeline stages.
+                    ? stateSegmentProgress(
+                        replay.frames, replay.positionMs, current.id)
+                    : currentIndex < 0
+                        ? 0
+                        : (currentIndex + 1) / pipeline.length,
                 color: color,
               ),
             ),
@@ -270,14 +277,8 @@ class _FsmWidgetState extends ConsumerState<FsmTile> {
     final history = state.history;
     if (history.isEmpty) return '';
     final latest = history[0];
-    final current = latest.fsmStateId; // newest frame
-    var since = history.getChronological(history.length - 1).receivedAtMs;
-    for (final frame in history.newestFirst()) {
-      if (frame.fsmStateId != current) {
-        since = frame.receivedAtMs;
-        break;
-      }
-    }
+    final since =
+        findStateEntryMs(history.toList(growable: false), latest.fsmStateId);
     var endMs = latest.receivedAtMs;
     if (!state.replaying) {
       final nowMs = DateTime.now().millisecondsSinceEpoch;
