@@ -11,6 +11,7 @@ import '../../core/format.dart';
 import '../../foundation/chart_axis.dart';
 import '../../foundation/time/rate_series.dart' show RateSample, RateSeries;
 import '../../state/channel_health_provider.dart';
+import '../../state/chart_hover_store.dart';
 import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
@@ -530,7 +531,8 @@ class _RateChart extends StatelessWidget {
 
 /// Whole-flight replay chart: x counts up 0…duration in M:SS, played segment
 /// full opacity + remainder dimmed (same language as [TimeSeriesChart]).
-class _ReplayChart extends StatelessWidget {
+/// Hover syncs across every replay chart through the shared hover provider.
+class _ReplayChart extends ConsumerWidget {
   final List<ChannelBin> played;
   final List<ChannelBin> future;
   final List<ChannelBin> profile;
@@ -546,7 +548,7 @@ class _ReplayChart extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (profile.length < 2) {
       return const Center(child: WaitingForData(compact: true));
     }
@@ -600,6 +602,56 @@ class _ReplayChart extends StatelessWidget {
           s,
           c.withValues(alpha: 0),
         );
+
+    // Shared replay hover (see [chartHoverProvider]): this chart publishes
+    // its touched x here and renders the shared x as its own tooltip +
+    // markers, so hovering any replay graph lights up the same instant
+    // everywhere. Bar indexes are played 0,1 + future 2,3 + touch 4,5.
+    final hoverX = ref.watch(chartHoverProvider);
+    void onTouch(FlTouchEvent event, LineTouchResponse? response) {
+      final spots = response?.lineBarSpots;
+      if (!event.isInterestedForInteractions ||
+          spots == null ||
+          spots.isEmpty) {
+        ref.read(chartHoverProvider.notifier).clear();
+        return;
+      }
+      for (final spot in spots) {
+        if ((spot.bar.color?.a ?? 1) < 0.05) {
+          ref.read(chartHoverProvider.notifier).hover(spot.x);
+          return;
+        }
+      }
+      ref.read(chartHoverProvider.notifier).clear();
+    }
+
+    var hoverIdx = -1;
+    if (hoverX != null && touchBins.isNotEmpty) {
+      if (hoverX >= 0 && hoverX <= chartMaxX) {
+        hoverIdx = nearestIndexForX(
+          [for (final b in touchBins) b.startMs / 1000],
+          hoverX,
+        );
+      }
+    }
+    final touchOurs = touchBar(
+      touchSpots((b) => b.matchedBps),
+      AppColors.success,
+    );
+    final touchUnknown = touchBar(
+      touchSpots((b) => b.unmatchedBps),
+      AppColors.destructive,
+    );
+    final hoverSpots = <LineBarSpot>[];
+    if (hoverIdx >= 0) {
+      if (hoverIdx < touchOurs.spots.length) {
+        hoverSpots.add(LineBarSpot(touchOurs, 4, touchOurs.spots[hoverIdx]));
+      }
+      if (hoverIdx < touchUnknown.spots.length) {
+        hoverSpots
+            .add(LineBarSpot(touchUnknown, 5, touchUnknown.spots[hoverIdx]));
+      }
+    }
     return LineChart(
       _chartData(
         minX: 0,
@@ -618,11 +670,16 @@ class _ReplayChart extends StatelessWidget {
               spots(future, (b) => b.unmatchedBps), AppColors.destructive),
         ],
         touch: [
-          touchBar(
-              touchSpots((b) => b.matchedBps), AppColors.success),
-          touchBar(
-              touchSpots((b) => b.unmatchedBps), AppColors.destructive),
+          hoverIdx >= 0
+              ? touchOurs.copyWith(showingIndicators: [hoverIdx])
+              : touchOurs,
+          hoverIdx >= 0
+              ? touchUnknown.copyWith(showingIndicators: [hoverIdx])
+              : touchUnknown,
         ],
+        showingTooltipIndicators: hoverSpots.isEmpty
+            ? const []
+            : [ShowingTooltipIndicators(hoverSpots)],
         touchData: chartTouchData(
           entries: [
             ('OURS', AppColors.success),
@@ -636,6 +693,8 @@ class _ReplayChart extends StatelessWidget {
           formatX: (value) => formatAxisMinSec(value),
           formatY: (value) => value.round().toString(),
           touchBarsOnly: true,
+          handleBuiltInTouches: false,
+          touchCallback: onTouch,
         ),
         bottomLabel: (value) => formatAxisMinSec(value),
       ),
@@ -667,6 +726,7 @@ LineChartData _chartData({
   required String Function(double) bottomLabel,
   double? bottomInterval,
   double? playheadX,
+  List<ShowingTooltipIndicators> showingTooltipIndicators = const [],
 }) {
   final step = AxisSteps.niceStep(maxY / 3);
   final interval = maxY / (maxY / step).round().clamp(2, 6);
@@ -745,5 +805,6 @@ LineChartData _chartData({
     ),
     lineTouchData: touchData,
     lineBarsData: [...played, ...?future, ...touch],
+    showingTooltipIndicators: showingTooltipIndicators,
   );
 }

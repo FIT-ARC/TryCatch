@@ -8,6 +8,7 @@ import 'package:serial/serial.dart';
 
 import '../../../core/format.dart';
 import '../../../foundation/chart_axis.dart';
+import '../../../state/chart_hover_store.dart';
 import '../../../state/replay_controller.dart';
 import '../../../state/telemetry_store.dart';
 import '../../../theme/app_colors.dart';
@@ -101,6 +102,14 @@ LineTouchData chartTouchData({
   // either side of the playhead. Live keeps `false`: a single opaque bar
   // per series, where twins are impossible and today's behavior is kept.
   bool touchBarsOnly = false,
+  // Synced replay hover shares one [touchCallback] + manual indicators:
+  // `false` hands touch rendering to the shared hover provider (the caller
+  // passes `showingTooltipIndicators` + per-bar `showingIndicators`
+  // computed from it) instead of fl_chart's per-chart built-in state, so
+  // every replay chart shows the same instant. Defaults to `true` so live
+  // charts keep their independent built-in touches untouched.
+  bool handleBuiltInTouches = true,
+  void Function(FlTouchEvent, LineTouchResponse?)? touchCallback,
 }) {
   final suffix = unit.isEmpty ? '' : ' $unit';
   // Bar-role detection is alpha-based on purpose: LineChart runs every
@@ -116,7 +125,8 @@ LineTouchData chartTouchData({
   bool participates(Color? color) =>
       touchBarsOnly ? isTouchBar(color) : !isPreviewBar(color);
   return LineTouchData(
-    handleBuiltInTouches: true,
+    handleBuiltInTouches: handleBuiltInTouches,
+    touchCallback: touchCallback,
     touchSpotThreshold: 12,
     getTouchedSpotIndicator: (bar, indexes) => [
       // fl_chart skips null entries, but the length must still match.
@@ -482,6 +492,59 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
         ? ((nowMs - originMs) / 1000).clamp(minX, maxX).toDouble()
         : null;
 
+    // Synced replay hover: one shared seconds-since-launch x across every
+    // whole-flight chart. fl_chart's built-in touch state is per-chart, so
+    // replay drives tooltips manually from the provider instead: this chart
+    // publishes its touched x on hover and renders the shared x as its own
+    // tooltip + markers, lighting up the same instant everywhere. Live
+    // keeps independent built-in touches and never reads the provider.
+    final hoverX = fullFlight ? ref.watch(chartHoverProvider) : null;
+    void onReplayTouch(FlTouchEvent event, LineTouchResponse? response) {
+      final spots = response?.lineBarSpots;
+      if (!event.isInterestedForInteractions ||
+          spots == null ||
+          spots.isEmpty) {
+        ref.read(chartHoverProvider.notifier).clear();
+        return;
+      }
+      for (final spot in spots) {
+        if ((spot.bar.color?.a ?? 1) < 0.05) {
+          ref.read(chartHoverProvider.notifier).hover(spot.x);
+          return;
+        }
+      }
+      ref.read(chartHoverProvider.notifier).clear();
+    }
+
+    var hoverIdx = -1;
+    if (hoverX != null && samples.isNotEmpty) {
+      final pad = (maxX - minX) * 0.02;
+      if (hoverX >= minX - pad && hoverX <= maxX + pad) {
+        hoverIdx = nearestIndexForX(
+          [
+            for (final frame in samples)
+              (frame.receivedAtMs - originMs) / 1000,
+          ],
+          hoverX,
+        );
+      }
+    }
+    final hoverSpots = <LineBarSpot>[];
+    if (hoverIdx >= 0) {
+      final touchStart = lineBars.length - widget.config.series.length;
+      for (var i = 0; i < widget.config.series.length; i++) {
+        final barIndex = touchStart + i;
+        final bar = lineBars[barIndex];
+        if (hoverIdx < bar.spots.length) {
+          hoverSpots.add(LineBarSpot(bar, barIndex, bar.spots[hoverIdx]));
+          lineBars[barIndex] = bar.copyWith(showingIndicators: [hoverIdx]);
+        }
+      }
+    }
+    final hoverTooltips = hoverSpots.isEmpty
+        ? const <ShowingTooltipIndicators>[]
+        : [ShowingTooltipIndicators(hoverSpots)];
+
     return LayoutBuilder(
         builder: (context, constraints) {
           // Short tiles give the plot priority: the legend collapses away
@@ -627,8 +690,11 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
                               : '${x.toStringAsFixed(0)}s',
                           formatY: _formatValue,
                           touchBarsOnly: fullFlight,
+                          handleBuiltInTouches: !fullFlight,
+                          touchCallback: fullFlight ? onReplayTouch : null,
                         ),
                         lineBarsData: lineBars,
+                        showingTooltipIndicators: hoverTooltips,
                       ),
                       duration: Duration.zero,
                     ),
