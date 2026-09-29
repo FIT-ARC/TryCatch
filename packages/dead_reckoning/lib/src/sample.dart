@@ -20,17 +20,17 @@ class DeadReckoningSample {
   /// WGS84 longitude in degrees.
   final double longitude;
 
-  /// Reported altitude in metres above mean sea level.
-  final double gpsAltitude;
+  /// Altitude in metres above the launch site.
+  final double altitude;
 
-  /// North velocity in m/s (NED frame).
+  /// North velocity in m/s (NEU frame).
   final double velocityNorth;
 
-  /// East velocity in m/s (NED frame).
+  /// East velocity in m/s (NEU frame).
   final double velocityEast;
 
-  /// Down velocity in m/s (NED frame, positive towards the ground).
-  final double velocityDown;
+  /// Up velocity in m/s (NEU frame, positive away from the ground).
+  final double velocityUp;
 
   /// Body-frame longitudinal (Z) accelerometer channel in m/s² (specific
   /// force: +9.81 sitting nose-up on the pad). The only accel channel the
@@ -50,10 +50,10 @@ class DeadReckoningSample {
     required this.receivedAtMs,
     this.latitude = 0,
     this.longitude = 0,
-    this.gpsAltitude = 0,
+    this.altitude = 0,
     this.velocityNorth = 0,
     this.velocityEast = 0,
-    this.velocityDown = 0,
+    this.velocityUp = 0,
     this.accelZ = 0,
     this.yaw = 0,
     this.pitch = 0,

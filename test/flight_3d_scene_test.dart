@@ -118,10 +118,9 @@ void main() {
     test('scene airframe config follows the FSM state', () {
       TelemetryState stateWith(FsmState s) {
         final frame = TelemetryFrame(
-          flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+          flags: FrameFlags.gpsFix,
           latitude: 50.0,
           longitude: 14.0,
-          gpsAltitude: 300,
           baroAltitude: 100,
           fsmStateId: s.id,
         );
@@ -149,13 +148,12 @@ void main() {
       expect(pad.showParachute, isFalse);
     });
 
-    test('grounded states pin the rocket and trail to pad height', () {
+    test('relative altitude renders as-is with no grounded pinning', () {
       TelemetryState stateWith(FsmState s, double alt) {
         final frame = TelemetryFrame(
-          flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+          flags: FrameFlags.gpsFix,
           latitude: 50.0,
           longitude: 14.0,
-          gpsAltitude: 300,
           baroAltitude: alt,
           fsmStateId: s.id,
         );
@@ -167,10 +165,10 @@ void main() {
         );
       }
 
-      // Baro drift on the pad renders as sitting on the pad, not hovering.
+      // Raw relative altitude renders untouched in every state.
       final pad = buildFlightScene(stateWith(FsmState.armed, 8.0), null)!;
-      expect(pad.rocketPos.y, 0);
-      expect(pad.trail.map((p) => p.y), everyElement(0));
+      expect(pad.rocketPos.y, 8.0);
+      expect(pad.trail.map((p) => p.y), everyElement(8.0));
 
       // Aloft states keep the reported altitude untouched.
       final flying =
@@ -373,10 +371,9 @@ void main() {
 
   group('trail bucket stability', () {
     TelemetryFrame fixAt(int ms, double alt) => TelemetryFrame(
-          flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+          flags: FrameFlags.gpsFix,
           latitude: 50.0,
           longitude: 14.0,
-          gpsAltitude: 300,
           baroAltitude: alt,
           receivedAtMs: ms,
         );

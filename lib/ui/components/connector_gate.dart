@@ -6,9 +6,9 @@ import './waiting_for_data.dart';
 /// Human field name for the [NotProvidedByConnector] placeholder.
 String telemetryFieldLabel(TelemetryField field) => switch (field) {
       TelemetryField.gpsPosition => 'GPS position',
-      TelemetryField.gpsAltitude => 'GPS altitude',
       TelemetryField.baroAltitude => 'Baro altitude',
-      TelemetryField.velocity => 'Velocity',
+      TelemetryField.velocityHorizontal => 'Horizontal velocity',
+      TelemetryField.velocityVertical => 'Vertical velocity',
       TelemetryField.acceleration => 'Acceleration',
       TelemetryField.gyro => 'Gyro',
       TelemetryField.attitude => 'Attitude',

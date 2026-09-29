@@ -53,11 +53,7 @@ class StatsTile extends ConsumerWidget {
         DateTime.now().millisecondsSinceEpoch - latest.receivedAtMs >
             TelemetryStore.deadReckoningStaleMs;
 
-    final fix = latest.gpsHas3dFix
-        ? '3D fix'
-        : latest.gpsHasFix
-            ? 'Fix'
-            : 'No fix';
+    final fix = latest.gpsHasFix ? 'Fix' : 'No fix';
 
     return PositionReadout(
       coords: latest.gpsHasFix
@@ -70,7 +66,7 @@ class StatsTile extends ConsumerWidget {
       qrLongitude: latest.gpsHasFix ? latest.longitude : null,
       qrTitle: 'GPS position',
       details: [
-        (text: 'Altitude ${formatAltitudeM(latest.gpsAltitude)}', tooltip: null),
+        (text: 'Altitude ${formatAltitudeM(latest.baroAltitude)}', tooltip: null),
         if (drift != null)
           (
             text: 'Drift ${formatDistanceM(drift)}',

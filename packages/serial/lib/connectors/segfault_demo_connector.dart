@@ -195,14 +195,14 @@ class SegfaultDemoConnector extends TelemetryConnector {
   @override
   List<ConnectorEventDef> get events => const [];
 
-  /// Everything except GPS: the GPS module is not initialized and its
-  /// offset fields stay zero. Baro altitude, vertical velocity, IMU,
-  /// attitude (accel-derived), battery, hall and FSM are populated exactly
-  /// like the OG firmware.
+  /// Everything except GPS and horizontal velocity: the GPS module is not
+  /// initialized and its offset fields stay zero. Baro altitude, vertical
+  /// velocity, IMU, attitude (accel-derived), battery, hall and FSM are
+  /// populated exactly like the OG firmware.
   @override
   FieldCapabilities get capabilities => const FieldCapabilities({
     TelemetryField.baroAltitude,
-    TelemetryField.velocity,
+    TelemetryField.velocityVertical,
     TelemetryField.acceleration,
     TelemetryField.gyro,
     TelemetryField.attitude,

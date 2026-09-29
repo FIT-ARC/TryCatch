@@ -105,8 +105,8 @@ void main() {
       expect(frames[30].gpsHasFix, isTrue);
 
       for (final f in frames) {
-        expect((f.latitude - 50.0755).abs(), lessThan(0.005)); // ~550 m
-        expect((f.longitude - 14.4378).abs(), lessThan(0.008));
+        expect((f.latitude - 50.0755).abs(), lessThan(0.01)); // ~1.1 km
+        expect((f.longitude - 14.4378).abs(), lessThan(0.02));
       }
     });
 
@@ -137,15 +137,15 @@ void main() {
         return xs.reduce((a, b) => a + b) / xs.length;
       }
 
-      // Parachute: ~40 m/s down high up, ~6 m/s down low
-      // (measured away from transitions).
+      // Single canopy: ~6 m/s down throughout (measured away from
+      // transitions).
       final highRate = avgSpeed((f) =>
           f.fsmState == FsmState.parachute && f.baroAltitude > 250);
       final lowRate = avgSpeed((f) =>
           f.fsmState == FsmState.parachute && f.baroAltitude < 100);
 
-      expect(highRate, greaterThan(-55));
-      expect(highRate, lessThan(-25));
+      expect(highRate, greaterThan(-10));
+      expect(highRate, lessThan(-3));
       expect(lowRate, greaterThan(-10));
       expect(lowRate, lessThan(-3));
     });

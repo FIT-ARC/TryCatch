@@ -13,7 +13,8 @@ import '../components/waiting_for_data.dart';
 /// Flight highlights: session extremes in one tile.
 ///
 /// - Max ascent / descent velocity (m/s, vertical component)
-/// - Top total speed (m/s, also as Mach)
+/// - Top total speed (m/s, also as Mach — only when every velocity
+///   component is populated; omitted on partial feeds)
 /// - Max acceleration (m/s², also as G)
 /// - Replay-only: total drift (launch site → last GPS fix) and max
 ///   altitude (no live equivalent — the flight is still in progress)
@@ -30,7 +31,9 @@ class HighlightsTile extends ConsumerWidget {
     // tile has nothing to extreme over.
     final connector = ref.watch(activeConnectorProvider);
     final hasVelocity =
-        connector.capabilities.supports(TelemetryField.velocity);
+        connector.capabilities.supports(TelemetryField.velocityVertical) ||
+        connector.capabilities.supports(TelemetryField.velocityHorizontal);
+    final hasTotalSpeed = connector.capabilities.hasFullVelocity;
     final hasAccel =
         connector.capabilities.supports(TelemetryField.acceleration);
     if (!hasVelocity && !hasAccel) {
@@ -88,22 +91,27 @@ class HighlightsTile extends ConsumerWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(
-              child: _Cell(
-                label: 'Top speed',
-                value: '${peaks.maxTotal.toStringAsFixed(1)} m/s',
-                sub: 'M ${FlightPeaks.mach(peaks.maxTotal).toStringAsFixed(2)}',
-                color: AppColors.seriesVelocity,
+            // Total speed needs every velocity component — with a partial
+            // feed (e.g. vertical-only) the magnitude would understate, so
+            // the cell is omitted instead of showing a wrong number.
+            if (hasTotalSpeed)
+              Expanded(
+                child: _Cell(
+                  label: 'Top speed',
+                  value: '${peaks.maxTotal.toStringAsFixed(1)} m/s',
+                  sub: 'M ${FlightPeaks.mach(peaks.maxTotal).toStringAsFixed(2)}',
+                  color: AppColors.seriesVelocity,
+                ),
               ),
-            ),
-            Expanded(
-              child: _Cell(
-                label: 'Max acceleration',
-                value: '${peaks.maxAccel.toStringAsFixed(1)} m/s²',
-                sub: '${FlightPeaks.gForce(peaks.maxAccel).toStringAsFixed(1)} G',
-                color: AppColors.seriesAccel,
+            if (hasAccel)
+              Expanded(
+                child: _Cell(
+                  label: 'Max acceleration',
+                  value: '${peaks.maxAccel.toStringAsFixed(1)} m/s²',
+                  sub: '${FlightPeaks.gForce(peaks.maxAccel).toStringAsFixed(1)} G',
+                  color: AppColors.seriesAccel,
+                ),
               ),
-            ),
           ],
         ),
         if (replaying) ...[
@@ -181,7 +189,7 @@ class FlightPeaks {
     var altitude = 0.0;
     for (final f in frames) {
       if (f.speedVertical > ascent) ascent = f.speedVertical;
-      if (f.velocityDown > descent) descent = f.velocityDown;
+      if (-f.velocityUp > descent) descent = -f.velocityUp;
       if (f.speedTotal > total) total = f.speedTotal;
       if (f.accelTotal > accel) accel = f.accelTotal;
       if (f.baroAltitude > altitude) altitude = f.baroAltitude;

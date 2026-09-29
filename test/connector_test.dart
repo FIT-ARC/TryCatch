@@ -84,13 +84,21 @@ void main() {
         expect(mockConnector.capabilities.supports(field), isTrue,
             reason: field.name);
       }
+      expect(mockConnector.capabilities.hasFullVelocity, isTrue);
+      expect(mockConnector.capabilities.hasFullAcceleration, isTrue);
+    });
+
+    test('totals require every component', () {
+      expect(segfaultConnector.capabilities.hasFullVelocity, isFalse);
+      expect(segfaultDemoConnector.capabilities.hasFullVelocity, isFalse);
+      expect(segfaultConnector.capabilities.hasFullAcceleration, isTrue);
     });
 
     test('parser converts the bytestream to internal frames', () {
       final parser = mockConnector.createParser();
       final packet = FrameCodec.encodePacket(TelemetryFrame(
         sequence: 7,
-        flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+        flags: FrameFlags.gpsFix,
         latitude: 50.0,
         longitude: 14.0,
         baroAltitude: 123,

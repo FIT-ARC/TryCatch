@@ -8,6 +8,8 @@ import 'package:meta/meta.dart';
 class DeadReckoningPosition {
   final double latitude;
   final double longitude;
+
+  /// Altitude in metres above the launch site.
   final double altitude;
 
   /// Estimate time (Unix epoch ms): the anchor time plus the projected

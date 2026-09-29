@@ -89,10 +89,11 @@ enum FsmState {
 
 /// Bit positions inside the telemetry frame's flags byte.
 abstract final class FrameFlags {
-  /// GPS has a 2D position fix.
+  /// GPS has a position fix.
   static const int gpsFix = 1 << 0;
 
-  /// GPS has a 3D (altitude) fix.
+  /// Legacy wire bit (old 3D-fix flag). Still decoded to preserve the flags
+  /// byte, never set on encode and never read — fix state is [gpsFix] alone.
   static const int gpsFix3d = 1 << 1;
 }
 
@@ -106,9 +107,11 @@ abstract final class FrameFlags {
 ///
 
 /// Conventions:
-/// - Position: WGS84 degrees; altitudes in metres.
-/// - Velocity: NED frame (North, East, Down) in m/s — [velocityDown] is
-///   positive towards the ground.
+/// - Position: WGS84 degrees; altitude is metres above the launch site.
+///   The connector picks the source sensor (baro/Kalman); there is no
+///   separate GPS altitude. Use [altitudeMsl] with the site MSL to get MSL.
+/// - Velocity: NEU frame (North, East, Up) in m/s — [velocityUp] is
+///   positive away from the ground.
 /// - Acceleration: body frame in m/s² (specific force, i.e. +9.81 on the pad).
 /// - Gyro: body frame rotation in deg/s.
 /// - Attitude ([roll], [pitch], [yaw]) is rocket-oriented rather than
@@ -132,10 +135,8 @@ class TelemetryFrame {
   /// WGS84 longitude in degrees (positive East).
   final double longitude;
 
-  /// GPS-reported altitude in metres above mean sea level.
-  final double gpsAltitude;
-
-  /// Pressure (barometric) altitude in metres above the launch site.
+  /// Altitude in metres above the launch site, from the connector's
+  /// chosen sensor (baro/Kalman). Zero is the pad.
   final double baroAltitude;
 
   /// North velocity in m/s.
@@ -144,8 +145,8 @@ class TelemetryFrame {
   /// East velocity in m/s.
   final double velocityEast;
 
-  /// Down velocity in m/s (positive towards the ground).
-  final double velocityDown;
+  /// Up velocity in m/s (positive away from the ground).
+  final double velocityUp;
 
   /// Body-frame X acceleration in m/s².
   final double accelX;
@@ -190,22 +191,22 @@ class TelemetryFrame {
   /// Decoded FSM state; [FsmState.unknown] for unmapped values.
   FsmState get fsmState => FsmState.fromId(fsmStateId);
 
-  /// Whether the GPS reported any position fix.
+  /// Whether the GPS reported a position fix.
   bool get gpsHasFix => flags & FrameFlags.gpsFix != 0;
 
-  /// Whether the GPS reported a 3D fix.
-  bool get gpsHas3dFix => flags & FrameFlags.gpsFix3d != 0;
+  /// Altitude above mean sea level in metres for a pad at [groundMsl].
+  double altitudeMsl(double groundMsl) => groundMsl + baroAltitude;
 
   /// Total (3D) speed in m/s.
   double get speedTotal =>
-      _sqrt(velocityNorth * velocityNorth + velocityEast * velocityEast + velocityDown * velocityDown);
+      _sqrt(velocityNorth * velocityNorth + velocityEast * velocityEast + velocityUp * velocityUp);
 
   /// Horizontal (ground) speed in m/s.
   double get speedHorizontal =>
       _sqrt(velocityNorth * velocityNorth + velocityEast * velocityEast);
 
   /// Vertical speed in m/s, positive up.
-  double get speedVertical => -velocityDown;
+  double get speedVertical => velocityUp;
 
   /// Total (3D) body acceleration magnitude in m/s².
   double get accelTotal =>
@@ -225,11 +226,10 @@ class TelemetryFrame {
     this.sequence = 0,
     this.latitude = 0,
     this.longitude = 0,
-    this.gpsAltitude = 0,
     this.baroAltitude = 0,
     this.velocityNorth = 0,
     this.velocityEast = 0,
-    this.velocityDown = 0,
+    this.velocityUp = 0,
     this.accelX = 0,
     this.accelY = 0,
     this.accelZ = 0,

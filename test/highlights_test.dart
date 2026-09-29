@@ -5,7 +5,7 @@ import 'package:trycatch/ui/tiles/highlights_tile.dart';
 TelemetryFrame frame({
   double n = 0,
   double e = 0,
-  double d = 0,
+  double u = 0,
   double ax = 0,
   double az = 0,
   double alt = 0,
@@ -16,7 +16,7 @@ TelemetryFrame frame({
     TelemetryFrame(
       velocityNorth: n,
       velocityEast: e,
-      velocityDown: d,
+      velocityUp: u,
       accelX: ax,
       accelZ: az,
       baroAltitude: alt,
@@ -28,13 +28,13 @@ TelemetryFrame frame({
 void main() {
   test('scan picks ascent, descent, total speed, accel and altitude peaks', () {
     final peaks = FlightPeaks.scan([
-      frame(n: 10, d: -50, ax: 3, az: 9.81, alt: 100),
-      frame(e: 20, d: 40, ax: 30, az: 40, alt: 1058),
-      frame(n: 5, d: -5, alt: 400),
+      frame(n: 10, u: 50, ax: 3, az: 9.81, alt: 100),
+      frame(e: 20, u: -40, ax: 30, az: 40, alt: 1058),
+      frame(n: 5, u: 5, alt: 400),
     ]);
 
-    expect(peaks.maxAscent, 50); // -velocityDown
-    expect(peaks.maxDescent, 40); // velocityDown
+    expect(peaks.maxAscent, 50);
+    expect(peaks.maxDescent, 40);
     expect(peaks.maxTotal, closeTo(50.99, 0.01));
     expect(peaks.maxAccel, 50); // sqrt(30² + 40²)
     expect(peaks.maxAltitude, 1058);

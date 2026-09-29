@@ -78,7 +78,7 @@ Future<void> main(List<String> args) async {
         batteryV: f.batteryVoltage,
         latitude: f.latitude,
         longitude: f.longitude,
-        verticalUpMps: -f.velocityDown,
+        verticalUpMps: f.velocityUp,
         ky024: f.hallRaw,
       ),
     ));

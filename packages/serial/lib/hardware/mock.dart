@@ -46,7 +46,7 @@ Uint8List? mockInterferenceBytes(int tick, math.Random random) {
 /// Useful for UI development, automated testing, and offline demonstrations.
 ///
 /// Every `connect()` starts a fresh simulated flight (GPS cold start → pad →
-/// boost → coast → drogue → main → landed). Frames are emitted at 10 Hz as
+/// boost → coast → chute → landed). Frames are emitted at 10 Hz as
 /// properly framed wire packets.
 class MockSerialPort {
   Timer? _mockTimer;

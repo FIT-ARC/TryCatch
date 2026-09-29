@@ -22,12 +22,11 @@ Uint8List _packet({
 }) =>
     FrameCodec.encodePacket(TelemetryFrame(
       sequence: seq,
-      flags: fix ? (FrameFlags.gpsFix | FrameFlags.gpsFix3d) : 0,
+      flags: fix ? FrameFlags.gpsFix : 0,
       latitude: lat,
       longitude: lon,
-      gpsAltitude: baro + 300,
       baroAltitude: baro,
-      velocityDown: velDown,
+      velocityUp: -velDown,
     ));
 
 void main() {

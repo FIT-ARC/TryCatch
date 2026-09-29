@@ -26,14 +26,11 @@ enum FlightPhase {
   /// Ballistic ascent after burnout.
   coast,
 
-  /// Brief apogee event before the drogue fills.
+  /// Brief apogee event before the canopy fills.
   apogee,
 
-  /// Descending under the drogue parachute.
-  drogue,
-
-  /// Descending under the main parachute.
-  main,
+  /// Descending under the single parachute.
+  chute,
 
   /// On the ground after touchdown.
   landed,
@@ -42,9 +39,9 @@ enum FlightPhase {
 /// Deterministic (seedable) point-mass rocket flight simulator.
 ///
 /// Simulates: GPS cold start → pad hold → motor burn → drag coast → apogee +
-/// breakaway-wire hall trigger → drogue descent with wind drift → main chute
-/// at 150 m AGL → touchdown. Attitude is faked plausibly per phase (roll spin
-/// during boost, pendulum swing under canopy, lying on the side after landing).
+/// breakaway-wire hall trigger → single-canopy descent with wind drift →
+/// touchdown. Attitude is faked plausibly per phase (roll spin during boost,
+/// pendulum swing under canopy, lying on the side after landing).
 ///
 /// Call [step] at a fixed cadence (the mock port uses 10 Hz) and feed the
 /// returned frames through [FrameCodec.encodePacket] onto the wire.
@@ -58,17 +55,11 @@ class FlightSimulator {
   /// Drag coefficient k such that drag decel = k·v² (1/m), coast phase.
   static const double coastDragK = 4e-4;
 
-  /// Drag coefficient of the drogue parachute (1/m) → ~40 m/s terminal.
-  static const double drogueDragK = 9.81 / (40 * 40);
+  /// Drag coefficient of the parachute (1/m) → ~6 m/s terminal.
+  static const double chuteDragK = 9.81 / (6 * 6);
 
-  /// Drag coefficient of the main parachute (1/m) → ~6 m/s terminal.
-  static const double mainDragK = 9.81 / (6 * 6);
-
-  /// Altitude (m AGL) at which the main parachute deploys.
-  static const double mainDeployAltitude = 150;
-
-  /// Maximum net vertical acceleration under a parachute (m/s²). Caps the
-  /// main-chute opening shock at a realistic ~4 g instead of the instantaneous
+  /// Maximum net vertical acceleration under the parachute (m/s²). Caps the
+  /// opening shock at a realistic ~4 g instead of the instantaneous
   /// full-drag value.
   static const double maxChuteAccel = 40;
 
@@ -112,10 +103,9 @@ class FlightSimulator {
   bool _hallBroken = false;
   double _fallAccel = 0;
 
-  // Slow random-walk GPS error offsets (metres).
+  // Slow random-walk GPS error offsets (metres, horizontal only).
   double _gpsErrN = 0;
   double _gpsErrE = 0;
-  double _gpsErrVert = 12;
 
   /// Current simulated time in seconds since simulator start.
   double get simulatedSeconds => _t;
@@ -164,30 +154,18 @@ class FlightSimulator {
         }
 
       case FlightPhase.apogee:
-        // One-beat event state, then the drogue fills.
-        _phase = FlightPhase.drogue;
+        // One-beat event state, then the canopy fills.
+        _phase = FlightPhase.chute;
 
-      case FlightPhase.drogue:
-        _velUp += fallStep(drogueDragK, dt);
+      case FlightPhase.chute:
+        _velUp += fallStep(chuteDragK, dt);
         _altitude += _velUp * dt;
         _posE += windSpeed(_t) * dt;
         _posN += 0.3 * windSpeed(_t) * dt;
         // Pendulum swing under the canopy.
-        _pitch = 22 * math.sin(2 * math.pi * _t / 2.4);
+        _pitch = 12 * math.sin(2 * math.pi * _t / 2.8);
         _yaw = 95 + 15 * math.sin(_t * 0.4);
-        _roll = 8 * math.sin(2 * math.pi * _t / 3.1);
-        if (_altitude <= mainDeployAltitude) {
-          _phase = FlightPhase.main;
-        }
-
-      case FlightPhase.main:
-        _velUp += fallStep(mainDragK, dt);
-        _altitude += _velUp * dt;
-        _posE += windSpeed(_t) * 0.35 * dt;
-        _posN += 0.3 * windSpeed(_t) * 0.35 * dt;
-        _pitch = 7 * math.sin(2 * math.pi * _t / 3.5);
-        _yaw = 100 + 10 * math.sin(_t * 0.3);
-        _roll = 3 * math.sin(2 * math.pi * _t / 4);
+        _roll = 5 * math.sin(2 * math.pi * _t / 3.1);
         if (_altitude <= 0) {
           _altitude = 0;
           _velUp = 0;
@@ -206,7 +184,7 @@ class FlightSimulator {
     return _buildFrame(timestampMs ?? DateTime.now().millisecondsSinceEpoch);
   }
 
-  /// Vertical velocity step under a parachute with drag coefficient [k].
+  /// Vertical velocity step under the parachute with drag coefficient [k].
   ///
   /// Records the clamped world-frame acceleration in [_fallAccel] so the
   /// reported accelerometer value stays consistent with the kinematics.
@@ -236,23 +214,21 @@ class FlightSimulator {
   void _walkGpsError(double dt) {
     _gpsErrN = (_gpsErrN + _noise(1.2) * dt).clamp(-6, 6);
     _gpsErrE = (_gpsErrE + _noise(1.2) * dt).clamp(-6, 6);
-    _gpsErrVert = (_gpsErrVert + _noise(0.8) * dt).clamp(6, 20);
   }
 
   TelemetryFrame _buildFrame(int receivedAtMs) {
     final gpsFix = _phase != FlightPhase.coldStart;
     var flags = 0;
     if (gpsFix) flags |= FrameFlags.gpsFix;
-    if (gpsFix) flags |= FrameFlags.gpsFix3d;
 
     // World-frame specific force along the body axis, +9.81 at rest.
-    // Under a chute the specific force is the (clamped) drag itself.
+    // Under the canopy the specific force is the (clamped) drag itself.
     final double accelLongitudinal = switch (_phase) {
       FlightPhase.coldStart || FlightPhase.pad => 9.81,
       FlightPhase.boost => boostAccel + 9.81,
       FlightPhase.coast => -(coastDragK * _velUp * _velUp),
       FlightPhase.apogee => 9.81,
-      FlightPhase.drogue || FlightPhase.main => _fallAccel + 9.81,
+      FlightPhase.chute => _fallAccel + 9.81,
       FlightPhase.landed => 9.81,
     };
 
@@ -261,7 +237,7 @@ class FlightSimulator {
     final tilt = _pitch * math.pi / 180;
     final cosT = math.cos(tilt);
     final sinT = math.sin(tilt);
-    final gyroZ = _phase == FlightPhase.boost ? _rollRate : _rollRate;
+    final gyroZ = _rollRate;
 
     return TelemetryFrame(
       receivedAtMs: receivedAtMs,
@@ -269,19 +245,18 @@ class FlightSimulator {
       sequence: _seq,
       latitude: _toLat(_posN + (gpsFix ? _gpsErrN : 0)),
       longitude: _toLon(_posE + (gpsFix ? _gpsErrE : 0)),
-      gpsAltitude: _altitude + (gpsFix ? _gpsErrVert : 0),
       baroAltitude: _altitude + _noise(0.4),
-      velocityNorth: _phase == FlightPhase.drogue || _phase == FlightPhase.main
+      velocityNorth: _phase == FlightPhase.chute
           ? 0.3 * windSpeed(_t) + _noise(0.3)
           : _noise(0.2),
-      velocityEast: _phase == FlightPhase.drogue || _phase == FlightPhase.main
-          ? (_phase == FlightPhase.main ? 0.35 : 1) * windSpeed(_t) + _noise(0.3)
+      velocityEast: _phase == FlightPhase.chute
+          ? windSpeed(_t) + _noise(0.3)
           : _noise(0.2),
-      velocityDown: -_velUp + _noise(0.2),
+      velocityUp: _velUp + _noise(0.2),
       accelX: accelLongitudinal * sinT + _noise(0.3),
       accelY: _noise(0.3),
       accelZ: accelLongitudinal * cosT + _noise(0.3),
-      gyroX: _phase == FlightPhase.drogue || _phase == FlightPhase.main
+      gyroX: _phase == FlightPhase.chute
           ? 25 * math.cos(2 * math.pi * _t / 2.4)
           : _noise(2),
       gyroY: _noise(2),
@@ -296,14 +271,14 @@ class FlightSimulator {
     );
   }
 
-  /// Reported wire state: the internal burn/coast and drogue/main phases
-  /// both collapse into the single ASCENT / PARACHUTE states.
+  /// Reported wire state: the internal burn/coast phases collapse into the
+  /// single ASCENT state.
   FsmState get _reportedState => switch (_phase) {
         FlightPhase.coldStart => FsmState.idle,
         FlightPhase.pad => _t >= coldStartSeconds + 2 ? FsmState.armed : FsmState.idle,
         FlightPhase.boost || FlightPhase.coast => FsmState.ascent,
         FlightPhase.apogee => FsmState.apogee,
-        FlightPhase.drogue || FlightPhase.main => FsmState.parachute,
+        FlightPhase.chute => FsmState.parachute,
         FlightPhase.landed => FsmState.landed,
       };
 

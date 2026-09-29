@@ -25,17 +25,17 @@ import '../telemetry/telemetry_frame.dart';
 /// tiles use [FieldCapabilities] to render "not provided by this connector"
 /// instead of an eternal "waiting for data".
 enum TelemetryField {
-  /// WGS84 latitude/longitude + fix flags.
+  /// WGS84 latitude/longitude + fix flag.
   gpsPosition,
 
-  /// GPS altitude (MSL).
-  gpsAltitude,
-
-  /// Barometric altitude (AGL).
+  /// Barometric altitude (relative to the pad).
   baroAltitude,
 
-  /// NED velocity triple.
-  velocity,
+  /// Horizontal (North/East) velocity.
+  velocityHorizontal,
+
+  /// Vertical (Up) velocity.
+  velocityVertical,
 
   /// Body-frame acceleration triple.
   acceleration,
@@ -66,9 +66,9 @@ class FieldCapabilities {
   /// A connector that populates the whole internal frame.
   static const FieldCapabilities all = FieldCapabilities({
     TelemetryField.gpsPosition,
-    TelemetryField.gpsAltitude,
     TelemetryField.baroAltitude,
-    TelemetryField.velocity,
+    TelemetryField.velocityHorizontal,
+    TelemetryField.velocityVertical,
     TelemetryField.acceleration,
     TelemetryField.gyro,
     TelemetryField.attitude,
@@ -79,6 +79,18 @@ class FieldCapabilities {
 
   /// Whether [field] carries live values on this connector.
   bool supports(TelemetryField field) => fields.contains(field);
+
+  /// Whether a 3D total speed is meaningful: both horizontal and vertical
+  /// components are populated. With only one component (e.g. SegFault's
+  /// vertical-only velocity) totals must not be computed or shown.
+  bool get hasFullVelocity =>
+      supports(TelemetryField.velocityHorizontal) &&
+      supports(TelemetryField.velocityVertical);
+
+  /// Whether a total acceleration magnitude is meaningful. Currently a
+  /// single triple-or-nothing capability; kept symmetric with
+  /// [hasFullVelocity] so a future partial-accel connector gates the same way.
+  bool get hasFullAcceleration => supports(TelemetryField.acceleration);
 }
 
 /// One FSM state reported by a connector's rocket.

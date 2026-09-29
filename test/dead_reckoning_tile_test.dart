@@ -24,10 +24,10 @@ class _FreshStore extends TelemetryStore {
     final frame = TelemetryFrame(
       receivedAtMs: DateTime.now().millisecondsSinceEpoch,
       sequence: 1,
-      flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+      flags: FrameFlags.gpsFix,
       latitude: 50.0755,
       longitude: 14.4378,
-      gpsAltitude: 403,
+      baroAltitude: 403,
     );
     history.push(frame);
     return TelemetryState(
@@ -50,7 +50,7 @@ class _StaleStore extends TelemetryStore {
       flags: FrameFlags.gpsFix,
       latitude: 50.0755,
       longitude: 14.4378,
-      gpsAltitude: 403,
+      baroAltitude: 403,
     );
     history.push(frame);
     return TelemetryState(
@@ -152,7 +152,7 @@ void main() {
   testWidgets('GPS tile shows fix status, altitude and drift', (tester) async {
     await _pump(tester, const StatsTile(),
         store: _FreshStore.new, site: _pad);
-    expect(find.text('3D fix'), findsOneWidget);
+    expect(find.text('Fix'), findsOneWidget);
     expect(find.text('50.07550°, 14.43780°'), findsOneWidget);
     expect(find.text('Altitude 403 m · Drift 0 m'), findsOneWidget);
     expect(tester.takeException(), isNull);

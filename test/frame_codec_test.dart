@@ -24,11 +24,10 @@ void main() {
       sequence: 513,
       latitude: 50.0755,
       longitude: -14.4378,
-      gpsAltitude: 234.56,
       baroAltitude: 812.34,
       velocityNorth: 12.34,
       velocityEast: -3.21,
-      velocityDown: -45.6,
+      velocityUp: 45.6,
       accelX: 1.5,
       accelY: -2.5,
       accelZ: 65.4,
@@ -54,11 +53,10 @@ void main() {
       expect(decoded.sequence, 513);
       expect(decoded.latitude, closeTo(50.0755, 1e-6));
       expect(decoded.longitude, closeTo(-14.4378, 1e-6));
-      expect(decoded.gpsAltitude, closeTo(234.56, 0.01));
       expect(decoded.baroAltitude, closeTo(812.34, 0.01));
       expect(decoded.velocityNorth, closeTo(12.34, 0.01));
       expect(decoded.velocityEast, closeTo(-3.21, 0.01));
-      expect(decoded.velocityDown, closeTo(-45.6, 0.01));
+      expect(decoded.velocityUp, closeTo(45.6, 0.01));
       expect(decoded.accelX, closeTo(1.5, 0.02));
       expect(decoded.accelY, closeTo(-2.5, 0.02));
       expect(decoded.accelZ, closeTo(65.4, 0.05));

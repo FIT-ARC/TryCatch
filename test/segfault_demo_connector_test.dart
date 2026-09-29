@@ -99,11 +99,11 @@ void main() {
       expect(segfaultDemoConnector.events, isEmpty);
     });
 
-    test('populates everything except GPS fields', () {
+    test('populates everything except GPS position and horizontal velocity', () {
       for (final field in TelemetryField.values) {
         final supported = segfaultDemoConnector.capabilities.supports(field);
         if (field == TelemetryField.gpsPosition ||
-            field == TelemetryField.gpsAltitude) {
+            field == TelemetryField.velocityHorizontal) {
           expect(supported, isFalse, reason: field.name);
         } else {
           expect(supported, isTrue, reason: field.name);
@@ -135,12 +135,11 @@ void main() {
       expect(f.fsmStateId, 1);
       expect(f.receivedAtMs, 777);
       expect(f.baroAltitude, closeTo(42.0, 0.06));
-      expect(f.velocityDown, closeTo(-1.5, 0.06));
+      expect(f.velocityUp, closeTo(1.5, 0.06));
       // Zero GPS offsets decode to the base position, but with no fix.
       expect(f.latitude, closeTo(SegfaultPacketCodec.baseLatitudeDeg, 1e-9));
       expect(f.longitude, closeTo(SegfaultPacketCodec.baseLongitudeDeg, 1e-9));
       expect(f.gpsHasFix, isFalse);
-      expect(f.gpsAltitude, 0);
       expect(parser.matchedPackets, 1);
       expect(parser.matchedBytes, 33);
     });

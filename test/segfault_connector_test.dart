@@ -87,10 +87,10 @@ void main() {
       );
     });
 
-    test('populates everything except GPS altitude', () {
+    test('populates everything except horizontal velocity', () {
       for (final field in TelemetryField.values) {
         final supported = segfaultConnector.capabilities.supports(field);
-        if (field == TelemetryField.gpsAltitude) {
+        if (field == TelemetryField.velocityHorizontal) {
           expect(supported, isFalse, reason: field.name);
         } else {
           expect(supported, isTrue, reason: field.name);
@@ -126,7 +126,7 @@ void main() {
       expect(f.fsmStateId, 2);
       expect(f.receivedAtMs, 999);
       expect(f.baroAltitude, closeTo(123.4, 0.06));
-      expect(f.velocityDown, closeTo(-12.3, 0.06));
+      expect(f.velocityUp, closeTo(12.3, 0.06));
       expect(f.velocityNorth, 0);
       expect(f.velocityEast, 0);
       expect(f.accelZ, closeTo(9.80665, 0.01));
@@ -137,7 +137,6 @@ void main() {
           closeTo(SegfaultPacketCodec.baseLongitudeDeg - 0.002, 1e-6));
       expect(f.batteryVoltage, closeTo(4.2, 0.011));
       expect(f.hallRaw, 2048);
-      expect(f.gpsAltitude, 0);
       expect(f.gpsHasFix, isTrue);
       // Upright 1g: roll/pitch ~0.
       expect(f.roll, closeTo(0, 0.5));
@@ -170,18 +169,17 @@ void main() {
       expect(frame.sequence, 300 & 0xFF);
       expect(frame.fsmStateId, 4);
       expect(frame.baroAltitude, closeTo(320.4, 0.06));
-      expect(frame.velocityDown, closeTo(-11.5, 0.06));
+      expect(frame.velocityUp, closeTo(11.5, 0.06));
       expect(frame.accelX, closeTo(1.657, 0.01));
       expect(frame.gyroY, closeTo(-19.09, 0.05));
       expect(frame.batteryVoltage, closeTo(4.0, 0.011));
       expect(frame.hallRaw, 2154);
       expect(frame.latitude, closeTo(49.797, 1.2e-5));
-      // Dropped without replacement: horizontal velocity, yaw/heading,
-      // GPS altitude. Roll/pitch re-derive from accel.
+      // Dropped without replacement: horizontal velocity, yaw/heading.
+      // Roll/pitch re-derive from accel.
       expect(frame.velocityNorth, 0);
       expect(frame.yaw, 0);
       expect(frame.heading, 0);
-      expect(frame.gpsAltitude, 0);
     });
 
     test('parser hunts sync, tolerates splits and garbage', () {

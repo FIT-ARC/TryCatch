@@ -144,7 +144,7 @@ FlightAnchor? flightAnchor(TelemetryState state, LaunchSite? site) {
       return FlightAnchor(
         lat: f.latitude,
         lon: f.longitude,
-        groundMsl: f.gpsAltitude,
+        groundMsl: 0,
       );
     }
   }
@@ -209,7 +209,6 @@ FlightScene? buildFlightScene(
   if (anchor == null) return null;
   final lat0 = anchor.lat;
   final lon0 = anchor.lon;
-  final groundMsl = anchor.groundMsl;
   final cosLat0 = anchor.cosLat;
 
   Vector3 enu(double lat, double lon, double agl) =>
@@ -219,11 +218,7 @@ FlightScene? buildFlightScene(
   // points never move as history grows, then capped from the end so the
   // tip stays exact. Dead reckoning is intentionally NOT part of the
   // trail — when GPS is stale the estimate is shown as a single violet
-  // point (see showDeadReckoning). Grounded states (pad/landed) pin to
-  // pad height: baro drift there is sensor walk, not flight.
-  final groundedCache = <int, bool>{};
-  bool groundedOf(int stateId) => groundedCache.putIfAbsent(
-      stateId, () => c.stateForId(stateId).grounded);
+  // point (see showDeadReckoning). Raw relative altitude renders as-is.
   final all = <Vector3>[];
   var lastGpsBucket = -1;
 
@@ -232,8 +227,7 @@ FlightScene? buildFlightScene(
     if (!f.gpsHasFix) continue;
     final bucket = f.receivedAtMs ~/ flightTrailBucketMs;
     if (bucket == lastGpsBucket) continue;
-    all.add(enu(
-        f.latitude, f.longitude, groundedOf(f.fsmStateId) ? 0.0 : f.baroAltitude));
+    all.add(enu(f.latitude, f.longitude, f.baroAltitude));
     lastGpsBucket = bucket;
   }
   final trail = capTrailPoints(all);
@@ -255,16 +249,13 @@ FlightScene? buildFlightScene(
   Vector3 rocketPos;
   if (showDeadReckoning) {
     rocketPos = enu(deadReckoningNow.latitude, deadReckoningNow.longitude,
-        deadReckoningNow.altitude - groundMsl);
+        deadReckoningNow.altitude);
   } else if (latest.gpsHasFix) {
-    // Grounded states sit on the pad like the trail does above.
-    rocketPos = enu(latest.latitude, latest.longitude,
-        groundedOf(latest.fsmStateId) ? 0.0 : latest.baroAltitude);
+    rocketPos = enu(latest.latitude, latest.longitude, latest.baroAltitude);
   } else if (trail.isNotEmpty) {
     rocketPos = trail.last;
   } else {
-    rocketPos = enu(lat0, lon0,
-        groundedOf(latest.fsmStateId) ? 0.0 : latest.baroAltitude);
+    rocketPos = enu(lat0, lon0, latest.baroAltitude);
   }
 
   var maxAlt = rocketPos.y;
@@ -311,11 +302,6 @@ FlightScene? buildReplayScene({
 }) {
   if (frames.isEmpty) return null;
   final c = connector ?? mockConnector;
-  // Grounded states (pad/landed) pin to pad height: baro drift there is
-  // sensor walk, not flight. Cached per id; tables are tiny.
-  final groundedCache = <int, bool>{};
-  bool groundedOf(int stateId) => groundedCache.putIfAbsent(
-      stateId, () => c.stateForId(stateId).grounded);
   final t0 = frames.first.receivedAtMs;
   var lo = 0;
   var hi = frames.length;
@@ -381,10 +367,8 @@ FlightScene? buildReplayScene({
 
   if (tip < 0) {
     // No fix yet: the rocket waits on the pad like in the live builder.
-    final padAgl =
-        groundedOf(tipFrame.fsmStateId) ? 0.0 : tipFrame.baroAltitude;
-    final pad =
-        worldFromLatLon(lat0, lon0, padAgl, lat0, lon0, cosLat0);
+    final pad = worldFromLatLon(
+        lat0, lon0, tipFrame.baroAltitude, lat0, lon0, cosLat0);
     final padAttitude = replayAttitude(
       frames: frames,
       positionMs: positionMs,
@@ -431,9 +415,7 @@ FlightScene? buildReplayScene({
   // stride resampled earlier points on every seek step).
   final rawTrail = <Vector3>[];
   for (var k = 0; k <= tip; k++) {
-    final p = smoothingEnabled ? smoothAt(k) : rawAt(k);
-    if (groundedOf(frames[fixIdx[k]].fsmStateId)) p.y = 0;
-    rawTrail.add(p);
+    rawTrail.add(smoothingEnabled ? smoothAt(k) : rawAt(k));
   }
   final trail = capTrailPoints(rawTrail);
   final tipPoint = trail.last;

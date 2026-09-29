@@ -119,10 +119,9 @@ void main() {
         for (var i = 0; i < 20; i++) {
           final frame = TelemetryFrame(
             sequence: i,
-            flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+            flags: FrameFlags.gpsFix,
             latitude: 50.0 + i * 0.0001,
             longitude: 14.0 + i * 0.0001,
-            gpsAltitude: 200 + i * 10.0,
             baroAltitude: i * 10.0,
           );
           stream.addAll(FrameCodec.encodePacket(frame));

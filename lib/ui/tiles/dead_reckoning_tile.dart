@@ -115,11 +115,7 @@ class DeadReckoningTile extends ConsumerWidget {
       );
     }
 
-    final deadReckoningAlt = site == null
-        ? deadReckoning.altitude
-        : deadReckoning.altitude < site.altitudeMsl
-            ? site.altitudeMsl
-            : deadReckoning.altitude;
+    final deadReckoningAlt = deadReckoning.altitude;
 
     final drift = site == null
         ? null
@@ -141,7 +137,7 @@ class DeadReckoningTile extends ConsumerWidget {
         : distance3dM(
             lastFix.latitude,
             lastFix.longitude,
-            lastFix.gpsAltitude,
+            lastFix.baroAltitude,
             deadReckoning.latitude,
             deadReckoning.longitude,
             deadReckoningAlt,

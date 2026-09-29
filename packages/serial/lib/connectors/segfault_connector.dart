@@ -6,14 +6,15 @@
 /// `67 67` reset baseline.
 ///
 /// Field mapping (see `Telemetry.h` / `decodePacket.ts` in the OG repos):
-/// - accel `raw * G / 2048` m/s², gyro `raw / 16.4` dps
+/// - accel `raw * G / 2048` m/s² body frame, gyro `raw / 16.4` dps
 /// - Kalman AGL `raw / 10` m → [TelemetryFrame.baroAltitude]
 /// - GPS `base + raw * 1e-5` deg (bases below); the firmware sends no fix
 ///   flags and leaves offsets at 0 when invalid, so frames assume fix.
-/// - vertical velocity `raw / 10` m/s up → `velocityDown = -up`
+/// - vertical velocity `raw / 10` m/s up → [TelemetryFrame.velocityUp]
 /// - battery `raw * 0.02` V, hall = KY-024 analog count
 /// - roll/pitch derived from the accel vector (same gravity projection the
 ///   old web client used); yaw/heading stay 0 (underivable from accel).
+///   Acceleration stays in the body frame; v1 never feeds dead reckoning.
 /// - pressure / tribo have no internal field and are dropped.
 ///
 /// The firmware has no integrity check, so framing is sync-hunt + fixed
@@ -111,15 +112,14 @@ abstract final class SegfaultPacketCodec {
       // No fix flags on the wire; offsets default to the base when the
       // GPS is invalid, so OG frames assume a fix (see module doc).
       // Demo firmware disables GPS entirely — same bytes, no fix.
-      flags: assumeGpsFix ? FrameFlags.gpsFix | FrameFlags.gpsFix3d : 0,
+      flags: assumeGpsFix ? FrameFlags.gpsFix : 0,
       sequence: packetId,
       latitude: baseLatitudeDeg + latOff * gpsOffsetScaleDeg,
       longitude: baseLongitudeDeg + lonOff * gpsOffsetScaleDeg,
-      gpsAltitude: 0,
       baroAltitude: aglM,
       velocityNorth: 0,
       velocityEast: 0,
-      velocityDown: -verticalUpMps,
+      velocityUp: verticalUpMps,
       accelX: accelX,
       accelY: accelY,
       accelZ: accelZ,
@@ -323,9 +323,8 @@ class SegfaultConnectorParser extends ConnectorStreamParser {
 
 /// The SegFault connector: OG rocket format, partial internal frame.
 ///
-/// GPS altitude is never transmitted (capability off, field stays 0);
-/// everything else is populated (attitude + horizontal velocity derived,
-/// see the codec).
+/// Baro altitude, vertical velocity, IMU, attitude (accel-derived), battery,
+/// hall and FSM are populated; horizontal velocity is never transmitted.
 class SegfaultConnector extends TelemetryConnector {
   const SegfaultConnector();
 
@@ -491,7 +490,7 @@ class SegfaultConnector extends TelemetryConnector {
   FieldCapabilities get capabilities => const FieldCapabilities({
     TelemetryField.gpsPosition,
     TelemetryField.baroAltitude,
-    TelemetryField.velocity,
+    TelemetryField.velocityVertical,
     TelemetryField.acceleration,
     TelemetryField.gyro,
     TelemetryField.attitude,

@@ -345,15 +345,14 @@ class _DummyTelemetryStore extends TelemetryStore {
 
       final frame = TelemetryFrame(
         receivedAtMs: frameTime,
-        flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+        flags: FrameFlags.gpsFix,
         sequence: 100 + i,
         latitude: lat,
         longitude: lon,
-        gpsAltitude: 450.0 + alt,
         baroAltitude: alt,
         velocityNorth: vel * 0.6,
         velocityEast: vel * 0.8,
-        velocityDown: -vel * 0.5,
+        velocityUp: vel * 0.5,
         accelX: 0.5,
         accelY: 0.2,
         accelZ: accel,

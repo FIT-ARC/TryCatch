@@ -15,12 +15,11 @@ String _path(Directory dir, String name) =>
 Uint8List _packet({required int seq, double baro = 0}) =>
     FrameCodec.encodePacket(TelemetryFrame(
       sequence: seq,
-      flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+      flags: FrameFlags.gpsFix,
       latitude: 50.0,
       longitude: 14.0,
-      gpsAltitude: baro + 300,
       baroAltitude: baro,
-      velocityDown: -10,
+      velocityUp: 10,
     ));
 
 const _launch = LaunchRef(

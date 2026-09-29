@@ -37,11 +37,10 @@ List<TelemetryFrame> driftFrames(int count) => [
       for (var i = 0; i < count; i++)
         TelemetryFrame(
           receivedAtMs: 1700000000000 + i * 40,
-          flags: FrameFlags.gpsFix | FrameFlags.gpsFix3d,
+          flags: FrameFlags.gpsFix,
           sequence: i,
           latitude: 49.799,
           longitude: 16.693 + i * 0.2e-5 + (i.isEven ? 0.0 : 1e-5),
-          gpsAltitude: 403,
           baroAltitude: i * 0.5,
           accelX: 0,
           accelY: 0,

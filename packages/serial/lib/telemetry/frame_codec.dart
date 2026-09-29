@@ -17,7 +17,7 @@ import 'telemetry_frame.dart';
 /// | 1      | 2    | seq       | u16  | —        | Rolling sequence number        |
 /// | 3      | 4    | gpsLat    | i32  | 1e-7 deg | WGS84, positive North          |
 /// | 7      | 4    | gpsLon    | i32  | 1e-7 deg | WGS84, positive East           |
-/// | 11     | 4    | gpsAlt    | i32  | cm       | MSL altitude                   |
+/// | 11     | 4    | gpsAlt    | i32  | cm       | Legacy MSL, mirrors baro on encode, ignored on decode |
 /// | 15     | 4    | baroAlt   | i32  | cm       | Above launch site              |
 /// | 19     | 2    | velN      | i16  | cm/s     | NED: North                     |
 /// | 21     | 2    | velE      | i16  | cm/s     | NED: East                      |
@@ -121,7 +121,7 @@ abstract final class FrameCodec {
     );
     b.setInt32(
       TelemetryLayout.offsetGpsAlt,
-      _clampI32((frame.gpsAltitude * 100).round()),
+      _clampI32((frame.baroAltitude * 100).round()),
     );
     b.setInt32(
       TelemetryLayout.offsetBaroAlt,
@@ -137,7 +137,7 @@ abstract final class FrameCodec {
     );
     b.setInt16(
       TelemetryLayout.offsetVelD,
-      _clampI16((frame.velocityDown / TelemetryLayout.velocityScale).round()),
+      _clampI16((-frame.velocityUp / TelemetryLayout.velocityScale).round()),
     );
     b.setInt16(
       TelemetryLayout.offsetAccelX,
@@ -228,14 +228,13 @@ abstract final class FrameCodec {
       sequence: b.getUint16(TelemetryLayout.offsetSeq),
       latitude: lat,
       longitude: b.getInt32(TelemetryLayout.offsetGpsLon) * TelemetryLayout.latLonScale,
-      gpsAltitude: b.getInt32(TelemetryLayout.offsetGpsAlt) / 100,
       baroAltitude: b.getInt32(TelemetryLayout.offsetBaroAlt) / 100,
       velocityNorth:
           b.getInt16(TelemetryLayout.offsetVelN) * TelemetryLayout.velocityScale,
       velocityEast:
           b.getInt16(TelemetryLayout.offsetVelE) * TelemetryLayout.velocityScale,
-      velocityDown:
-          b.getInt16(TelemetryLayout.offsetVelD) * TelemetryLayout.velocityScale,
+      velocityUp:
+          -b.getInt16(TelemetryLayout.offsetVelD) * TelemetryLayout.velocityScale,
       accelX: b.getInt16(TelemetryLayout.offsetAccelX) * TelemetryLayout.accelScaleMg,
       accelY: b.getInt16(TelemetryLayout.offsetAccelY) * TelemetryLayout.accelScaleMg,
       accelZ: b.getInt16(TelemetryLayout.offsetAccelZ) * TelemetryLayout.accelScaleMg,
