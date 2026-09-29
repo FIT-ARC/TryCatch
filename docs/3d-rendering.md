@@ -86,7 +86,8 @@ running engine's expectation, and delete/refresh stale
 `.dart_tool/hooks_runner` and `.dart_tool/flutter_build` — the build caches
 hook results and will not re-run the hook on its own.
 
-Dev SDK: Flutter **3.49.0-0.1.pre (beta)**, Dart 3.14 — CI (`FLUTTER_VERSION`
-in both workflows) is pinned to the same verified version. Any post-May-2026
-stable with a matched engine/impellerc pair works too; the beta pin is what
-has been verified end-to-end here.
+Dev SDK: Flutter **3.47.5 (stable)**, Dart 3.13 — CI (`FLUTTER_VERSION` in
+both workflows) is pinned to the same version. 3.47.5 ships a matched
+engine/impellerc pair (both emit/expect bundle format v2), verified
+end-to-end on-device. The one-time breakage on this machine was purely the
+stale shadowing binary described above, not an SDK defect.

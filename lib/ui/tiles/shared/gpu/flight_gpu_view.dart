@@ -322,8 +322,8 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
     });
   }
 
-  /// The scene with the rocket and trail clamped onto the DEM surface, plus the
-  /// terrain height under the rocket (mirrors `SatFlightPainter.paint`).
+  /// The scene with the rocket and trail clamped onto the DEM surface, plus
+  /// the terrain height under the rocket.
   ({FlightScene display, double surfaceY, double under}) _displayScene(
       FlightScene scene, FlightAnchor? anchor, ElevationGrid? dem) {
     if (dem == null || anchor == null) {

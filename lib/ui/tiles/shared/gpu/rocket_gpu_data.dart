@@ -8,8 +8,7 @@ import '../rocket_mesh.dart';
 /// No engine dependency: the result feeds any GPU mesh builder
 /// (`flutter_scene` `MeshGeometry.fromArrays`, or a future replacement)
 /// without pulling `flutter_gpu` into unit tests. Normals are the mesh
-/// face normals, matching the flat shading of the legacy `CustomPainter`
-/// path (`paintRocketMesh`).
+/// face normals, giving the airframe its flat-shaded look.
 class RocketGpuData {
   final Float32List positions;
   final Float32List normals;
