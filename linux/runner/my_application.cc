@@ -144,6 +144,8 @@ static void my_application_activate(GApplication* application) {
   set_window_icon(window);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
+  // Required for the flutter_scene GPU renderer (needs Impeller).
+  fl_dart_project_set_enable_flutter_gpu(project, TRUE);
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 

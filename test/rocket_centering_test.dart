@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:trycatch/ui/tiles/rocket_3d_tile.dart';
+import 'package:trycatch/ui/tiles/shared/gpu/rocket_gpu_view.dart';
 import 'package:trycatch/ui/tiles/shared/rocket_mesh.dart';
 import 'package:vector_math/vector_math_64.dart';
 
@@ -39,7 +39,7 @@ void main() {
       math.sin(el),
       math.cos(el) * math.cos(az),
     );
-    final framing = rocketFraming(
+    final framing = rocketFramingGpu(
       showNoseCone: cone,
       showParachute: chute,
     );

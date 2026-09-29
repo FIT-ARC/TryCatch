@@ -11,7 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: "3.47.4"
+  # Beta 3.49.0: verified matched engine/impellerc pair (shader bundle
+# format v2) for the flutter_scene GPU path. Revisit when the next
+# stable ships with the same pair.
+  FLUTTER_VERSION: "3.49.0-0.1.pre"
 
 jobs:
   analyze-test:
@@ -23,7 +26,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          channel: beta
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 

@@ -34,6 +34,7 @@ dependencies:
     dead_reckoning:
         path: packages/dead_reckoning
     qr_flutter: ^4.1.0
+    flutter_scene: ^0.23.0
 
 dev_dependencies:
     flutter_test:

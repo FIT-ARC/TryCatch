@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
 import './shared/flight_3d_shell.dart';
+import './shared/gpu/flight_gpu_view.dart';
 import './shared/orbit_camera.dart';
-import './shared/sat_flight_painter.dart';
 import './shared/satellite_terrain_state.dart';
 
 /// 3D flight path over satellite imagery: the same scene and orbit cameras
@@ -15,7 +15,7 @@ import './shared/satellite_terrain_state.dart';
 ///
 /// Imagery covers a fixed 20×20 km around the launch site (nested outer /
 /// mid / sharp-pad tiers plus true-scale DEM relief) and is cached per
-/// site.
+/// site. Rendered on the GPU (`FlightGpuView`).
 class Flight3dSatelliteTile extends ConsumerStatefulWidget {
   const Flight3dSatelliteTile({super.key});
 
@@ -35,7 +35,13 @@ class _Flight3dSatelliteWidgetState
       return Center(child: WaitingForData());
     }
     return Flight3dShell(
-      painter: SatFlightPainter(
+      mode: mode,
+      onMode: setShellMode,
+      onZoomBy: zoomBy,
+      onResetZoom: resetZoom,
+      onOrbit: orbitBy,
+      extraOverlays: [if (terrain != null) satelliteAttributionOverlay()],
+      child: FlightGpuView(
         scene: resolved.scene,
         lens: OrbitLens(
           mode: mode,
@@ -47,12 +53,6 @@ class _Flight3dSatelliteWidgetState
         meshes: terrainMeshes,
         anchor: resolved.anchor,
       ),
-      mode: mode,
-      onMode: setShellMode,
-      onZoomBy: zoomBy,
-      onResetZoom: resetZoom,
-      onOrbit: orbitBy,
-      extraOverlays: [if (terrain != null) satelliteAttributionOverlay()],
     );
   }
 }

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
 import './shared/flight_3d_shell.dart';
-import './shared/sat_flight_painter.dart';
+import './shared/gpu/flight_gpu_view.dart';
 import './shared/satellite_terrain_state.dart';
 
 /// Onboard camera view: the rocket's-eye strap-down lens over the same
@@ -12,6 +12,8 @@ import './shared/satellite_terrain_state.dart';
 /// looking out its side with the nose up, so the horizon follows the full
 /// attitude. Dragging spins the gaze around the rocket's long axis;
 /// double-tap recenters it. The lens is fixed — no zoom, no camera modes.
+///
+/// Rendered on the GPU (`FlightGpuView` with the onboard lens).
 class OnboardCameraTile extends ConsumerStatefulWidget {
   const OnboardCameraTile({super.key});
 
@@ -34,19 +36,21 @@ class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
       return Center(child: WaitingForData());
     }
     return Flight3dShell(
-      painter: SatFlightPainter(
-        scene: _smoother.apply(resolved.scene),
-        lens: OnboardLens(spinDeg: _spinDeg),
-        terrain: terrain,
-        meshes: terrainMeshes,
-        anchor: resolved.anchor,
-      ),
       modes: const [],
       onZoomBy: (_) {},
       onResetZoom: () => setState(() => _spinDeg = 0.0),
       onOrbit: (delta) =>
           setState(() => _spinDeg = spinAfterDrag(_spinDeg, delta.dx)),
       extraOverlays: [if (terrain != null) satelliteAttributionOverlay()],
+      child: FlightGpuView(
+        scene: _smoother.apply(resolved.scene),
+        lens: OnboardLens(spinDeg: _spinDeg),
+        terrain: terrain,
+        meshes: terrainMeshes,
+        anchor: resolved.anchor,
+        showAirframe: false,
+        vignette: true,
+      ),
     );
   }
 }

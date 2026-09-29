@@ -83,7 +83,11 @@ mixin Flight3dShellState<T extends ConsumerStatefulWidget> on ConsumerState<T> {
 /// swipe/pinch zooms and drag-orbit is ignored; a real press always clears
 /// the flag so a lost gesture-end can never wedge orbiting off.
 class Flight3dShell extends StatefulWidget {
-  final CustomPainter painter;
+  /// Painter for the CPU fallback path; null when [child] supplies the view.
+  final CustomPainter? painter;
+
+  /// GPU view replacing the painter (used when Flutter GPU is available).
+  final Widget? child;
 
   /// Active mode and tap handler for the picker buttons; both are unused
   /// when [modes] is empty (the fixed onboard lens).
@@ -100,7 +104,8 @@ class Flight3dShell extends StatefulWidget {
 
   const Flight3dShell({
     super.key,
-    required this.painter,
+    this.painter,
+    this.child,
     this.mode,
     this.onMode,
     this.modes = FlightCameraMode.values,
@@ -108,7 +113,8 @@ class Flight3dShell extends StatefulWidget {
     required this.onResetZoom,
     required this.onOrbit,
     this.extraOverlays = const [],
-  });
+  }) : assert(painter != null || child != null,
+            'Flight3dShell needs a painter or a child');
 
   @override
   State<Flight3dShell> createState() => _Flight3dShellState();
@@ -151,10 +157,11 @@ class _Flight3dShellState extends State<Flight3dShell> {
               widget.onOrbit(details.delta);
             },
             onDoubleTap: widget.onResetZoom,
-            child: CustomPaint(
-              painter: widget.painter,
-              child: const SizedBox.expand(),
-            ),
+            child: widget.child ??
+                CustomPaint(
+                  painter: widget.painter,
+                  child: const SizedBox.expand(),
+                ),
           ),
         ),
         // Camera mode buttons (zoom lives in wheel/pinch/double-tap only).

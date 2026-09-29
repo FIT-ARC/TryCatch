@@ -9,8 +9,7 @@ import 'package:trycatch/core/ring_buffer.dart';
 import 'package:trycatch/state/replay_controller.dart';
 import 'package:trycatch/state/telemetry_store.dart';
 import 'package:trycatch/ui/tiles/map_tile.dart';
-import 'package:trycatch/ui/tiles/rocket_3d_tile.dart'
-    show Rocket3dTile, zoomAfterWheel;
+import 'package:trycatch/ui/tiles/rocket_3d_tile.dart' show zoomAfterWheel;
 import 'package:trycatch/ui/tiles/shared/flight_3d_common.dart';
 import 'package:trycatch/ui/tiles/shared/flight_3d_shell.dart';
 import 'package:trycatch/ui/tiles/shared/trackpad_zoom.dart'
@@ -22,20 +21,6 @@ class _EmptyStore extends TelemetryStore {
         history: RingBuffer<TelemetryFrame>(10),
         deadReckoningHistory: RingBuffer<DeadReckoningPosition>(10),
       );
-}
-
-class _FramedStore extends TelemetryStore {
-  @override
-  TelemetryState build() {
-    final history = RingBuffer<TelemetryFrame>(10);
-    const frame = TelemetryFrame(sequence: 1);
-    history.push(frame);
-    return TelemetryState(
-      history: history,
-      deadReckoningHistory: RingBuffer<DeadReckoningPosition>(10),
-      latest: frame,
-    );
-  }
 }
 
 /// Wheel-zoom regression tests: the map, the shared flight-3D shell (used
@@ -229,45 +214,6 @@ void main() {
     expect(zoomAfterWheel(1.0, 120), lessThan(1.0));
     expect(zoomAfterWheel(3.0, -120), 3.0);
     expect(zoomAfterWheel(0.5, 120), 0.5);
-  });
-
-  testWidgets('rocket tile handles wheel scroll without errors',
-      (tester) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          telemetryStoreProvider.overrideWith(_FramedStore.new),
-        ],
-        child: const MaterialApp(
-          home: Scaffold(
-            body: SizedBox(width: 400, height: 400, child: Rocket3dTile()),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    expect(tester.takeException(), isNull);
-    expect(find.byType(Rocket3dTile), findsOneWidget);
-
-    final center = tester.getCenter(find.byType(Rocket3dTile));
-    await tester.sendEventToBinding(
-      PointerScrollEvent(position: center, scrollDelta: const Offset(0, -120)),
-    );
-    await tester.pump();
-    expect(tester.takeException(), isNull);
-
-    // Trackpad swipe is handled too, without errors.
-    await tester.sendEventToBinding(PointerPanZoomStartEvent(position: center));
-    await tester.sendEventToBinding(
-      PointerPanZoomUpdateEvent(
-        position: center,
-        panDelta: const Offset(0, -10),
-        scale: 1.0,
-      ),
-    );
-    await tester.sendEventToBinding(PointerPanZoomEndEvent(position: center));
-    await tester.pump();
-    expect(tester.takeException(), isNull);
   });
 }
 

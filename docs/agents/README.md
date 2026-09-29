@@ -123,6 +123,11 @@
 
 ## 10. Known exceptions (do not "fix" without a task)
 
+* 3D tiles render on the GPU only (`lib/ui/tiles/shared/gpu/`, see
+  `docs/3d-rendering.md`). There is no CPU painter fallback: a new 3D feature
+  goes through the GPU builders. Geometry/stream conversion helpers stay
+  engine-free so they remain unit-testable, and world-space annotations ride a
+  thin 2D overlay that reuses the shared camera (never re-derive the camera).
 * `core/packet_rate_tracker.dart` + `core/channel_health.dart`
   `ChannelHealthTracker` stay for their unit tests; no widget may use
   them — widgets read `channelHealthProvider.series`.
