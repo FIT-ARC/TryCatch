@@ -15,7 +15,6 @@ import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/app_card.dart';
-import '../components/centered_stat.dart';
 import '../components/waiting_for_data.dart';
 import './shared/time_series_chart.dart'
     show chartTouchData, previewBarAlpha;
@@ -23,8 +22,7 @@ import './shared/time_series_chart.dart'
 /// Tile-friendly channel-health readout: verdict + rolling signal chart.
 ///
 /// The workspace grid wraps every tile in an [AppCard], so this renders
-/// no background, no max-width constraint and no nested card. Very short
-/// tiles shed the chart and show just the headline interference number.
+/// no background, no max-width constraint and no nested card.
 class ChannelHealthTile extends ConsumerStatefulWidget {
   const ChannelHealthTile({super.key});
 
@@ -86,34 +84,17 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
     final unmatchedBps = latest?.unmatchedBps ?? 0.0;
     final verdict = verdictFor(unmatchedBps);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Very short tiles drop the graph and show the live number.
-        if (constraints.maxHeight.isFinite && constraints.maxHeight < 110) {
-          if (latest == null) {
-            return const Center(child: WaitingForData(compact: true));
-          }
-          return Center(
-            child: CenteredValue(
-              value: formatBps(unmatchedBps),
-              valueColor: _verdictColor(verdict),
-              sublabel: '${_verdictLabel(verdict)} · UNKNOWN',
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _TileVerdictRow(
-              verdict: verdict,
-              matchedBps: matchedBps,
-              unmatchedBps: unmatchedBps,
-            ),
-            const SizedBox(height: 6),
-            Expanded(child: _RateChart(series: series)),
-          ],
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _TileVerdictRow(
+          verdict: verdict,
+          matchedBps: matchedBps,
+          unmatchedBps: unmatchedBps,
+        ),
+        const SizedBox(height: 6),
+        Expanded(child: _RateChart(series: series)),
+      ],
     );
   }
 }
@@ -154,38 +135,25 @@ class _TileReplayBody extends StatelessWidget {
     final cursor = played.isEmpty ? null : played.last;
     final verdict = verdictFor(cursor?.unmatchedBps ?? 0.0);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxHeight.isFinite && constraints.maxHeight < 110) {
-          return Center(
-            child: CenteredValue(
-              value: formatBps(cursor?.unmatchedBps ?? 0.0),
-              valueColor: _verdictColor(verdict),
-              sublabel: '${_verdictLabel(verdict)} · UNKNOWN',
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _TileVerdictRow(
-              verdict: verdict,
-              matchedBps: cursor?.matchedBps ?? 0.0,
-              unmatchedBps: cursor?.unmatchedBps ?? 0.0,
-            ),
-            const SizedBox(height: 6),
-            Expanded(
-              child: _ReplayChart(
-                played: played,
-                future: future,
-                profile: profile,
-                durationMs: null,
-                positionMs: positionMs,
-              ),
-            ),
-          ],
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _TileVerdictRow(
+          verdict: verdict,
+          matchedBps: cursor?.matchedBps ?? 0.0,
+          unmatchedBps: cursor?.unmatchedBps ?? 0.0,
+        ),
+        const SizedBox(height: 6),
+        Expanded(
+          child: _ReplayChart(
+            played: played,
+            future: future,
+            profile: profile,
+            durationMs: null,
+            positionMs: positionMs,
+          ),
+        ),
+      ],
     );
   }
 }

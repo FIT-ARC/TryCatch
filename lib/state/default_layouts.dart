@@ -57,8 +57,8 @@ abstract final class DefaultLayouts {
             a: SplitNode(
               vertical: false,
               ratio: 0.49999999999999994,
-              a: LeafNode(tileId: GridIds.next(), tileType: 'altitude_chart'),
-              b: LeafNode(tileId: GridIds.next(), tileType: 'velocity_chart'),
+              a: LeafNode(tileId: GridIds.next(), tileType: 'altitude_value'),
+              b: LeafNode(tileId: GridIds.next(), tileType: 'velocity_value'),
             ),
             b: LeafNode(tileId: GridIds.next(), tileType: 'altitude_chart'),
           ),
@@ -89,13 +89,13 @@ abstract final class DefaultLayouts {
           a: SplitNode(
             vertical: true,
             ratio: 0.3333333333333333,
-            a: LeafNode(tileId: GridIds.next(), tileType: 'hall_sensor'),
+            a: LeafNode(tileId: GridIds.next(), tileType: 'hall_sensor_value'),
             b: LeafNode(tileId: GridIds.next(), tileType: 'hall_sensor'),
           ),
           b: SplitNode(
             vertical: true,
             ratio: 0.3333333333333333,
-            a: LeafNode(tileId: GridIds.next(), tileType: 'battery_chart'),
+            a: LeafNode(tileId: GridIds.next(), tileType: 'battery_value'),
             b: LeafNode(tileId: GridIds.next(), tileType: 'battery_chart'),
           ),
         ),
@@ -144,7 +144,7 @@ abstract final class DefaultLayouts {
     root: SplitNode(
       vertical: false,
       ratio: 0.5,
-      a: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d_sat', settings: const {'cameraMode': 'free'}),
+      a: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d_sat', settings: const {'cameraMode': 'chase'}),
       b: SplitNode(
         vertical: false,
         ratio: 0.5,
@@ -178,6 +178,6 @@ abstract final class DefaultLayouts {
   static Workspace flightPath() => Workspace(
     id: GridIds.next(),
     name: 'Flight path',
-    root: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d', settings: const {'cameraMode': 'free'}),
+    root: LeafNode(tileId: GridIds.next(), tileType: 'flight_3d', settings: const {'cameraMode': 'chase'}),
   );
 }

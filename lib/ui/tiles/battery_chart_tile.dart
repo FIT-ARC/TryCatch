@@ -5,13 +5,10 @@ import 'package:serial/serial.dart';
 import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
-import '../components/centered_stat.dart';
 import '../components/connector_gate.dart';
-import '../components/waiting_for_data.dart';
 import './shared/time_series_chart.dart';
 
 /// Battery voltage over time, plus the 1-minute discharge average.
-/// No big numeric header — the chart and the trend line carry the state.
 class BatteryChartTile extends ConsumerWidget {
   const BatteryChartTile({super.key});
 
@@ -26,20 +23,6 @@ class BatteryChartTile extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Very short tiles drop the graph and show the live voltage.
-        if (constraints.maxHeight.isFinite &&
-            constraints.maxHeight < 110) {
-          final latest = state.latest;
-          if (latest == null) {
-            return const Center(child: WaitingForData(compact: true));
-          }
-          return Center(
-            child: CenteredValue(
-              value: '${latest.batteryVoltage.toStringAsFixed(2)} V',
-              valueColor: AppColors.seriesBattery,
-            ),
-          );
-        }
         // The discharge average is a nice-to-have: short tiles keep the
         // chart on its own.
         final showRate = dischargeRate != null && constraints.maxHeight >= 170;

@@ -13,8 +13,8 @@ import '../components/waiting_for_data.dart';
 /// Flight highlights: session extremes in one tile.
 ///
 /// - Max ascent / descent velocity (m/s, vertical component)
-/// - Top total speed (m/s, also as Mach — only when every velocity
-///   component is populated; omitted on partial feeds)
+/// - Top speed (m/s, also as Mach — on a partial feed this is the
+///   available component's peak and may match an ascent/descent max)
 /// - Max acceleration (m/s², also as G)
 /// - Replay-only: total drift (launch site → last GPS fix) and max
 ///   altitude (no live equivalent — the flight is still in progress)
@@ -33,7 +33,6 @@ class HighlightsTile extends ConsumerWidget {
     final hasVelocity =
         connector.capabilities.supports(TelemetryField.velocityVertical) ||
         connector.capabilities.supports(TelemetryField.velocityHorizontal);
-    final hasTotalSpeed = connector.capabilities.hasFullVelocity;
     final hasAccel =
         connector.capabilities.supports(TelemetryField.acceleration);
     if (!hasVelocity && !hasAccel) {
@@ -91,10 +90,10 @@ class HighlightsTile extends ConsumerWidget {
         const SizedBox(height: 12),
         Row(
           children: [
-            // Total speed needs every velocity component — with a partial
-            // feed (e.g. vertical-only) the magnitude would understate, so
-            // the cell is omitted instead of showing a wrong number.
-            if (hasTotalSpeed)
+            // Top speed is always shown when any velocity component exists —
+            // on a partial feed (e.g. vertical-only) it is the available
+            // component's peak, even if it matches an ascent/descent max.
+            if (hasVelocity)
               Expanded(
                 child: _Cell(
                   label: 'Top speed',

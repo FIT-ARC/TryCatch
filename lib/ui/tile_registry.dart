@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
 import './tiles/acceleration_chart_tile.dart';
+import './tiles/acceleration_value_tile.dart';
 import './tiles/altitude_chart_tile.dart';
+import './tiles/altitude_value_tile.dart';
 import './tiles/battery_chart_tile.dart';
+import './tiles/battery_value_tile.dart';
 import './tiles/channel_health_tile.dart';
+import './tiles/channel_health_value_tile.dart';
 import './tiles/commands_tile.dart';
 import './tiles/control_panel_tile.dart';
 import './tiles/flight_3d_satellite_tile.dart';
 import './tiles/flight_3d_tile.dart';
 import './tiles/fsm_tile.dart';
 import './tiles/hall_sensor_tile.dart';
+import './tiles/hall_sensor_value_tile.dart';
 import './tiles/highlights_tile.dart';
 import './tiles/map_tile.dart';
 import './tiles/max_altitude_tile.dart';
@@ -20,6 +25,7 @@ import './tiles/dead_reckoning_tile.dart';
 import './tiles/events_tile.dart';
 import './tiles/stats_tile.dart';
 import './tiles/velocity_chart_tile.dart';
+import './tiles/velocity_value_tile.dart';
 
 /// Broad category used by the tile picker's filter chips.
 enum TileCategory {
@@ -171,7 +177,7 @@ abstract final class TileRegistry {
     ),
     TileDescriptor(
       id: 'altitude_chart',
-      title: 'Altitude',
+      title: 'Altitude Chart',
       description: 'Barometric altitude over time',
       icon: Icons.show_chart,
       minSize: const Size(130, 70),
@@ -179,8 +185,17 @@ abstract final class TileRegistry {
       builder: (context) => AltitudeChartTile(),
     ),
     TileDescriptor(
+      id: 'altitude_value',
+      title: 'Altitude',
+      description: 'Live barometric altitude',
+      icon: Icons.show_chart,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => AltitudeValueTile(),
+    ),
+    TileDescriptor(
       id: 'velocity_chart',
-      title: 'Velocity',
+      title: 'Velocity Chart',
       description: 'Horizontal, vertical and total speed',
       icon: Icons.speed_outlined,
       minSize: const Size(130, 70),
@@ -188,8 +203,17 @@ abstract final class TileRegistry {
       builder: (context) => VelocityChartTile(),
     ),
     TileDescriptor(
+      id: 'velocity_value',
+      title: 'Velocity',
+      description: 'Live speed',
+      icon: Icons.speed_outlined,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => VelocityValueTile(),
+    ),
+    TileDescriptor(
       id: 'acceleration_chart',
-      title: 'Acceleration',
+      title: 'Acceleration Chart',
       description: 'Vertical and total acceleration',
       icon: Icons.trending_up,
       minSize: const Size(130, 70),
@@ -197,13 +221,31 @@ abstract final class TileRegistry {
       builder: (context) => AccelerationChartTile(),
     ),
     TileDescriptor(
+      id: 'acceleration_value',
+      title: 'Acceleration',
+      description: 'Live acceleration',
+      icon: Icons.trending_up,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => AccelerationValueTile(),
+    ),
+    TileDescriptor(
       id: 'battery_chart',
-      title: 'Battery',
+      title: 'Battery Chart',
       description: 'Battery voltage over time',
       icon: Icons.battery_charging_full_outlined,
       minSize: const Size(130, 70),
       category: TileCategory.charts,
       builder: (context) => BatteryChartTile(),
+    ),
+    TileDescriptor(
+      id: 'battery_value',
+      title: 'Battery',
+      description: 'Live battery voltage',
+      icon: Icons.battery_charging_full_outlined,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => BatteryValueTile(),
     ),
     TileDescriptor(
       id: 'fsm',
@@ -243,21 +285,39 @@ abstract final class TileRegistry {
     ),
     TileDescriptor(
       id: 'hall_sensor',
-      title: 'Hall sensor',
-      description: 'Breakaway wire sensor readout',
+      title: 'Hall Sensor Chart',
+      description: 'Breakaway wire sensor over time',
       icon: Icons.sensors_outlined,
       minSize: const Size(130, 70),
       category: TileCategory.sensors,
       builder: (context) => HallSensorTile(),
     ),
     TileDescriptor(
+      id: 'hall_sensor_value',
+      title: 'Hall Sensor',
+      description: 'Live breakaway wire sensor readout',
+      icon: Icons.sensors_outlined,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => HallSensorValueTile(),
+    ),
+    TileDescriptor(
       id: 'channel_health',
-      title: 'Channel health',
+      title: 'Channel Health Chart',
       description: 'Undecodable traffic on this frequency',
       icon: Icons.wifi_tethering_outlined,
       minSize: const Size(140, 80),
       category: TileCategory.sensors,
       builder: (context) => ChannelHealthTile(),
+    ),
+    TileDescriptor(
+      id: 'channel_health_value',
+      title: 'Channel Health',
+      description: 'Live unknown traffic on this frequency',
+      icon: Icons.wifi_tethering_outlined,
+      minSize: const Size(110, 64),
+      category: TileCategory.sensors,
+      builder: (context) => ChannelHealthValueTile(),
     ),
     TileDescriptor(
       id: 'control_panel',
