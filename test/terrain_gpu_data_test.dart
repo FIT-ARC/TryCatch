@@ -83,6 +83,17 @@ void main() {
     expect(lifted.positions[2], 0.0);
   });
 
+  test('reverses each triangle so the top side passes culling', () {
+    final data = buildTerrainGpuData(
+      mesh: mesh(),
+      imageWidth: 256,
+      imageHeight: 256,
+      sunDir: vm.Vector3(0, 1, 0),
+    );
+    // Mesh indices [0, 1, 3, 0, 3, 2] emit as [0, 3, 1, 0, 2, 3].
+    expect(data.indices, [0, 3, 1, 0, 2, 3]);
+  });
+
   test('indexLimit truncates the draw list', () {
     final data = buildTerrainGpuData(
       mesh: mesh(),
@@ -92,5 +103,72 @@ void main() {
       indexLimit: 3,
     );
     expect(data.indices.length, 3);
+  });
+
+  group('buildTerrainAtlasGpuData', () {
+    test('stacks tiers into atlas bands with shifted indices', () {
+      final atlas = buildTerrainAtlasGpuData(
+        tiers: [
+          TerrainAtlasTier(
+            mesh: mesh(),
+            imageWidth: 256,
+            imageHeight: 256,
+            yOffset: outerTierLift,
+          ),
+          TerrainAtlasTier(
+            mesh: mesh(),
+            imageWidth: 512,
+            imageHeight: 128,
+            yOffset: midTierLift,
+          ),
+        ],
+        sunDir: vm.Vector3(0, 1, 0),
+      );
+      expect(atlas.atlasWidth, 512);
+      expect(atlas.atlasHeight, 256 + 128);
+      expect(atlas.vertexCount, 2 * 4);
+      expect(atlas.indices.length, 12);
+
+      // Second tier's vertices start past the first tier's four.
+      for (var v = 4; v < 8; v++) {
+        expect(atlas.positions[v * 3 + 1], closeTo(5.0 + midTierLift, 1e-6));
+      }
+      // First tier UVs: unchanged band (256/256 into a 512-wide atlas).
+      expect(atlas.texCoords[0], 0.0);
+      expect(atlas.texCoords[2], closeTo(256 / 512, 1e-6));
+      // Second tier maps into its band: v=4 sits at band start.
+      expect(atlas.texCoords[8], 0.0);
+      expect(atlas.texCoords[9], closeTo(256 / (256 + 128), 1e-6));
+      // Indices of the second tier shift past the first tier's vertices.
+      expect(atlas.indices[6], 0 + 4);
+    });
+
+    test('keeps the tier list order in the index list', () {
+      final atlas = buildTerrainAtlasGpuData(
+        tiers: [
+          TerrainAtlasTier(
+            mesh: mesh(),
+            imageWidth: 256,
+            imageHeight: 256,
+            yOffset: 0,
+          ),
+          TerrainAtlasTier(
+            mesh: mesh(),
+            imageWidth: 256,
+            imageHeight: 256,
+            yOffset: midTierLift,
+          ),
+        ],
+        sunDir: vm.Vector3(0, 1, 0),
+      );
+      // First six indices reference the first tier's vertices (0..3).
+      for (final i in atlas.indices.take(6)) {
+        expect(i, lessThan(4));
+      }
+      // Last six reference the second tier's (4..7).
+      for (final i in atlas.indices.skip(6)) {
+        expect(i, inInclusiveRange(4, 7));
+      }
+    });
   });
 }

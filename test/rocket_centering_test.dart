@@ -56,7 +56,7 @@ void main() {
     );
     final chuteModel = Matrix4.translation(
             model.transformed3(Vector3(0, RocketMesh.bodyTop, 0)))
-        ..scaleByDouble(0.9, 0.9, 0.9, 1.0);
+        ..scaleByDouble(0.9 * 1.5, 0.9 * 1.5, 0.9 * 1.5, 1.0);
 
     var minX = double.infinity;
     var maxX = -double.infinity;

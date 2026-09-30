@@ -40,7 +40,10 @@ class _Flight3dSatelliteWidgetState
       onZoomBy: zoomBy,
       onResetZoom: resetZoom,
       onOrbit: orbitBy,
-      extraOverlays: [if (terrain != null) satelliteAttributionOverlay()],
+      extraOverlays: [
+        if (terrainLoading) satelliteLoadingOverlay(),
+        if (terrain != null) satelliteAttributionOverlay(),
+      ],
       child: FlightGpuView(
         scene: resolved.scene,
         lens: OrbitLens(

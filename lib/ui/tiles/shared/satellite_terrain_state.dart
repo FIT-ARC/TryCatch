@@ -41,6 +41,12 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
   /// Retained drape meshes for [terrain]; null together with it.
   TerrainMeshSet? get terrainMeshes => _meshes;
 
+  /// Whether imagery is fetching or the retained meshes are still building
+  /// (the view shows the plain ground plus a loading hint meanwhile).
+  bool get terrainLoading =>
+      (_terrain == null && _requestedKey != null) ||
+      (_terrain != null && _meshes == null);
+
   /// Applies a progressive stage unless a newer-or-equal stage for the same
   /// size is already showing (never downgrade warm-cache arrivals, never
   /// show a stale size over a current one — callers check [_requestedKey]).
@@ -144,14 +150,27 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
     if (!identical(_terrain, _meshTerrain) || _meshAnchorKey != anchorKey) {
       _meshTerrain = _terrain;
       _meshAnchorKey = anchorKey;
-      _meshes = _terrain == null
-          ? null
-          : buildTerrainMeshes(
-              _terrain!,
-              lat0: anchor.lat,
-              lon0: anchor.lon,
-              cosLat0: anchor.cosLat,
-            );
+      // Plain-ground fallback while the retained meshes build off the build
+      // path (they cost real CPU; building them inline froze the tile).
+      _meshes = null;
+      final terrain = _terrain;
+      if (terrain != null) {
+        cachedTerrainMeshes(
+          terrain,
+          lat0: anchor.lat,
+          lon0: anchor.lon,
+          cosLat0: anchor.cosLat,
+        ).then((meshes) {
+          if (!mounted ||
+              _meshAnchorKey != anchorKey ||
+              !identical(_terrain, terrain)) {
+            return;
+          }
+          setState(() => _meshes = meshes);
+        }).catchError((Object _) {
+          // Keep the plain-ground fallback; a later stage retries.
+        });
+      }
     }
     return (scene: scene, anchor: anchor);
   }

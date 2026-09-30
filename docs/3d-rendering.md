@@ -7,51 +7,108 @@ There is no CPU fallback.
 
 | Tile | View | Notes |
 |---|---|---|
-| 3D Rocket | `RocketGpuView` | airframe uploaded once per nose-cone/parachute config |
-| Flight path | `FlightGpuView` (no terrain) | GPU grid + trail + airframe |
-| 3D Flight | `FlightGpuView` + `SatelliteTerrain` | imagery textures + DEM meshes |
+| 3D Rocket | `RocketGpuView` | airframe + parachute uploaded per nose-cone/parachute config; no zoom |
+| Flight path | `FlightGpuView` (no terrain) | GPU grid + trail + drop line + airframe; labels and compass ride the overlay |
+| 3D Flight | `FlightGpuView` + `SatelliteTerrain` | imagery atlas + DEM relief + 3D blob shadow |
 | Onboard camera | `FlightGpuView` + `OnboardLens` | airframe hidden, glass vignette |
 
 Geometry/stream builders live in `lib/ui/tiles/shared/gpu/`:
 
-* `rocket_gpu_data.dart` — pure airframe → positions/normals/colors
-  (`RocketMesh`/`ParachuteMesh`). Engine-free → `test/rocket_gpu_data_test.dart`.
-* `terrain_gpu_data.dart` — pure retained `TerrainMesh` → normalized UVs,
-  baked hillshade RGB, feather alpha, per-tier Y lift. Engine-free →
+* `rocket_gpu_data.dart` — airframe and parachute conversion to GPU vertex
+  streams with sRGB-to-linear albedo colors
+  (`RocketMesh`/`ParachuteMesh`). Engine-free →
+  `test/rocket_gpu_data_test.dart`.
+* `terrain_gpu_data.dart` — retained `TerrainMesh` conversion into normalized
+  UVs, baked hillshade RGB, radial feather alpha, plus the combined atlas
+  mesh builder (`buildTerrainAtlasGpuData`). Engine-free →
   `test/terrain_gpu_data_test.dart`.
-* `rocket_gpu_view.dart` — attitude node + `PerspectiveCamera`; compass drawn
-  as a 2D overlay through the engine camera's view matrix.
+* `rocket_gpu_view.dart` — attitude node with mirror-composed transform;
+  compass drawn as a 2D overlay through the standard view of the unmirrored
+  camera.
 * `flight_gpu_view.dart` — owns a `Scene` (procedural `GradientSkySource`
-  skybox), drapes the terrain tiers (`UnlitMaterial`, per-vertex shade ×
-  feather alpha), draws the grid (`LineSegmentsGeometry`, one instanced draw),
-  the trail (`PolylineGeometry`, screen-pixel width) and the CG-anchored
-  airframe (`PhysicallyBasedMaterial`).
+  skybox + directional sun matching the sky), drapes the terrain tiers
+  (`UnlitMaterial`), draws the grid, GPS trail, drop line and 3D blob shadow
+  on the ground (`LineSegmentsGeometry` and a flat disc mesh) and
+  the CG-anchored airframe (`PhysicallyBasedMaterial`). World-space markers and
+  HUD text ride the 2D overlay.
 
 Camera/lens math is shared with the scene builder: `OrbitLens` / `OnboardLens`
 (`flight_3d_common.dart`) compute the frame's `FlightCamera`, which is used both
-for the engine camera and the overlay, so nothing can disagree.
+for the engine camera and the overlay.
 
-## Overlays (2D, on purpose)
+## Camera handedness
 
-World-space annotations and screen-space chrome ride a thin `CustomPainter`
-over the GPU frame, reusing the same camera and the tested helpers: launch-site
-flag, rocket drop line, dead-reckoning connector/ring, shadow disk,
-under-ground badge, compass, onboard vignette, imagery attribution. These are
-vector/text annotations, not the 3D scene.
+`flutter_scene` constructs its look-at basis as `right = up × forward`
+(camera looking down +Z), whereas standard OpenGL camera projection uses
+`right = up × backward` (camera looking down −Z). The views reconcile the two
+by placing mesh content under a mirroring root node (`scale(-1, 1, 1)`) and
+mirroring the engine camera through the same plane. The engine encoder
+compensates the winding of mirrored subtrees, producing an unmirrored image
+that aligns with the 2D overlay.
+
+* Camera-facing ribbon geometries (the `LineSegmentsGeometry` family: grid,
+  GPS trail, drop line) sit outside the mirror node to preserve ribbon
+  facing. Their positions negate X at build time to align with the mirrored
+  camera.
+* The drape top side is wound to pass backface culling in
+  `buildTerrainGpuData`.
+* Single-sheet surfaces (`RocketMeshTri.noCull`, the parachute) emit mirrored
+  twins in `buildParachuteGpuData` so they render from both sides. Shroud lines
+  use crossed ribbons (tangent + radial) to remain visible from all angles.
+* The parachute node translates to the popped tube mouth (transformed with the
+  airframe's CG-anchored orientation) and scales at 1.5× relative to the
+  airframe without applying body rotation, remaining upright at all attitudes.
+
+Line ribbons carry world-space width scaled with the camera distance
+(`_lineWidthBucket`, ~1.5–2 screen pixels, quantized to powers of 1.5). The
+grid keys its width to the ground distance under the target. Trail and drop
+lines write and test depth against the scene with a small `depthBias` so
+ground-clamped lines remain visible over the terrain surface.
+
+## Terrain loading and resources
+
+Terrain processing runs off the UI thread and is cached per launch site:
+
+* Imagery/DEM fetches are memory-cached per site in `satellite_ground.dart`.
+* Retained `TerrainMeshSet` instances build on a background isolate via
+  `cachedTerrainMeshes` (`compute(buildTerrainMeshesSpec, spec)`). While a job
+  runs, tiles show the ground grid with a "Loading imagery…" overlay.
+* The GPU drape (combined tier mesh + single atlas `Texture2D`) is cached per
+  `SatelliteTerrain` in `flight_gpu_view.dart`. Atlas rasterization runs on the
+  engine's raster thread and uploads without a mip chain to eliminate UI
+  thread pauses.
+* In replay mode, scene extents (`maxAlt`/`maxHoriz`) and camera framing
+  follow the played flight history, while `gridMaxAlt`/`gridMaxHoriz` hold the
+  full recording's bounds so the ground grid maintains its complete size from
+  the start.
+
+## Rendering paths
+
+1. **flutter_scene (Flutter GPU)** renders all 3D scene elements: the PBR
+   airframe, the unlit textured terrain drape, camera-facing ribbon lines
+   (grid, GPS trail, drop line), the ground blob shadow (opaque flat disc,
+   order-independent against the translucent drape), and the gradient skybox.
+   Directional sunlight matches the terrain hillshade direction with
+   intensity 1.8.
+2. **2D `CustomPaint` overlay** clipped to the view bounds renders
+   annotations through the shared `FlightCamera`: launch site flag, ground
+   N/E labels, dead-reckoning connector/ring, under-ground badge, compass,
+   vignette, and imagery attribution.
+3. **flutter_map** renders the 2D map tile and satellite layer, sharing the
+   tile disk cache with the 3D drape.
 
 ## Terrain details
 
-* Tiers: outer 20×20 km, mid 10×10 km, pad 2.5×2.5 km. Each tier is a retained
-  `TerrainMesh` (from `satellite_ground.dart`) converted to a GPU mesh with a
-  `Texture2D` upload of its stitched imagery.
-* Tier Y lift (`padTierLift` / `midTierLift` / `outerTierLift`, centimetres)
-  keeps the blended, nearly coplanar tiers from z-fighting under the depth
-  buffer.
-* Terrain material is `UnlitMaterial` with `AlphaMode.blend`; the unlit shader
-  computes `alpha = base.a * vertex_color.a * color.a`, so the baked feather
-  alpha cross-fades tier rims.
-* Hillshade is baked per vertex from a fixed sun (`terrainSunDir`), keeping the
-  drape camera-independent.
+* Tiers: outer 20×20 km, mid 10×10 km, pad 2.5×2.5 km. The GPU drape combines
+  retained `TerrainMesh` tiers into a single mesh sampling a vertically-stacked
+  atlas texture (`buildTerrainAtlasGpuData`). Tier draw order is sequential
+  (outer, mid, pad).
+* Per-vertex alpha applies a radial feather (`satRimAlpha`), opaque inside
+  `satFeatherStart` of the tier radius and fading to zero at the imagery's
+  boundary.
+* Tiers share the ground DEM elevation without vertical offsets.
+* Terrain material uses `UnlitMaterial` with `AlphaMode.blend`.
+* Hillshade is baked per vertex from fixed sun direction `terrainSunDir`.
 
 ## Build requirements
 
@@ -59,35 +116,6 @@ vector/text annotations, not the 3D scene.
   `linux/runner/my_application.cc` calls
   `fl_dart_project_set_enable_flutter_gpu(project, TRUE)`.
 * `flutter config --enable-native-assets` (shader bundles).
-* Impeller is the default desktop renderer on Flutter ≥ 3.47; `flutter_scene`
-  is pre-1.0 and can carry breaking changes in minor releases.
-
-### Shader bundles vs the engine (the v1/v2 trap) ⚠️
-
-The engine loads `flutter_scene`'s base/physical shader bundles and rejects
-any whose flatbuffer `format_version` differs from its own
-(`Unsupported shader bundle format version: 1, expected: 2`). The format was
-bumped 1 → 2 on 2026-05-01 (flutter #185879). The bundles are not shipped
-matching the engine — the `flutter_gpu_shaders` build hook recompiles them
-at build time with the SDK's `impellerc`, so **the hook's compiler must come
-from the same SDK build as the engine that runs the app.**
-
-Gotcha: `findImpellerC()` probes artifact dirs in a fixed order
-(`darwin-x64`, `linux-*`, **`windows-x64`**, `windows-arm64`) and this ARM64
-machine had a stale `windows-x64/impellerc.exe` (May 2026, pre-bump → emits
-v1) shadowing the fresh ARM64 one — so every rebuild silently produced v1
-bundles that the v2-expecting engine rejected. Fixed by moving the stale
-binary aside (`bin/cache/artifacts/engine/windows-x64/impellerc.exe.stale-v1`).
-If the error ever returns: check which impellerc the hook picks
-(`dart run` logging prints the resolved path), compare its emitted bundle's
-`format_version` (uint32 field at flatbuffer vtable slot 6) against the
-running engine's expectation, and delete/refresh stale
-`bin/cache/artifacts/engine/*/impellerc.*`. After changing compilers, wipe
-`.dart_tool/hooks_runner` and `.dart_tool/flutter_build` — the build caches
-hook results and will not re-run the hook on its own.
-
-Dev SDK: Flutter **3.47.5 (stable)**, Dart 3.13 — CI (`FLUTTER_VERSION` in
-both workflows) is pinned to the same version. 3.47.5 ships a matched
-engine/impellerc pair (both emit/expect bundle format v2), verified
-end-to-end on-device. The one-time breakage on this machine was purely the
-stale shadowing binary described above, not an SDK defect.
+* Impeller is the default desktop renderer on Flutter ≥ 3.47.
+* Flutter **3.47.5 (stable)**, Dart 3.13. The `flutter_gpu_shaders` build hook
+  recompiles bundles at build time with the SDK's `impellerc`.

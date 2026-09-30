@@ -339,10 +339,11 @@ abstract final class RocketMesh {
 /// radial gores with a vent hole at the apex, hung on shroud lines above
 /// the popped body tube. Stylised from the .ork chute (Ø 0.9 m, 6 lines).
 ///
-/// Own frame, shared by every painter: origin at the shroud-line attach
-/// point (just above the body top), canopy straight up +Y. Painters place
-/// it world-up from the attach point — never tilted with the airframe —
-/// so the chute always hangs above the rocket.
+/// Own frame, shared by every renderer: origin at the shroud-line attach
+/// point (just above the body top), canopy straight up +Y. The GPU airframe
+/// embeds it world-up from the popped tube mouth
+/// ([RocketMesh.bodyTop]) — never tilted with the airframe — so the chute
+/// always hangs above the rocket.
 ///
 /// Every triangle is [RocketMeshTri.noCull]: single-sheet canopy that must
 /// draw from outside and from below with no backface culling.
@@ -363,7 +364,7 @@ abstract final class ParachuteMesh {
 
   /// Shroud lines: every second gore seam.
   static const int lineCount = 6;
-  static const double lineWidth = 0.012;
+  static const double lineWidth = 0.018;
 
   static const Color red = Color(0xFFE03131);
   static const Color white = Color(0xFFF4F2EC);
@@ -406,16 +407,22 @@ abstract final class ParachuteMesh {
       }
     }
 
-    // Shroud lines: thin quads from the skirt (every second seam) down to
-    // the attach point, in the plane of the seam.
+    // Shroud lines: crossed quads (tangent + radial) from the skirt (every
+    // second seam) down to the attach point, so the cords never vanish
+    // edge-on when viewed from any angle.
     final attach = Vector3(0, attachY, 0);
     for (var l = 0; l < lineCount; l++) {
       final angle = l * 2 * math.pi / lineCount;
       final tangent = Vector3(-math.sin(angle), 0, math.cos(angle));
+      final radial = Vector3(math.cos(angle), 0, math.sin(angle));
       final top = Vector3(skirtRadius * math.cos(angle), skirtY,
           skirtRadius * math.sin(angle));
-      final w = tangent.scaled(lineWidth / 2);
-      tris.addAll(RocketMesh._quad(top + w, top - w, attach - w, attach + w,
+      final wTan = tangent.scaled(lineWidth / 2);
+      final wRad = radial.scaled(lineWidth / 2);
+      tris.addAll(RocketMesh._quad(top + wTan, top - wTan, attach - wTan, attach + wTan,
+          lineColor,
+          noCull: true));
+      tris.addAll(RocketMesh._quad(top + wRad, top - wRad, attach - wRad, attach + wRad,
           lineColor,
           noCull: true));
     }

@@ -41,7 +41,10 @@ class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
       onResetZoom: () => setState(() => _spinDeg = 0.0),
       onOrbit: (delta) =>
           setState(() => _spinDeg = spinAfterDrag(_spinDeg, delta.dx)),
-      extraOverlays: [if (terrain != null) satelliteAttributionOverlay()],
+      extraOverlays: [
+        if (terrainLoading) satelliteLoadingOverlay(),
+        if (terrain != null) satelliteAttributionOverlay(),
+      ],
       child: FlightGpuView(
         scene: _smoother.apply(resolved.scene),
         lens: OnboardLens(spinDeg: _spinDeg),

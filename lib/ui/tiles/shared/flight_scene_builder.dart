@@ -51,8 +51,16 @@ class FlightScene {
 
   /// `true` when [rocketPos] is a dead-reckoning estimate (GPS stale).
   final bool rocketIsDeadReckoning;
+
+  /// Played-flight extents: camera framing follows them, so the orbit views
+  /// keep zooming out and lifting as the flight grows.
   final double maxAlt;
   final double maxHoriz;
+
+  /// Ground-grid extents: the whole flight in replay (the grid holds its
+  /// final size from the first frame), [maxAlt]/[maxHoriz] live.
+  final double gridMaxAlt;
+  final double gridMaxHoriz;
   final double pitchDeg;
   final double yawDeg;
   final double rollDeg;
@@ -68,13 +76,16 @@ class FlightScene {
     required this.rocketIsDeadReckoning,
     required this.maxAlt,
     required this.maxHoriz,
+    double? gridMaxAlt,
+    double? gridMaxHoriz,
     required this.pitchDeg,
     required this.yawDeg,
     required this.rollDeg,
     required this.showNoseCone,
     required this.showParachute,
     required this.siteName,
-  });
+  })  : gridMaxAlt = gridMaxAlt ?? maxAlt,
+        gridMaxHoriz = gridMaxHoriz ?? maxHoriz;
 
   /// Copy with a replaced display attitude (the onboard lens eases the
   /// attitude each tick; trail and extents pass through untouched).
@@ -89,6 +100,8 @@ class FlightScene {
         rocketIsDeadReckoning: rocketIsDeadReckoning,
         maxAlt: maxAlt,
         maxHoriz: maxHoriz,
+        gridMaxAlt: gridMaxAlt,
+        gridMaxHoriz: gridMaxHoriz,
         pitchDeg: pitchDeg,
         yawDeg: yawDeg,
         rollDeg: rollDeg,
@@ -351,6 +364,10 @@ FlightScene? buildReplayScene({
   for (var i = 0; i < frames.length; i++) {
     if (frames[i].gpsHasFix) fixIdx.add(i);
   }
+  // Grid extents cover the WHOLE recording (FlightScene.gridMax*): the
+  // ground grid holds the full flight from the first frame while the camera
+  // framing follows the played flight. Cached per decoded frame list.
+  final (fullMaxAlt, fullMaxHoriz) = _replayFlightExtents(frames, worldOf);
   // Tip: last fix at or before the playhead.
   lo = 0;
   hi = fixIdx.length;
@@ -380,6 +397,8 @@ FlightScene? buildReplayScene({
       rocketIsDeadReckoning: false,
       maxAlt: pad.y,
       maxHoriz: 0,
+      gridMaxAlt: fullMaxAlt,
+      gridMaxHoriz: fullMaxHoriz,
       pitchDeg: padAttitude.pitchDeg,
       yawDeg: padAttitude.yawDeg,
       rollDeg: padAttitude.rollDeg,
@@ -420,6 +439,8 @@ FlightScene? buildReplayScene({
   final trail = capTrailPoints(rawTrail);
   final tipPoint = trail.last;
 
+  // Camera framing follows the played flight; the grid holds the whole
+  // recording's extents (see FlightScene.gridMax*).
   var maxAlt = tipPoint.y;
   var maxHoriz = math.sqrt(
       tipPoint.x * tipPoint.x + tipPoint.z * tipPoint.z);
@@ -446,6 +467,8 @@ FlightScene? buildReplayScene({
     rocketIsDeadReckoning: false,
     maxAlt: maxAlt,
     maxHoriz: maxHoriz,
+    gridMaxAlt: fullMaxAlt,
+    gridMaxHoriz: fullMaxHoriz,
     pitchDeg: pitchDeg,
     yawDeg: yawDeg,
     rollDeg: rollDeg,
@@ -453,6 +476,34 @@ FlightScene? buildReplayScene({
     showParachute: c.stateForId(tipFrame.fsmStateId).showsParachute,
     siteName: site?.name,
   );
+}
+
+/// Whole-flight extents per decoded recording, keyed by the frame list
+/// (List identity ==). Recomputing them per played frame would sweep every
+/// GPS fix each tick.
+final Map<List<TelemetryFrame>, (double, double)> _replayExtentsCache = {};
+
+/// Max altitude and horizontal distance over every GPS fix of [frames]
+/// (world metres around the anchor). Pure besides the cache.
+(double, double) _replayFlightExtents(
+  List<TelemetryFrame> frames,
+  Vector3 Function(TelemetryFrame) worldOf,
+) {
+  final cached = _replayExtentsCache[frames];
+  if (cached != null) return cached;
+  var maxAlt = 0.0;
+  var maxHoriz = 0.0;
+  for (final f in frames) {
+    if (!f.gpsHasFix) continue;
+    final p = worldOf(f);
+    if (p.y > maxAlt) maxAlt = p.y;
+    final h = math.sqrt(p.x * p.x + p.z * p.z);
+    if (h > maxHoriz) maxHoriz = h;
+  }
+  final out = (maxAlt, maxHoriz);
+  if (_replayExtentsCache.length > 4) _replayExtentsCache.clear();
+  _replayExtentsCache[frames] = out;
+  return out;
 }
 
 /// Live-vs-replay scene resolution shared by every 3D tile.

@@ -5,7 +5,7 @@ import 'package:flutter_scene/scene.dart' as fs;
 import 'package:vector_math/vector_math.dart' as vm;
 import 'package:vector_math/vector_math_64.dart' as vm64;
 
-import '../flight_3d_common.dart' show paintCompass;
+import '../flight_3d_common.dart' show flightSunDir, paintCompass;
 import '../rocket_mesh.dart';
 import './rocket_gpu_data.dart';
 import './scene_resources.dart';
@@ -24,7 +24,6 @@ class RocketGpuView extends StatefulWidget {
   final double cameraElevationDeg;
   final bool showNoseCone;
   final bool showParachute;
-  final double zoom;
 
   const RocketGpuView({
     super.key,
@@ -35,7 +34,6 @@ class RocketGpuView extends StatefulWidget {
     required this.cameraElevationDeg,
     this.showNoseCone = true,
     this.showParachute = false,
-    this.zoom = 1.0,
   });
 
   @override
@@ -52,13 +50,13 @@ const double rocketGpuFovY = 42 * math.pi / 180;
   double scale = 0.9,
 }) {
   final top = showParachute
-      ? RocketMesh.bodyTop + ParachuteMesh.apexY
+      ? RocketMesh.bodyTop + ParachuteMesh.apexY * 1.5
       : showNoseCone
           ? RocketMesh.noseTip
           : RocketMesh.bodyTop;
   return (
     target: vm64.Vector3(0, (top + RocketMesh.finBottom) / 2 * scale, 0),
-    distance: showParachute ? 3.6 : 3.2,
+    distance: showParachute ? 4.2 : 3.2,
   );
 }
 
@@ -86,10 +84,24 @@ class _EngineRocketGpuView extends StatefulWidget {
 class _EngineRocketGpuViewState extends State<_EngineRocketGpuView> {
   static const double _modelScale = 0.9;
 
-  fs.MeshGeometry? _geometry;
+  late final fs.Scene _engineScene = fs.Scene()
+    ..directionalLight = fs.DirectionalLight(
+      // Sun near the zenith, where the gradient sky is brightest — the same
+      // [flightSunDir] the flight views use, mirrored into the engine's
+      // frame (see `_attitudeTransform`).
+      direction: vm.Vector3(
+        flightSunDir.x,
+        -flightSunDir.y,
+        -flightSunDir.z,
+      ),
+      intensity: 1.8,
+    );
+
+  fs.MeshGeometry? _airframe;
+  fs.MeshGeometry? _chute;
   late final fs.Material _material = fs.PhysicallyBasedMaterial()
     ..metallicFactor = 0.0
-    ..roughnessFactor = 0.55;
+    ..roughnessFactor = 0.50;
 
   @override
   void initState() {
@@ -107,19 +119,30 @@ class _EngineRocketGpuViewState extends State<_EngineRocketGpuView> {
   }
 
   void _rebuildGeometry() {
-    final data = buildRocketGpuData(
+    final airframe = buildRocketGpuData(
       showNoseCone: widget.widget.showNoseCone,
-      showParachute: widget.widget.showParachute,
     );
-    _geometry = fs.MeshGeometry.fromArrays(
-      positions: data.positions,
-      normals: data.normals,
-      colors: data.colors,
+    _airframe = fs.MeshGeometry.fromArrays(
+      positions: airframe.positions,
+      normals: airframe.normals,
+      colors: airframe.colors,
+    );
+    _chute = widget.widget.showParachute ? _buildChute() : null;
+  }
+
+  fs.MeshGeometry _buildChute() {
+    final chute = buildParachuteGpuData();
+    return fs.MeshGeometry.fromArrays(
+      positions: chute.positions,
+      normals: chute.normals,
+      colors: chute.colors,
     );
   }
 
-  /// Attitude as an engine transform, converted from the shared
-  /// [RocketMesh.orientationMatrix] so the GPU and the scene builder agree.
+  /// Attitude as an engine transform, composed with the mirroring root that
+  /// cancels the engine's horizontal mirror (the encoder compensates the
+  /// reversed winding of mirrored subtrees, so culling behaves as
+  /// unmirrored).
   vm.Matrix4 _attitudeTransform() {
     final m = RocketMesh.orientationMatrix(
       pitchDeg: widget.widget.pitchDeg,
@@ -127,10 +150,38 @@ class _EngineRocketGpuViewState extends State<_EngineRocketGpuView> {
       rollDeg: widget.widget.rollDeg,
       scale: _modelScale,
     );
-    return vm.Matrix4.fromList(m.storage);
+    final attitude = vm.Matrix4.fromList(m.storage);
+    final mirror = vm.Matrix4.identity()..scaleByDouble(-1.0, 1.0, 1.0, 1.0);
+    return mirror * attitude;
   }
 
-  fs.PerspectiveCamera _camera() {
+  /// The canopy hangs world-up from the popped tube mouth: it rides the
+  /// attitude only to find the mouth position, never to tilt with the
+  /// airframe. Scaled 1.5x relative to the airframe.
+  vm.Matrix4 _chuteTransform() {
+    final m = RocketMesh.orientationMatrix(
+      pitchDeg: widget.widget.pitchDeg,
+      yawDeg: widget.widget.yawDeg,
+      rollDeg: widget.widget.rollDeg,
+      scale: _modelScale,
+    );
+    final mouth = m.transformed3(vm64.Vector3(0, RocketMesh.bodyTop, 0));
+    final mount = vm64.Matrix4.translation(mouth);
+    final scale = vm64.Matrix4.identity()
+      ..scaleByDouble(
+        _modelScale * 1.5,
+        _modelScale * 1.5,
+        _modelScale * 1.5,
+        1.0,
+      );
+    final mirror = vm64.Matrix4.identity()..scaleByDouble(-1.0, 1.0, 1.0, 1.0);
+    return vm.Matrix4.fromList((mirror * (mount * scale)).storage);
+  }
+
+  /// Builds the engine camera (mirrored, see `_attitudeTransform`) plus the
+  /// standard GL view of the unmirrored camera for the compass painter, so
+  /// the gizmo matches the rendered frame.
+  ({fs.PerspectiveCamera camera, vm64.Matrix4 compassView}) _cameraSetup() {
     final framing = rocketFramingGpu(
       showNoseCone: widget.widget.showNoseCone,
       showParachute: widget.widget.showParachute,
@@ -138,50 +189,65 @@ class _EngineRocketGpuViewState extends State<_EngineRocketGpuView> {
     );
     final azimuth = widget.widget.cameraAzimuthDeg * math.pi / 180;
     final elevation = widget.widget.cameraElevationDeg * math.pi / 180;
-    final camDir = vm.Vector3(
+    final camDir = vm64.Vector3(
       math.cos(elevation) * math.sin(azimuth),
       math.sin(elevation),
       math.cos(elevation) * math.cos(azimuth),
     );
-    return fs.PerspectiveCamera(
+    final eye = vm64.Vector3(
+          framing.target.x,
+          framing.target.y,
+          framing.target.z,
+        ) +
+        camDir.scaled(framing.distance);
+    final target = vm64.Vector3(
+      framing.target.x,
+      framing.target.y,
+      framing.target.z,
+    );
+    final camera = fs.PerspectiveCamera(
       fovRadiansY: rocketGpuFovY,
-      position: vm.Vector3(
-        framing.target.x,
-        framing.target.y,
-        framing.target.z,
-      ) +
-          camDir.scaled(framing.distance / widget.widget.zoom),
-      target: vm.Vector3(
-        framing.target.x,
-        framing.target.y,
-        framing.target.z,
-      ),
+      // The scene content is mirrored through the x=0 plane (see
+      // `_attitudeTransform`), so the camera renders from its mirror image;
+      // the pair cancels the engine's horizontal mirror.
+      position: vm.Vector3(-eye.x, eye.y, eye.z),
+      target: vm.Vector3(target.x, target.y, target.z),
       fovNear: 0.1,
       fovFar: 20.0,
     );
+    final compassView =
+        vm64.makeViewMatrix(eye, target, vm64.Vector3(0, 1, 0));
+    return (camera: camera, compassView: compassView);
   }
 
   @override
   Widget build(BuildContext context) {
-    final camera = _camera();
-    final viewMatrix = vm64.Matrix4.fromList(camera.getViewMatrix().storage);
+    final setup = _cameraSetup();
     return Stack(
       fit: StackFit.expand,
       children: [
-        fs.SceneView.declarative(
+        fs.SceneView(
+          _engineScene,
           autoTick: false,
-          camera: camera,
+          camera: setup.camera,
           children: [
             fs.SceneNode(
               transform: _attitudeTransform(),
               children: [
-                fs.SceneMesh(geometry: _geometry!, material: _material),
+                fs.SceneMesh(geometry: _airframe!, material: _material),
               ],
             ),
+            if (_chute != null)
+              fs.SceneNode(
+                transform: _chuteTransform(),
+                children: [
+                  fs.SceneMesh(geometry: _chute!, material: _material),
+                ],
+              ),
           ],
         ),
         IgnorePointer(
-          child: CustomPaint(painter: _CompassPainter(viewMatrix)),
+          child: CustomPaint(painter: _CompassPainter(setup.compassView)),
         ),
       ],
     );

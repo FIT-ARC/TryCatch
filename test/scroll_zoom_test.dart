@@ -9,7 +9,6 @@ import 'package:trycatch/core/ring_buffer.dart';
 import 'package:trycatch/state/replay_controller.dart';
 import 'package:trycatch/state/telemetry_store.dart';
 import 'package:trycatch/ui/tiles/map_tile.dart';
-import 'package:trycatch/ui/tiles/rocket_3d_tile.dart' show zoomAfterWheel;
 import 'package:trycatch/ui/tiles/shared/flight_3d_common.dart';
 import 'package:trycatch/ui/tiles/shared/flight_3d_shell.dart';
 import 'package:trycatch/ui/tiles/shared/trackpad_zoom.dart'
@@ -207,13 +206,6 @@ void main() {
     expect(scrollZoomFactor(-120), closeTo(1.1, 1e-9));
     expect(scrollZoomFactor(120), closeTo(1 / 1.1, 1e-9));
     expect(scrollZoomFactor(0), 1.0);
-  });
-
-  test('rocket wheel-zoom step zooms in on scroll-up, clamps both ends', () {
-    expect(zoomAfterWheel(1.0, -120), greaterThan(1.0));
-    expect(zoomAfterWheel(1.0, 120), lessThan(1.0));
-    expect(zoomAfterWheel(3.0, -120), 3.0);
-    expect(zoomAfterWheel(0.5, 120), 0.5);
   });
 }
 

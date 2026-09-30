@@ -23,6 +23,11 @@ import './flight_scene_builder.dart';
 
 // ── Camera ───────────────────────────────────────────────────────────────────
 
+/// Sun direction for the scenes' directional light (world: X east, Y up,
+/// Z south, unit, pointing at the sun) — matches the sun direction used
+/// for the terrain hillshade so rocket and landscape lighting agree.
+final Vector3 flightSunDir = Vector3(0.45, 0.78, 0.30).normalized();
+
 /// Vertical field of view (radians) shared by the flight cameras.
 const double flightFovY = 50 * math.pi / 180;
 
@@ -654,7 +659,9 @@ double niceCeil(double v) {
 }
 
 /// Ground grid extents for a scene (shared by the plain and textured ground
-/// so the satellite patch can be sized to cover them).
+/// so the satellite patch can be sized to cover them). Sized from the
+/// grid extents ([FlightScene.gridMaxAlt]/[gridMaxHoriz] — the whole flight
+/// in replay), not the camera-framing extents.
 ///
 /// Capped at 10 km half-side (20×20 km): the camera still frames flights
 /// that drift further, but the detailed ground/imagery stops growing and
@@ -662,8 +669,8 @@ double niceCeil(double v) {
 ({double half, double step}) flightGroundGrid(FlightScene scene) {
   final gridHalf = math.min(
       10000.0,
-      niceCeil(
-          math.max(60.0, math.max(scene.maxHoriz * 1.3, scene.maxAlt * 0.6))));
+      niceCeil(math.max(
+          60.0, math.max(scene.gridMaxHoriz * 1.3, scene.gridMaxAlt * 0.6))));
   final step = niceCeil(gridHalf / 8);
   final n = (gridHalf / step).ceil();
   return (half: n * step, step: step);
@@ -743,63 +750,51 @@ void drawWorldDashedSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
   }
 }
 
-/// Drop line rocket→ground plus the violet dead reckoning marker when
-/// dead-reckoned:
-/// a ring at the estimate and a dashed connector from the last known GPS
-/// position ([FlightScene.trail].last) to the estimate, so the dead
-/// reckoning position
-/// never leaves a solid trail.
-/// With [anchorOverride] the line hangs from the CG anchor instead of the
-/// raw reported fix. [groundY] is the terrain surface under the rocket
-/// (0 on the flat plain view).
-void paintDropLineAndDeadReckoning(
+/// Violet dead-reckoning marker when dead-reckoned: a ring at the estimate
+/// and a dashed connector from the last known GPS position
+/// ([FlightScene.trail].last) to the estimate, so the dead reckoning
+/// position never leaves a solid trail. The solid rocket→ground drop line
+/// and the GPS trail are depth-tested engine geometry (see `FlightGpuView`);
+/// this marker stays 2D — it is transient and dashed.
+/// With [anchorOverride] the marker hangs from the CG anchor instead of the
+/// raw reported fix.
+void paintDeadReckoning(
     Canvas canvas, FlightScene scene, Matrix4 vp, Size size,
-    {Vector3? anchorOverride, double groundY = 0.0}) {
+    {Vector3? anchorOverride}) {
+  if (!scene.rocketIsDeadReckoning) return;
   final top = anchorOverride ?? scene.rocketPos;
-  drawWorldSegment(
-    canvas,
-    top,
-    Vector3(top.x, groundY, top.z),
-    vp,
-    size,
-    Paint()
-      ..color = AppColors.mutedForeground.withValues(alpha: 0.45)
-      ..strokeWidth = 1,
-  );
-  if (scene.rocketIsDeadReckoning) {
-    if (scene.trail.isNotEmpty) {
-      final last = scene.trail.last;
-      if ((top - last).length > 1e-6) {
-        drawWorldDashedSegment(
-          canvas,
-          last,
-          top,
-          vp,
-          size,
-          Paint()
-            ..color = AppColors.seriesDeadReckoning.withValues(alpha: 0.9)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6
-            ..strokeCap = StrokeCap.round,
-        );
-      }
-    }
-    final s = projectToScreen(top, vp, size);
-    if (s != null) {
-      canvas.drawCircle(
-        s,
-        11,
+  if (scene.trail.isNotEmpty) {
+    final last = scene.trail.last;
+    if ((top - last).length > 1e-6) {
+      drawWorldDashedSegment(
+        canvas,
+        last,
+        top,
+        vp,
+        size,
         Paint()
           ..color = AppColors.seriesDeadReckoning.withValues(alpha: 0.9)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-      canvas.drawCircle(
-        s,
-        2,
-        Paint()..color = AppColors.seriesDeadReckoning,
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round,
       );
     }
+  }
+  final s = projectToScreen(top, vp, size);
+  if (s != null) {
+    canvas.drawCircle(
+      s,
+      11,
+      Paint()
+        ..color = AppColors.seriesDeadReckoning.withValues(alpha: 0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+    canvas.drawCircle(
+      s,
+      2,
+      Paint()..color = AppColors.seriesDeadReckoning,
+    );
   }
 }
 
@@ -810,39 +805,6 @@ String formatUnderMeters(double meters) {
   return m < 10
       ? '${m.toStringAsFixed(1)} m under ground'
       : '${m.round()} m under ground';
-}
-
-/// Cheap Minecraft-style shadow disk: a flat translucent ellipse on the
-/// terrain surface under the rocket, so the eye can anchor the airframe to
-/// the ground it is flying over. Skipped when the surface point is behind
-/// the camera.
-void paintShadowDisk(
-    Canvas canvas, Matrix4 vp, Size size, Vector3 surfaceCenter, double radius,
-    {double alpha = 0.30}) {
-  final path = Path();
-  var started = false;
-  for (var i = 0; i <= 24; i++) {
-    final a = i * 2 * math.pi / 24;
-    final s = projectToScreen(
-      surfaceCenter +
-          Vector3(radius * math.cos(a), 0, radius * math.sin(a)),
-      vp,
-      size,
-    );
-    // Behind the camera (lens inside the disk): skip rather than smear.
-    if (s == null) return;
-    if (started) {
-      path.lineTo(s.dx, s.dy);
-    } else {
-      path.moveTo(s.dx, s.dy);
-      started = true;
-    }
-  }
-  path.close();
-  canvas.drawPath(
-    path,
-    Paint()..color = const Color(0xFF000000).withValues(alpha: alpha),
-  );
 }
 
 /// "N m under ground" badge next to a terrain-clamped rocket. No-op when
@@ -864,6 +826,35 @@ void paintUnderGroundLabel(
     textDirection: TextDirection.ltr,
   )..layout();
   tp.paint(canvas, pos + const Offset(12, -30));
+}
+
+/// One cardinal letter laid on the ground plane next to the grid edge.
+void paintGroundLabel(
+    Canvas canvas, Matrix4 vp, Size size, Vector3 world, String label,
+    Color color) {
+  final pos = projectToScreen(world, vp, size);
+  if (pos == null) return;
+  final tp = TextPainter(
+    text: TextSpan(
+      text: label,
+      style: AppText.microLabel.copyWith(
+        fontSize: 10,
+        letterSpacing: 1,
+        color: color,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  tp.paint(canvas, pos + const Offset(-4, -8));
+}
+
+/// Cardinal ground labels — north sits on −Z (world Z is south).
+void paintGroundLabels(Canvas canvas, Matrix4 vp, Size size,
+    {required double half, required double step}) {
+  paintGroundLabel(canvas, vp, size, Vector3(half + step * 0.3, 0, 0), 'E',
+      AppColors.warning);
+  paintGroundLabel(canvas, vp, size, Vector3(0, 0, -(half + step * 0.3)), 'N',
+      AppColors.info);
 }
 
 /// Launch-site flag on the ground plane at the world origin: a 2 m pole with

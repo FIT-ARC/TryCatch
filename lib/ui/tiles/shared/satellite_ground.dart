@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dead_reckoning/dead_reckoning.dart' show metresPerDegreeLat;
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_map/flutter_map.dart'
     show BuiltInMapCachingProvider;
 import 'package:vector_math/vector_math_64.dart';
@@ -363,14 +364,13 @@ double demDistanceFade(double distM) {
 
 /// One retained world-space drape tier: a regular grid over
 /// [-half, +half]² metres (X east, Z south) around the anchor, with baked
-/// DEM heights, imagery UVs (image pixels), surface normals, rim-feather
-/// alphas, plus static triangle indices and prebuilt UV points.
+/// DEM heights, imagery UVs (image pixels), surface normals, radially
+/// feathered per-vertex alphas, plus static triangle indices and prebuilt
+/// UV points.
 ///
-/// Built once per terrain; per frame the painter only projects vertices
-/// through the view-projection matrix, shades from the cached normals and
-/// near-clips straddling triangles. Geometry is never recomputed from the
-/// camera, so it cannot swim, pop or reshuffle while panning/zooming —
-/// frames just rotate/scale/project the same mesh.
+/// Built once per terrain; the GPU drape uploads it as-is. Geometry is
+/// never recomputed from the camera, so it cannot swim, pop or reshuffle
+/// while panning/zooming.
 class TerrainMesh {
   final Float32List world;
   final Float32List normals;
@@ -406,7 +406,8 @@ typedef TerrainMeshSet = ({
 
 /// Builds one retained tier mesh over ±[halfMeters] around the anchor.
 /// [imgW]/[imgH] are the imagery pixel dimensions (UVs are baked as
-/// pixels, so frames never touch UV math). Pure — unit-tested.
+/// pixels, so frames never touch UV math). [coverageHalfMeters] is the
+/// imagery's actual covered half-extent. Pure — unit-tested.
 TerrainMesh buildTerrainMesh({
   required double northLat,
   required double southLat,
@@ -427,6 +428,11 @@ TerrainMesh buildTerrainMesh({
   final normals = Float32List(n * n * 3);
   final alpha = Float32List(n * n);
   final uvPts = <ui.Offset>[];
+  // Radial feather: opaque inside [satFeatherStart]·r, fading to zero at the
+  // imagery's real coverage (never beyond the tier square). The drape reads
+  // as a circle, and the fade reaches zero before the UV-clamped smear ring
+  // where a tier's tiles ran out.
+  final featherRadius = math.min(coverageHalfMeters, halfMeters);
   for (var j = 0; j < n; j++) {
     final southM = -halfMeters + 2 * halfMeters * j / (n - 1);
     for (var i = 0; i < n; i++) {
@@ -444,6 +450,7 @@ TerrainMesh buildTerrainMesh({
       normals[k * 3] = nrm?.x ?? 0.0;
       normals[k * 3 + 1] = nrm?.y ?? 1.0;
       normals[k * 3 + 2] = nrm?.z ?? 0.0;
+      alpha[k] = satRimAlpha(d, featherRadius);
       final uvFrac = satUvFraction(
         eastM,
         southM,
@@ -455,8 +462,6 @@ TerrainMesh buildTerrainMesh({
         westLon: westLon,
         eastLon: eastLon,
       );
-      final fade = satEdgeFade(uvFrac.u, uvFrac.v);
-      alpha[k] = satRimAlpha(d, coverageHalfMeters) * fade;
       uvPts.add(ui.Offset(
         uvFrac.u.clamp(0.0, 1.0) * imgW,
         uvFrac.v.clamp(0.0, 1.0) * imgH,
@@ -485,21 +490,71 @@ TerrainMesh buildTerrainMesh({
   );
 }
 
-/// Builds retained meshes for every present tier of [terrain] around the
-/// anchor (world origin). Reads patch bounds and image sizes only — never
-/// pixels, so it stays cheap and synchronous.
-TerrainMeshSet buildTerrainMeshes(
+/// Per-tier build inputs — plain values only, so a mesh build runs on a
+/// background isolate ([cachedTerrainMeshes]).
+class TerrainTierSpec {
+  final double northLat;
+  final double southLat;
+  final double westLon;
+  final double eastLon;
+  final double imgW;
+  final double imgH;
+  final double coverageHalfMeters;
+  final double halfMeters;
+  final int resolution;
+
+  const TerrainTierSpec({
+    required this.northLat,
+    required this.southLat,
+    required this.westLon,
+    required this.eastLon,
+    required this.imgW,
+    required this.imgH,
+    required this.coverageHalfMeters,
+    required this.halfMeters,
+    required this.resolution,
+  });
+}
+
+/// One mesh-build job: every present tier's inputs plus the shared anchor
+/// and DEM context.
+class TerrainBuildSpec {
+  final TerrainTierSpec outer;
+  final TerrainTierSpec? mid;
+  final TerrainTierSpec? pad;
+  final TerrainTierSpec? padLo;
+  final ElevationGrid? dem;
+  final double lat0;
+  final double lon0;
+  final double cosLat0;
+
+  const TerrainBuildSpec({
+    required this.outer,
+    this.mid,
+    this.pad,
+    this.padLo,
+    required this.dem,
+    required this.lat0,
+    required this.lon0,
+    required this.cosLat0,
+  });
+}
+
+/// Reads the per-tier build inputs for [terrain] around the anchor (reads
+/// patch bounds and image sizes only — never pixels, so it stays cheap and
+/// synchronous).
+TerrainBuildSpec terrainBuildSpec(
   SatelliteTerrain terrain, {
   required double lat0,
   required double lon0,
   required double cosLat0,
 }) {
-  TerrainMesh one(
+  TerrainTierSpec tier(
     SatellitePatch patch,
     double halfMeters,
     int resolution,
   ) =>
-      buildTerrainMesh(
+      TerrainTierSpec(
         northLat: patch.northLat,
         southLat: patch.southLat,
         westLon: patch.westLon,
@@ -507,24 +562,104 @@ TerrainMeshSet buildTerrainMeshes(
         imgW: patch.image.width.toDouble(),
         imgH: patch.image.height.toDouble(),
         coverageHalfMeters: patch.coverageHalfMeters,
-        dem: terrain.dem,
-        lat0: lat0,
-        lon0: lon0,
-        cosLat0: cosLat0,
         halfMeters: halfMeters,
         resolution: resolution,
       );
-  return (
-    outer: one(terrain.outer, satFixedHalfMeters, satMeshOuterRes),
+  return TerrainBuildSpec(
+    outer: tier(terrain.outer, satFixedHalfMeters, satMeshOuterRes),
     mid: terrain.mid == null
         ? null
-        : one(terrain.mid!, satMidHalfMeters, satMeshMidRes),
+        : tier(terrain.mid!, satMidHalfMeters, satMeshMidRes),
     pad: terrain.pad == null
         ? null
-        : one(terrain.pad!, satPadHalfMeters, satMeshPadRes),
+        : tier(terrain.pad!, satPadHalfMeters, satMeshPadRes),
     padLo: terrain.pad == null
         ? null
-        : one(terrain.pad!, satPadHalfMeters, satMeshPadFarRes),
+        : tier(terrain.pad!, satPadHalfMeters, satMeshPadFarRes),
+    dem: terrain.dem,
+    lat0: lat0,
+    lon0: lon0,
+    cosLat0: cosLat0,
+  );
+}
+
+/// Builds the retained mesh set for [spec]. Pure — unit-tested, and runs on
+/// a background isolate via [cachedTerrainMeshes].
+TerrainMeshSet buildTerrainMeshesSpec(TerrainBuildSpec spec) {
+  TerrainMesh one(TerrainTierSpec t) => buildTerrainMesh(
+        northLat: t.northLat,
+        southLat: t.southLat,
+        westLon: t.westLon,
+        eastLon: t.eastLon,
+        imgW: t.imgW,
+        imgH: t.imgH,
+        coverageHalfMeters: t.coverageHalfMeters,
+        dem: spec.dem,
+        lat0: spec.lat0,
+        lon0: spec.lon0,
+        cosLat0: spec.cosLat0,
+        halfMeters: t.halfMeters,
+        resolution: t.resolution,
+      );
+  return (
+    outer: one(spec.outer),
+    mid: spec.mid == null ? null : one(spec.mid!),
+    pad: spec.pad == null ? null : one(spec.pad!),
+    padLo: spec.padLo == null ? null : one(spec.padLo!),
+  );
+}
+
+/// Sync convenience wrapper over [terrainBuildSpec] + [buildTerrainMeshesSpec].
+TerrainMeshSet buildTerrainMeshes(
+  SatelliteTerrain terrain, {
+  required double lat0,
+  required double lon0,
+  required double cosLat0,
+}) =>
+    buildTerrainMeshesSpec(terrainBuildSpec(
+      terrain,
+      lat0: lat0,
+      lon0: lon0,
+      cosLat0: cosLat0,
+    ));
+
+/// Per-terrain retained mesh jobs, keyed by the terrain instance (the fetch
+/// caches hand back the same object per site) and the rounded anchor; the
+/// completed future doubles as the result cache.
+final Map<SatelliteTerrain, Map<String, Future<TerrainMeshSet>>>
+    _meshSetJobs = {};
+
+/// Builds (once) the retained meshes for [terrain] around the anchor,
+/// shared by every satellite-ground view. The grids cost real CPU (tens of
+/// thousands of DEM samples per tier), so the build runs on a background
+/// isolate off the build path — blocking the UI here froze the app on every
+/// tile mount and workspace switch — and all tiles await the same job. The
+/// oldest site drops out past a few entries.
+Future<TerrainMeshSet> cachedTerrainMeshes(
+  SatelliteTerrain terrain, {
+  required double lat0,
+  required double lon0,
+  required double cosLat0,
+}) {
+  var perTerrain = _meshSetJobs[terrain];
+  if (perTerrain == null) {
+    while (_meshSetJobs.length >= 4) {
+      _meshSetJobs.remove(_meshSetJobs.keys.first);
+    }
+    perTerrain = _meshSetJobs[terrain] = {};
+  }
+  final key = '${lat0.toStringAsFixed(4)},${lon0.toStringAsFixed(4)}';
+  return perTerrain.putIfAbsent(
+    key,
+    () => compute(
+      buildTerrainMeshesSpec,
+      terrainBuildSpec(
+        terrain,
+        lat0: lat0,
+        lon0: lon0,
+        cosLat0: cosLat0,
+      ),
+    ),
   );
 }
 

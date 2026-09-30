@@ -293,12 +293,15 @@ void main() {
       for (final i in mesh.indices) {
         expect(i, inInclusiveRange(0, mesh.vertexCount - 1));
       }
-      // Flat without DEM, up normals, opaque centre.
+      // Flat without DEM, up normals, radially feathered to the tier edge:
+      // opaque centre, zero at the mid-sides (feather radius = tier half).
       for (var k = 0; k < mesh.vertexCount; k++) {
         expect(mesh.world[k * 3 + 1], 0.0);
         expect(mesh.normals[k * 3 + 1], 1.0);
       }
       expect(mesh.alpha[4 * 9 + 4], closeTo(1.0, 1e-9));
+      expect(mesh.alpha[4 * 9 + 8], closeTo(0.0, 1e-9));
+      expect(mesh.alpha[0], closeTo(0.0, 1e-9));
     });
 
     test('bakes DEM heights, normals and imagery UVs', () {
