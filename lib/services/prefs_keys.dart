@@ -13,4 +13,7 @@ abstract final class PrefsKeys {
   /// Stable id of the selected telemetry connector (see `connectors/` in
   /// the serial package, e.g. `'mock'`).
   static const String connectorId = 'trycatch.connector_id';
+
+  /// JSON-encoded [BridgeConfig] for the read-only live telemetry bridge.
+  static const String liveBridge = 'trycatch.live_bridge';
 }

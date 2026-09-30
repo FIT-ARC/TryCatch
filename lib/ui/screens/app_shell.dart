@@ -8,6 +8,7 @@ import './recordings_screen.dart';
 import './settings_screen.dart';
 import './dashboard_screen.dart';
 import './router.dart';
+import '../components/live_bridge_relay.dart';
 import '../components/serial_toast_bridge.dart';
 import '../components/toast_overlay.dart';
 import '../components/top_bar.dart';
@@ -82,6 +83,9 @@ class AppShell extends ConsumerWidget {
             // Headless: turns worker errors / disconnects / failed uplinks
             // into toasts (renders nothing itself).
             SerialToastBridge(),
+            // Headless: forks live frames into the bridge isolate for the
+            // read-only public output (renders nothing itself).
+            LiveBridgeRelay(),
             // Floating error/warning cards over the workspace.
             ToastOverlay(),
           ],

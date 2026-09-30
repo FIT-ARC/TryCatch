@@ -9,6 +9,7 @@ import '../../session/feedback.dart';
 import '../../session/flight_reset.dart';
 import '../components/app_card.dart';
 import '../components/copy_button.dart';
+import '../components/live_output_card.dart';
 import '../components/launch_site_dialog.dart';
 import '../components/option_row.dart';
 import '../tiles/shared/map_tiles.dart';
@@ -688,6 +689,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: AppDimens.gap),
+            LiveOutputCard(),
             const SizedBox(height: AppDimens.gap),
             AppCard(
               title: 'APPEARANCE',

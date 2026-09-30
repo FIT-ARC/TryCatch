@@ -109,6 +109,36 @@ flowchart LR
 
 Files: [rocket_commands.dart](../packages/serial/lib/telemetry/rocket_commands.dart) · [control_panel_tile.dart](../lib/ui/tiles/control_panel_tile.dart) · [commands_tile.dart](../lib/ui/tiles/commands_tile.dart)
 
+## Live output: latest packet → public display
+
+```mermaid
+flowchart LR
+    A["telemetryStreamProvider\nTelemetryFrame"] -- "live only\nskip if replaying/offline" --> B["LiveBridgeRelay\nheadless, in AppShell"]
+    B -- "SendPort\nlatest envelope only" --> C["Bridge isolate\ndart:io HttpServer"]
+    C -- "GET /latest\nGET /events SSE\nGET /health {status: ok}" --> D["Reverse proxy\nbuffering off"]
+    D --> E["Public website"]
+```
+
+The relay forks already-decoded frames from the main isolate into a dedicated
+isolate that owns the socket — the serial worker never sees network clients
+and slow consumers drop frames instead of blocking the flight pipeline.
+The public packet is seven fields only
+(`receivedAt`, `gpsLat`, `gpsLong`, `altitudeMSL`, `hasParachute`,
+`maxAltitude`, `totalVelocity`; MSL fields add the selected site's MSL,
+`hasParachute` resolves the active connector's states). Staleness is
+age-based on `receivedAt` — the bridge emits no markers, it just stops
+sending when the link drops, a replay runs, or the buffers clear
+(`/latest` then keeps the last packet with its original timestamp).
+Read-only: non-GET is 405, so there is no inbound path. Disabled by default
+on `127.0.0.1:6767` (persisted `trycatch.live_bridge`); the proxy handles
+public TLS. Hot-restart safety: the relay pings every 2 s and the bridge
+self-exits past an 8 s lease, so an orphaned isolate frees the port and the
+relay's bind retry recovers automatically.
+
+Files: [bridge_server.dart](../lib/services/live_bridge/bridge_server.dart) · [bridge_schema.dart](../lib/services/live_bridge/bridge_schema.dart) · [bridge_config.dart](../lib/services/live_bridge/bridge_config.dart) · [bridge_provider.dart](../lib/state/bridge_provider.dart) · [live_bridge_relay.dart](../lib/ui/components/live_bridge_relay.dart) · [live_output_card.dart](../lib/ui/components/live_output_card.dart)
+
+Consumer guide: [api.md](./api.md).
+
 ## Formats
 
 ```mermaid
