@@ -274,6 +274,7 @@ void main() {
       );
       await tester.pump();
       expect(tester.takeException(), isNull);
+      expect(find.text('LAUNCH SITE'), findsOneWidget);
       expect(find.text('OFFLINE MAPS'), findsOneWidget);
     });
 
@@ -351,12 +352,14 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(find.text('LAUNCH SITE'), findsOneWidget);
-      // The site name also appears in the offline-maps rows below.
+      // The detail shows the saved site inline.
       expect(find.text('Home'), findsWidgets);
       expect(find.text('Add'), findsOneWidget);
       // Per-row management: share copies, edit and delete manage.
+      // (The session strip above uses its own delete glyph, so scope to
+      // the row's tooltip.)
       expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+      expect(find.byTooltip('Remove site'), findsOneWidget);
     });
 
     testWidgets('launch site change locks while recording', (tester) async {
@@ -414,7 +417,7 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
 
-      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.tap(find.byTooltip('Remove site'));
       await tester.pump();
       var state = container.read(launchSiteProvider).value!;
       expect(state.presets.map((p) => p.name), isNot(contains('Home')));
@@ -441,6 +444,12 @@ void main() {
           ),
         ),
       );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      // The connector section sits below the fold: bring it into view
+      // before measuring.
+      await tester.ensureVisible(find.text('Rocket v1'));
       await tester.pump();
       expect(tester.takeException(), isNull);
 

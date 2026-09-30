@@ -53,6 +53,34 @@ abstract final class LiveBridgeMessages {
   static const String ready = 'ready';
 }
 
+/// How long an SSE flush may take before its client is treated as dead.
+///
+/// A flush that never settles means a wedged socket, and wedged sockets
+/// otherwise linger as phantom clients: `response.done` does not reliably
+/// fire for never-ending SSE streams, and bare write failures do not
+/// surface on every stack — without this bound, a dead client is only
+/// reaped when a flush observably errors, which may be never.
+const Duration _clientFlushTimeout = Duration(seconds: 10);
+
+/// Maximum SSE subscription age, in milliseconds.
+///
+/// Dead sockets are not reliably reported by the platform: `response.done`
+/// may never fire for a never-ending SSE stream, and writes to a dead
+/// socket may neither error nor settle — without a TTL every reconnect
+/// leaks a phantom client and the count only ever grows. The heartbeat
+/// sweep reaps connections past this age; live clients transparently
+/// reconnect (`retry: 2000`, latest-only model, so no visible gap).
+const int bridgeClientTtlMs = 10 * 60 * 1000;
+
+/// Pure expiry check (unit-tested): `true` once [nowMs] is more than [ttlMs]
+/// past the client's join time.
+bool bridgeClientExpired({
+  required int joinedMs,
+  required int nowMs,
+  int ttlMs = bridgeClientTtlMs,
+}) =>
+    nowMs - joinedMs > ttlMs;
+
 /// Liveness lease for the bridge isolate, in milliseconds.
 ///
 /// Child isolates survive a hot restart holding the server socket, so a
@@ -92,7 +120,11 @@ class _BridgeHost {
   }
 
   HttpServer? _server;
-  final Set<HttpResponse> _sseClients = {};
+
+  /// Live SSE subscriptions by join time (epoch ms). A map, not a set: the
+  /// heartbeat sweep reaps connections past [bridgeClientTtlMs], bounding how
+  /// long a phantom client can inflate the count.
+  final Map<HttpResponse, int> _sseClients = {};
   Timer? _heartbeat;
   Timer? _leaseTimer;
 
@@ -165,6 +197,7 @@ class _BridgeHost {
     }
     _server!.listen(_onRequest);
     _heartbeat ??= Timer.periodic(const Duration(seconds: 15), (_) {
+      _reapExpired();
       _broadcastComment('ping');
     });
     _report();
@@ -186,7 +219,7 @@ class _BridgeHost {
   Future<void> _stop() async {
     _heartbeat?.cancel();
     _heartbeat = null;
-    for (final client in _sseClients.toList()) {
+    for (final client in _sseClients.keys.toList()) {
       try {
         await client.close();
       } catch (_) {}
@@ -283,7 +316,7 @@ class _BridgeHost {
       } catch (_) {}
       return;
     }
-    _sseClients.add(response);
+    _sseClients[response] = DateTime.now().millisecondsSinceEpoch;
     _report();
     try {
       await response.done;
@@ -292,30 +325,61 @@ class _BridgeHost {
     _report();
   }
 
+  /// Reaps subscriptions past [bridgeClientTtlMs], pushing a status when the set
+  /// shrinks. Runs on the heartbeat sweep: socket death is not reliably
+  /// observable, so age is the backstop that bounds phantom clients.
+  void _reapExpired() {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    var dropped = false;
+    for (final entry in _sseClients.entries.toList()) {
+      if (bridgeClientExpired(joinedMs: entry.value, nowMs: nowMs)) {
+        try {
+          entry.key.close();
+        } catch (_) {}
+        dropped = _sseClients.remove(entry.key) != null || dropped;
+      }
+    }
+    if (dropped) _report();
+  }
+
   void _broadcastData(String json) {
-    for (final client in _sseClients.toList()) {
+    for (final client in _sseClients.keys.toList()) {
       try {
         client.write('data: $json\n\n');
-        client.flush().catchError((_) {
-          _sseClients.remove(client);
-        });
+        _flushTo(client);
       } catch (_) {
-        _sseClients.remove(client);
+        _dropClient(client);
       }
     }
   }
 
   void _broadcastComment(String comment) {
-    for (final client in _sseClients.toList()) {
+    for (final client in _sseClients.keys.toList()) {
       try {
         client.write(': $comment\n\n');
-        client.flush().catchError((_) {
-          _sseClients.remove(client);
-        });
+        _flushTo(client);
       } catch (_) {
-        _sseClients.remove(client);
+        _dropClient(client);
       }
     }
+  }
+
+  /// Flushes pending SSE bytes to [client], dropping it (with a status)
+  /// when the flush errors or stalls past [_clientFlushTimeout].
+  void _flushTo(HttpResponse client) {
+    () async {
+      try {
+        await client.flush().timeout(_clientFlushTimeout);
+      } catch (_) {
+        _dropClient(client);
+      }
+    }();
+  }
+
+  /// Drops [client] from the subscription map, pushing a status when the
+  /// map shrinks so a reaped socket never leaves the count stale-high.
+  void _dropClient(HttpResponse client) {
+    if (_sseClients.remove(client) != null) _report();
   }
 
   void _applyCors(HttpResponse response) {

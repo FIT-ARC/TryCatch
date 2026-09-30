@@ -73,7 +73,7 @@ abstract final class AppConfig {
   /// this width so the centered controls stay on the true screen midpoint.
   static const double topBarSideWidth = 264;
 
-  /// Uniform width of the three top-bar chips (serial, link stats, record)
-  /// so the row reads as one rhythm.
+  /// Uniform width of the top-bar chips (serial, link stats, record, live
+  /// sharing) so the row reads as one rhythm.
   static const double topBarChipWidth = 188;
 }

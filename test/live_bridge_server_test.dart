@@ -305,4 +305,22 @@ void main() {
       );
     });
   });
+
+  group('bridgeClientExpired', () {
+    test('fires once past the TTL, not before', () {
+      expect(
+        bridgeClientExpired(joinedMs: 1000, nowMs: 1000 + bridgeClientTtlMs),
+        false,
+      );
+      expect(
+        bridgeClientExpired(
+            joinedMs: 1000, nowMs: 1000 + bridgeClientTtlMs + 1),
+        true,
+      );
+      expect(
+        bridgeClientExpired(joinedMs: 1000, nowMs: 2000, ttlMs: 5000),
+        false,
+      );
+    });
+  });
 }

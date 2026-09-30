@@ -7,18 +7,19 @@ import '../../state/bridge_provider.dart';
 import '../../theme/app_colors.dart';
 import './app_card.dart';
 
-/// Settings card for the read-only live telemetry bridge.
+/// Settings controls for the read-only live telemetry bridge.
 ///
 /// Serves the last known live packet (`GET /latest`, `GET /events`) from a
 /// dedicated isolate for a public display. The app binds localhost and the
 /// public site sits behind a reverse proxy — the app itself never faces the
 /// internet, and there is no inbound command path.
 ///
-/// The card itself holds no text fields (they live in the Configure dialog
-/// below), so embedding it in [SettingsScreen] never disturbs dialog
-/// finders elsewhere on the page.
-class LiveOutputCard extends ConsumerWidget {
-  const LiveOutputCard({super.key});
+/// The status light beside the top-bar quick nav mirrors this state; the
+/// Configure dialog lives in [LiveSharingSettingsDialog], so embedding this
+/// never disturbs dialog finders elsewhere on the page. [LiveOutputCard]
+/// wraps this in the standard card for standalone use.
+class LiveSharingControls extends ConsumerWidget {
+  const LiveSharingControls({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,12 +51,71 @@ class LiveOutputCard extends ConsumerWidget {
       statusColor = AppColors.mutedForeground;
     }
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Serve live data'),
+            subtitle: Text(
+              'Latest packet only — replays and old flights never publish.',
+              style: TextStyle(
+                  fontSize: 12.5, color: AppColors.mutedForeground),
+            ),
+            value: config.enabled,
+            onChanged: (v) =>
+                ref.read(bridgeConfigProvider.notifier).setEnabled(v),
+          ),
+        ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                statusText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.mono.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: statusColor,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            if (status.error != null) ...[
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: () =>
+                    ref.read(bridgeConfigProvider.notifier).touch(),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('Retry'),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Card wrapper around [LiveSharingControls] for standalone use.
+class LiveOutputCard extends ConsumerWidget {
+  const LiveOutputCard({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     return AppCard(
-      title: 'LIVE OUTPUT',
+      title: 'LIVE SHARING',
       trailing: OutlinedButton(
         onPressed: () => showDialog(
           context: context,
-          builder: (_) => const _LiveOutputDialog(),
+          builder: (_) => const LiveSharingSettingsDialog(),
         ),
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 28),
@@ -64,56 +124,7 @@ class LiveOutputCard extends ConsumerWidget {
         ),
         child: const Text('Configure'),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Material(
-            color: Colors.transparent,
-            child: SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Serve live data'),
-              subtitle: Text(
-                'Latest packet only — replays and old flights never publish.',
-                style: TextStyle(
-                    fontSize: 12.5, color: AppColors.mutedForeground),
-              ),
-              value: config.enabled,
-              onChanged: (v) =>
-                  ref.read(bridgeConfigProvider.notifier).setEnabled(v),
-            ),
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  statusText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.mono.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: statusColor,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-              if (status.error != null) ...[
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: () =>
-                      ref.read(bridgeConfigProvider.notifier).touch(),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 28),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                  child: const Text('Retry'),
-                ),
-              ],
-            ],
-          ),
-        ],
-      ),
+      child: const LiveSharingControls(),
     );
   }
 }
@@ -122,14 +133,16 @@ class LiveOutputCard extends ConsumerWidget {
 ///
 /// One `AlertDialog` shape (title, body, Cancel + Save). Invalid values
 /// stay in the dialog as an inline error; nothing is written until Save.
-class _LiveOutputDialog extends ConsumerStatefulWidget {
-  const _LiveOutputDialog();
+class LiveSharingSettingsDialog extends ConsumerStatefulWidget {
+  const LiveSharingSettingsDialog({super.key});
 
   @override
-  ConsumerState<_LiveOutputDialog> createState() => _LiveOutputDialogState();
+  ConsumerState<LiveSharingSettingsDialog> createState() =>
+      _LiveSharingSettingsDialogState();
 }
 
-class _LiveOutputDialogState extends ConsumerState<_LiveOutputDialog> {
+class _LiveSharingSettingsDialogState
+    extends ConsumerState<LiveSharingSettingsDialog> {
   late final TextEditingController _port;
   late final TextEditingController _bind;
   late final TextEditingController _cors;
@@ -182,7 +195,7 @@ class _LiveOutputDialogState extends ConsumerState<_LiveOutputDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Live output settings'),
+      title: const Text('Live sharing settings'),
       content: SizedBox(
         width: 360,
         child: Column(

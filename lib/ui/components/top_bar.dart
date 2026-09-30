@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_config.dart';
+import '../../state/bridge_provider.dart';
 import '../../state/replay_controller.dart';
 import '../../theme/app_colors.dart';
 import './brand_mark.dart';
@@ -15,9 +16,10 @@ import './serial_controls.dart';
 ///
 /// Three zones: brand (taps home to Dashboard) · centered live controls
 /// (port + link icon, combined stats, record) · quick nav (dashboard,
-/// recorded flights, settings). The side zones share one fixed width so the
-/// center group sits on the true screen center. Channel health opens from
-/// the stats pill.
+/// recorded flights, settings) with the live-sharing status light beside
+/// it. The side zones share one fixed width so the center group sits on
+/// the true screen center. Channel health opens from the stats pill;
+/// live-sharing details live in Settings > Live sharing.
 /// While a replay is active the live zones collapse into the playback
 /// controls and the nav slot becomes the close-replay action — same spot,
 /// same size — so the center stays balanced and the close target never
@@ -113,11 +115,81 @@ class TopBar extends ConsumerWidget {
               alignment: Alignment.centerRight,
               child: Padding(
                 padding: const EdgeInsets.only(right: 10),
-                child: replaying ? _CloseReplayButton() : _QuickNav(),
+                child: replaying
+                    ? _CloseReplayButton()
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _LiveShareStatus(),
+                          _QuickNav(),
+                        ],
+                      ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Live-sharing status light beside the quick nav: info only, never a tap
+/// target. Gray crossed satellite while off; green satellite + client count
+/// while serving; red crossed satellite + exclamation on error. Port/bind
+/// editing stays in Settings > Live sharing.
+class _LiveShareStatus extends ConsumerWidget {
+  const _LiveShareStatus();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled =
+        ref.watch(bridgeConfigProvider.select((a) => a.value?.enabled)) ??
+            false;
+    final status = ref.watch(bridgeStatusProvider);
+
+    final bool isError = status.error != null;
+    final bool isOn = !isError && enabled;
+    final Color color = isError
+        ? AppColors.destructive
+        : (isOn ? AppColors.success : AppColors.mutedForeground);
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: SizedBox(
+        height: 32,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.satellite_alt_outlined,
+                  size: 15,
+                  color: color,
+                ),
+                if (!isOn)
+                  Icon(
+                    Icons.close,
+                    size: 10,
+                    color: color,
+                  ),
+              ],
+            ),
+            if (isOn || isError) ...[
+              const SizedBox(width: 4),
+              Text(
+                isError ? '!' : '${status.clients}',
+                style: AppText.mono.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

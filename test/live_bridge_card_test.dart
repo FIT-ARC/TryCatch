@@ -26,7 +26,7 @@ void main() {
   group('LiveOutputCard', () {
     testWidgets('toggle enables the bridge', (tester) async {
       final container = await _pumpCard(tester);
-      expect(find.text('LIVE OUTPUT'), findsOneWidget);
+      expect(find.text('LIVE SHARING'), findsOneWidget);
       expect(find.text('Off'), findsOneWidget);
 
       await tester.tap(find.byType(Switch));
@@ -39,7 +39,7 @@ void main() {
       final container = await _pumpCard(tester);
       await tester.tap(find.text('Configure'));
       await tester.pump();
-      expect(find.text('Live output settings'), findsOneWidget);
+      expect(find.text('Live sharing settings'), findsOneWidget);
 
       final fields = find.byType(TextField);
       expect(fields, findsNWidgets(3));
@@ -49,7 +49,7 @@ void main() {
       await tester.pump();
       final config = await container.read(bridgeConfigProvider.future);
       expect(config.port, 6777);
-      expect(find.text('Live output settings'), findsNothing);
+      expect(find.text('Live sharing settings'), findsNothing);
     });
 
     testWidgets('configure dialog rejects a bad port inline', (tester) async {
@@ -62,7 +62,7 @@ void main() {
       await tester.pump();
       expect(find.text('Port must be a number from 1 to 65535.'),
           findsOneWidget);
-      expect(find.text('Live output settings'), findsOneWidget);
+      expect(find.text('Live sharing settings'), findsOneWidget);
     });
   });
 }
