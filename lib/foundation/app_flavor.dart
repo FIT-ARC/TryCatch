@@ -5,5 +5,8 @@ abstract final class AppFlavor {
   static bool get isDev => kDebugMode;
 
   static bool isMockPortName(String name) =>
-      name == 'MOCK' || name == 'MOCK-BQ' || name == 'MOCK-DC';
+      name == 'MOCK' ||
+      name == 'MOCK-BQ' ||
+      name == 'Brno' ||
+      name == 'MOCK-DC';
 }

@@ -8,11 +8,26 @@ import '../telemetry/telemetry_frame.dart';
 /// Liveness lease for the worker isolate, in milliseconds.
 ///
 /// The worker holds OS-exclusive resources yet child isolates survive a hot
-/// restart — so it self-exits once its main isolate stops proving it is
-/// alive (every received command, [PingCommand] included, renews the lease;
-/// see [workerLeaseExpired]). The app pings every 2 s, giving a zombie at
-/// most an 8 s squat on the port before the user can reconnect cleanly.
+/// restart — so it releases its link once its main isolate stops proving it
+/// is alive (every received command, [PingCommand] included, renews the
+/// lease; see [workerLeaseExpired]). The app pings every 2 s, giving a
+/// zombie at most an 8 s squat on the port before the user can reconnect
+/// cleanly.
+///
+/// Sleep looks exactly like death here (timers freeze while the wall clock
+/// advances), so expiry only releases the link — the isolate keeps serving
+/// commands, and the first post-wake ping renews the lease. A main isolate
+/// that never comes back is reaped by [workerOrphanExitMs].
 const int workerLeaseMs = 8000;
+
+/// Grace period of continued silence before a link-less worker isolate
+/// exits.
+///
+/// Stage two of the liveness lease: minutes without a single command means
+/// the main isolate is really gone (hot restart), so the orphan shuts down
+/// instead of idling forever. A merely-sleeping app pings within seconds of
+/// waking — far inside this window — so it always finds its worker alive.
+const int workerOrphanExitMs = 60000;
 
 /// Pure lease check (unit-tested): `true` once [nowMs] is more than
 /// [leaseMs] past the last command from the main isolate.

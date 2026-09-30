@@ -10,6 +10,7 @@ flowchart LR
         REAL[RealSerialPort]
         MOCK[MockSerialPort]
         BQ[MockBqSerialPort]
+        BRNO[MockBrnoSerialPort]
         DC[MockDcSerialPort]
     end
     subgraph ISO [Worker isolate]
@@ -26,6 +27,7 @@ flowchart LR
     REAL -- Uint8List --> WSVC
     MOCK -- Uint8List --> WSVC
     BQ -- Uint8List --> WSVC
+    BRNO -- Uint8List --> WSVC
     DC -- Uint8List --> WSVC
     WSVC -- "Uint8List chunks" --> PARSE
     WSVC -- "Uint8List chunks" --> REC
@@ -37,13 +39,13 @@ flowchart LR
     DISK -- "chunks + header" --> PROV
 ```
 
-Files: [real.dart](../packages/serial/lib/hardware/real.dart) · [mock.dart](../packages/serial/lib/hardware/mock.dart) · [mock_bq.dart](../packages/serial/lib/hardware/mock_bq.dart) · [mock_dc.dart](../packages/serial/lib/hardware/mock_dc.dart) · [serial.dart](../packages/serial/lib/serial.dart) (`SerialService`) · [worker.dart](../packages/serial/lib/worker/worker.dart) (`workerMain`) · [manager.dart](../packages/serial/lib/worker/manager.dart) (`SerialWorker`) · [protocol.dart](../packages/serial/lib/worker/protocol.dart) · [telemetry_store.dart](../lib/state/telemetry_store.dart)
+Files: [real.dart](../packages/serial/lib/hardware/real.dart) · [mock.dart](../packages/serial/lib/hardware/mock.dart) · [mock_bq.dart](../packages/serial/lib/hardware/mock_bq.dart) · [mock_brno.dart](../packages/serial/lib/hardware/mock_brno.dart) · [mock_dc.dart](../packages/serial/lib/hardware/mock_dc.dart) · [serial.dart](../packages/serial/lib/serial.dart) (`SerialService`) · [worker.dart](../packages/serial/lib/worker/worker.dart) (`workerMain`) · [manager.dart](../packages/serial/lib/worker/manager.dart) (`SerialWorker`) · [protocol.dart](../packages/serial/lib/worker/protocol.dart) · [telemetry_store.dart](../lib/state/telemetry_store.dart)
 
 ## Live: bytestream → tile
 
 ```mermaid
 flowchart TD
-    A["Serial port\nCOMx / MOCK / MOCK-BQ / MOCK-DC"] -- "Uint8List" --> B[SerialService.byteStream]
+    A["Serial port\nCOMx / MOCK / MOCK-BQ / Brno / MOCK-DC"] -- "Uint8List" --> B[SerialService.byteStream]
     B -- "Uint8List" --> C{workerMain\nper chunk}
     C -->|1| D["Recorder.recordBytes\nUint8List + 12 B stamp"]
     C -->|2| E["connector.createParser().feed()\nUint8List → TelemetryFrame[]"]

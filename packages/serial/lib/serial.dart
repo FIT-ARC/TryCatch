@@ -9,6 +9,7 @@ export 'connectors/segfault_demo_connector.dart';
 export 'constants.dart';
 export 'hardware/mock.dart';
 export 'hardware/mock_bq.dart';
+export 'hardware/mock_brno.dart';
 export 'hardware/mock_dc.dart';
 export 'hardware/real.dart';
 export 'io/file_parser.dart';
@@ -29,23 +30,26 @@ import 'dart:typed_data';
 import 'connectors/registry.dart' show isDevMode;
 import 'hardware/mock.dart';
 import 'hardware/mock_bq.dart';
+import 'hardware/mock_brno.dart';
 import 'hardware/mock_dc.dart';
 import 'hardware/real.dart';
 
 /// Unified serial communication service coordinating physical hardware
 /// ([RealSerialPort]) and simulated telemetry ([MockSerialPort],
-/// [MockBqSerialPort], [MockDcSerialPort]).
+/// [MockBqSerialPort], [MockBrnoSerialPort], [MockDcSerialPort]).
 class SerialService {
   final RealSerialPort _realPort = RealSerialPort();
   final MockSerialPort _mockPort = MockSerialPort();
   final MockBqSerialPort _mockBqPort = MockBqSerialPort();
+  final MockBrnoSerialPort _mockBrnoPort = MockBrnoSerialPort();
   final MockDcSerialPort _mockDcPort = MockDcSerialPort();
 
   StreamSubscription<Uint8List>? _realSubscription;
   StreamSubscription<Uint8List>? _mockSubscription;
 
   /// Name of the active mock port ([MockSerialPort.portName] /
-  /// [MockBqSerialPort.portName] / [MockDcSerialPort.portName]), or `null`
+  /// [MockBqSerialPort.portName] / [MockBrnoSerialPort.portName] /
+  /// [MockDcSerialPort.portName]), or `null`
   /// when the real port is active.
   String? _activeMockName;
 
@@ -58,7 +62,7 @@ class SerialService {
   Stream<Uint8List> get byteStream => _byteStreamController.stream;
 
   /// Returns a combined list of all detected physical ports and — in debug
-  /// builds only — the virtual mock ports (MOCK + MOCK-BQ + MOCK-DC).
+  /// builds only — the virtual mock ports (MOCK + MOCK-BQ + Brno + MOCK-DC).
   ///
   /// `connect()` still accepts the mock names in every build (tests and
   /// replay tooling rely on it); they are just not *listed* outside dev mode.
@@ -74,6 +78,7 @@ class SerialService {
       if (isDevMode) ...[
         MockSerialPort.portName,
         MockBqSerialPort.portName,
+        MockBrnoSerialPort.portName,
         MockDcSerialPort.portName,
       ],
       ...physical,
@@ -84,12 +89,16 @@ class SerialService {
   static bool isMockPortName(String portName) =>
       portName == MockSerialPort.portName ||
       portName == MockBqSerialPort.portName ||
+      portName == MockBrnoSerialPort.portName ||
       portName == MockDcSerialPort.portName;
 
   /// Whether a connection is currently active (physical or virtual).
   bool get isConnected {
     if (_activeMockName == MockBqSerialPort.portName) {
       return _mockBqPort.isConnected;
+    }
+    if (_activeMockName == MockBrnoSerialPort.portName) {
+      return _mockBrnoPort.isConnected;
     }
     if (_activeMockName == MockDcSerialPort.portName) {
       return _mockDcPort.isConnected;
@@ -99,23 +108,27 @@ class SerialService {
   }
 
   /// Establishes a serial connection to [portName] (physical COM port or
-  /// virtual MOCK / MOCK-BQ / MOCK-DC).
+  /// virtual MOCK / MOCK-BQ / Brno / MOCK-DC).
   bool connect(String portName) {
     disconnect();
 
     if (SerialService.isMockPortName(portName)) {
       _activeMockName = portName;
       final isBq = portName == MockBqSerialPort.portName;
+      final isBrno = portName == MockBrnoSerialPort.portName;
       final isDc = portName == MockDcSerialPort.portName;
       final mockStream = isBq
           ? _mockBqPort.byteStream
-          : (isDc ? _mockDcPort.byteStream : _mockPort.byteStream);
+          : (isBrno
+              ? _mockBrnoPort.byteStream
+              : (isDc ? _mockDcPort.byteStream : _mockPort.byteStream));
       _mockSubscription = mockStream.listen((data) {
         if (_isMockActive) {
           _byteStreamController.add(data);
         }
       });
       if (isBq) return _mockBqPort.connect();
+      if (isBrno) return _mockBrnoPort.connect();
       if (isDc) return _mockDcPort.connect();
       return _mockPort.connect();
     }
@@ -144,6 +157,7 @@ class SerialService {
     if (_isMockActive) {
       _mockPort.disconnect();
       _mockBqPort.disconnect();
+      _mockBrnoPort.disconnect();
       _mockDcPort.disconnect();
       _activeMockName = null;
     } else {
@@ -156,6 +170,9 @@ class SerialService {
     if (!isConnected) return false;
     if (_activeMockName == MockBqSerialPort.portName) {
       return _mockBqPort.sendBytes(bytes);
+    }
+    if (_activeMockName == MockBrnoSerialPort.portName) {
+      return _mockBrnoPort.sendBytes(bytes);
     }
     if (_activeMockName == MockDcSerialPort.portName) {
       return _mockDcPort.sendBytes(bytes);

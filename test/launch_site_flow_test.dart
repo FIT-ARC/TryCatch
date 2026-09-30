@@ -52,20 +52,21 @@ Future<LaunchSiteState> _loadWithPrefs(Map<String, dynamic> stored) async {
 }
 
 void main() {
-  group('LaunchSiteStore dev mock pad', () {
-    test('fresh launch shows the mock pad selected (in memory only)', () async {
+  group('LaunchSiteStore dev mock pads', () {
+    test('fresh launch shows the mock pads selected (in memory only)', () async {
       SharedPreferences.setMockInitialValues({});
       final container = ProviderContainer();
       try {
         final state = await container.read(launchSiteProvider.future);
-        expect(state.presets.map((p) => p.name).toList(), ['MOCK Pad']);
+        expect(state.presets.map((p) => p.name).toList(),
+            ['Brno Pad', 'MOCK Pad']);
         expect(state.selected?.name, 'MOCK Pad');
       } finally {
         container.dispose();
       }
     });
 
-    test('stored presets gain the mock pad in memory', () async {
+    test('stored presets gain the mock pads in memory', () async {
       final state = await _loadWithPrefs({
         'selected': _site('Idk'),
         'presets': [_site('Home')],
@@ -73,11 +74,11 @@ void main() {
       expect(state.selected?.name, 'Idk');
       expect(
         state.presets.map((p) => p.name).toList(),
-        ['Home', 'MOCK Pad'],
+        ['Brno Pad', 'Home', 'MOCK Pad'],
       );
     });
 
-    test('mock pad is never written to disk', () async {
+    test('mock pads are never written to disk', () async {
       SharedPreferences.setMockInitialValues({
         PrefsKeys.launchSites: jsonEncode({
           'selected': _site('Home'),
@@ -106,14 +107,14 @@ void main() {
         final state = container.read(launchSiteProvider).value!;
         expect(
           state.presets.map((p) => p.name).toList(),
-          ['Field', 'Home', 'MOCK Pad'],
+          ['Brno Pad', 'Field', 'Home', 'MOCK Pad'],
         );
       } finally {
         container.dispose();
       }
     });
 
-    test('mock pad cannot be deleted or overwritten', () async {
+    test('mock pads cannot be deleted or overwritten', () async {
       final container = ProviderContainer();
       try {
         SharedPreferences.setMockInitialValues({
@@ -126,11 +127,21 @@ void main() {
         await container
             .read(launchSiteProvider.notifier)
             .deletePreset('MOCK Pad');
+        await container.read(launchSiteProvider.notifier).deletePreset('Brno Pad');
         var state = container.read(launchSiteProvider).value!;
         expect(state.presets.map((p) => p.name), contains('MOCK Pad'));
+        expect(state.presets.map((p) => p.name), contains('Brno Pad'));
         await container.read(launchSiteProvider.notifier).savePreset(
               const LaunchSite(
                 name: 'MOCK Pad',
+                latitude: 0,
+                longitude: 0,
+                altitudeMsl: 0,
+              ),
+            );
+        await container.read(launchSiteProvider.notifier).savePreset(
+              const LaunchSite(
+                name: 'Brno Pad',
                 latitude: 0,
                 longitude: 0,
                 altitudeMsl: 0,
@@ -141,7 +152,11 @@ void main() {
         expect(mock.latitude, 50.0755);
         expect(mock.longitude, 14.4378);
         expect(mock.altitudeMsl, 403);
-        expect(state.selected?.name, 'MOCK Pad');
+        final brno = state.presets.singleWhere((p) => p.name == 'Brno Pad');
+        expect(brno.latitude, closeTo(49.22892339423079, 1e-9));
+        expect(brno.longitude, closeTo(16.582853748863815, 1e-9));
+        expect(brno.altitudeMsl, 264);
+        expect(state.selected?.name, 'Brno Pad');
       } finally {
         container.dispose();
       }
@@ -175,7 +190,7 @@ void main() {
       expect(state.selected?.name, 'Idk');
       expect(
         state.presets.map((p) => p.name).toList(),
-        ['Home', 'MOCK Pad'],
+        ['Brno Pad', 'Home', 'MOCK Pad'],
       );
     });
 
@@ -187,7 +202,7 @@ void main() {
       expect(state.selected, isNull);
       expect(
         state.presets.map((p) => p.name).toList(),
-        ['Alpha', 'Beta', 'MOCK Pad'],
+        ['Alpha', 'Beta', 'Brno Pad', 'MOCK Pad'],
       );
     });
 
@@ -200,16 +215,17 @@ void main() {
       expect(state.selected?.name, 'Home');
     });
 
-    test('empty disk still shows the dev mock pad', () async {
+    test('empty disk still shows the dev mock pads', () async {
       final state = await _loadWithPrefs({
         'selected': null,
         'presets': [],
       });
       expect(state.selected, isNull);
-      expect(state.presets.map((p) => p.name).toList(), ['MOCK Pad']);
+      expect(state.presets.map((p) => p.name).toList(),
+          ['Brno Pad', 'MOCK Pad']);
     });
 
-    test('deleting the last real preset falls back to the mock pad', () async {
+    test('deleting the last real preset falls back to a mock pad', () async {
       SharedPreferences.setMockInitialValues({
         PrefsKeys.launchSites: jsonEncode({
           'selected': _site('Solo'),
@@ -223,8 +239,9 @@ void main() {
             .read(launchSiteProvider.notifier)
             .deletePreset('Solo');
         final state = container.read(launchSiteProvider).value!;
-        expect(state.presets.map((p) => p.name).toList(), ['MOCK Pad']);
-        expect(state.selected?.name, 'MOCK Pad');
+        expect(state.presets.map((p) => p.name).toList(),
+            ['Brno Pad', 'MOCK Pad']);
+        expect(state.selected?.name, 'Brno Pad');
       } finally {
         container.dispose();
       }
@@ -246,7 +263,7 @@ void main() {
         final state = container.read(launchSiteProvider).value!;
         expect(
           state.presets.map((p) => p.name).toList(),
-          ['Alpha', 'MOCK Pad'],
+          ['Alpha', 'Brno Pad', 'MOCK Pad'],
         );
         expect(state.selected?.name, 'Alpha');
       } finally {

@@ -130,35 +130,59 @@ const LaunchSite mockLaunchSite = LaunchSite(
   altitudeMsl: 403,
 );
 
-/// Whether [site] is the dev-only mock launch site.
-bool isMockLaunchSite(LaunchSite? site) =>
-    site != null && site.name == mockLaunchSite.name;
+/// Dev-only seeded launch site matching the static Brno mock port's pad
+/// (Brno, MSL 264 m). Same dev-only, in-memory-only lifecycle as
+/// [mockLaunchSite].
+const LaunchSite mockBrnoLaunchSite = LaunchSite(
+  name: 'Brno Pad',
+  latitude: 49.22892339423079,
+  longitude: 16.582853748863815,
+  altitudeMsl: 264,
+);
 
-/// Fresh state for first launch: debug shows the mock pad (selected),
-/// release starts empty. In-memory only — the mock is never written to disk.
+/// Every dev-only mock launch site, in settings display order.
+const List<LaunchSite> mockLaunchSites = [mockBrnoLaunchSite, mockLaunchSite];
+
+/// Whether [name] belongs to one of the dev-only mock launch sites.
+bool isMockLaunchSiteName(String name) =>
+    mockLaunchSites.any((s) => s.name == name);
+
+/// Whether [site] is one of the dev-only mock launch sites.
+bool isMockLaunchSite(LaunchSite? site) =>
+    site != null && isMockLaunchSiteName(site.name);
+
+/// Fresh state for first launch: debug shows the mock pads (MOCK Pad
+/// selected), release starts empty. In-memory only — the mocks are never
+/// written to disk.
 LaunchSiteState _freshState() => kDebugMode
-    ? const LaunchSiteState(selected: mockLaunchSite, presets: [mockLaunchSite])
+    ? const LaunchSiteState(
+        selected: mockLaunchSite,
+        presets: [mockBrnoLaunchSite, mockLaunchSite],
+      )
     : const LaunchSiteState();
 
-/// Adds the mock pad to [state]'s presets (sorted, as if added via
-/// [LaunchSiteStore.savePreset]) when missing. Dev-only, in-memory only —
-/// the mock is never persisted. Selection is left untouched.
+/// Adds any missing mock pad to [state]'s presets (sorted, as if added via
+/// [LaunchSiteStore.savePreset]). Dev-only, in-memory only —
+/// the mocks are never persisted. Selection is left untouched.
 LaunchSiteState _injectMock(LaunchSiteState state) {
-  if (state.presets.any((p) => p.name == mockLaunchSite.name)) return state;
-  final presets = [...state.presets, mockLaunchSite]
+  final missing = mockLaunchSites
+      .where((m) => !state.presets.any((p) => p.name == m.name))
+      .toList();
+  if (missing.isEmpty) return state;
+  final presets = [...state.presets, ...missing]
     ..sort((a, b) => a.name.compareTo(b.name));
   return state.copyWith(presets: presets);
 }
 
-/// Removes the mock pad from [state] (presets + selection). Used by release
+/// Removes the mock pads from [state] (presets + selection). Used by release
 /// builds reading prefs that a debug build wrote.
 LaunchSiteState _stripMock(LaunchSiteState state) {
-  if (!state.presets.any((p) => p.name == mockLaunchSite.name) &&
+  if (!state.presets.any((p) => isMockLaunchSiteName(p.name)) &&
       !isMockLaunchSite(state.selected)) {
     return state;
   }
   final remaining =
-      state.presets.where((p) => p.name != mockLaunchSite.name).toList();
+      state.presets.where((p) => !isMockLaunchSiteName(p.name)).toList();
   final selected =
       isMockLaunchSite(state.selected) ? null : state.selected;
   // When the mock was selected but real presets remain, fall through to the
@@ -185,16 +209,16 @@ class LaunchSiteStore extends JsonPersistedStore<LaunchSiteState> {
 
   @override
   Future<LaunchSiteState> build() async {
-    // Release builds never show the dev-only mock site, even when the
-    // prefs file was written by a debug build. Debug builds inject it
-    // in memory (never persisted) so it always appears in the list.
+    // Release builds never show the dev-only mock sites, even when the
+    // prefs file was written by a debug build. Debug builds inject them
+    // in memory (never persisted) so they always appear in the list.
     final loaded = await loadPersisted();
     if (!kDebugMode) return _stripMock(loaded);
     return _injectMock(loaded);
   }
 
-  /// Writes [next] to disk without the mock pad (dev-only, in-memory only)
-  /// while keeping it in the live state.
+  /// Writes [next] to disk without the mock pads (dev-only, in-memory only)
+  /// while keeping them in the live state.
   Future<void> _persist(LaunchSiteState next) async {
     final disk = _stripMock(next);
     state = AsyncData(kDebugMode ? _injectMock(next) : disk);
@@ -207,12 +231,16 @@ class LaunchSiteStore extends JsonPersistedStore<LaunchSiteState> {
       _persist((state.value ?? const LaunchSiteState()).copyWith(selected: site));
 
   /// Adds or updates (by name) a preset and selects it. The dev-only mock
-  /// pad is read-only: saving under its name just selects the canonical
-  /// mock without altering it.
+  /// pads are read-only: saving under one of their names just selects the
+  /// canonical mock without altering it.
   Future<void> savePreset(LaunchSite site) async {
     if (isMockLaunchSite(site)) {
       final current = state.value ?? const LaunchSiteState();
-      await _persist(current.copyWith(selected: mockLaunchSite));
+      final canonical = mockLaunchSites.firstWhere(
+        (m) => m.name == site.name,
+        orElse: () => mockLaunchSite,
+      );
+      await _persist(current.copyWith(selected: canonical));
       return;
     }
     final current = state.value ?? const LaunchSiteState();
@@ -223,12 +251,12 @@ class LaunchSiteStore extends JsonPersistedStore<LaunchSiteState> {
     await _persist(current.copyWith(presets: presets, selected: site));
   }
 
-  /// Deletes a preset by name. The dev-only mock pad is read-only and
+  /// Deletes a preset by name. The dev-only mock pads are read-only and
   /// cannot be deleted (no-op). When the deleted preset was the selected
   /// site, selection falls through to the first remaining preset — or to
   /// nothing when none remain (the empty state that prompts adding a site).
   Future<void> deletePreset(String name) async {
-    if (name == mockLaunchSite.name) return;
+    if (isMockLaunchSiteName(name)) return;
     final current = state.value ?? const LaunchSiteState();
     final remaining =
         current.presets.where((p) => p.name != name).toList();

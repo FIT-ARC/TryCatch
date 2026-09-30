@@ -25,10 +25,12 @@ bool workerLeaseExpired({
 /// 2. 1:1 raw binary disk dumping (via [Recorder]).
 /// 3. Bytestream → internal-frame parsing via the selected [TelemetryConnector].
 ///
-/// Liveness: child isolates survive a hot restart, so the worker self-exits
-/// once its main isolate stops proving it is alive (see [workerLeaseMs] and
-/// [PingCommand]) — otherwise the orphan would squat on the serial port
-/// forever.
+/// Liveness: child isolates survive a hot restart, so the worker releases
+/// its link once its main isolate stops proving it is alive (see
+/// [workerLeaseMs] and [PingCommand]) and exits after prolonged silence
+/// (see [workerOrphanExitMs]) — otherwise the orphan would squat on the
+/// serial port forever. The two stages matter: sleep freezes timers exactly
+/// like death, so a merely-sleeping app must find its worker alive on wake.
 void workerMain(SendPort mainSendPort) async {
   // ── Handshake Step 1 ─────────────────────────────────────────────────────────
   // Create an inbox for receiving commands from the main UI isolate
@@ -50,11 +52,12 @@ void workerMain(SendPort mainSendPort) async {
 
   /// Last command (any type, pings included) from the main isolate.
   ///
-  /// The 500 ms stats tick enforces the lease (see [workerLeaseMs]): once
-  /// the main isolate is gone — hot restart — no command ever arrives again
-  /// and the worker shuts itself down instead of squatting on the port.
-  /// Starts at boot so a main that dies before its first command still
-  /// releases everything.
+  /// The 500 ms stats tick enforces the lease (see [workerLeaseMs] and
+  /// [workerOrphanExitMs]): once the main isolate is gone — hot restart —
+  /// no command ever arrives again and the worker first drops the link,
+  /// then shuts itself down, instead of squatting on the port. Starts at
+  /// boot so a main that dies before its first command still releases
+  /// everything.
   int lastSignalMs = DateTime.now().millisecondsSinceEpoch;
 
   /// Full teardown: release ports, finalize any recording, close the inbox.
@@ -164,22 +167,35 @@ void workerMain(SendPort mainSendPort) async {
   /// Every tick reconciles [status] against [SerialService.isConnected].
   void ensureStatsTimer() {
     statsTimer ??= Timer.periodic(const Duration(milliseconds: 500), (_) async {
-      // Liveness lease: no word from main within [workerLeaseMs] means the
-      // main isolate is gone (hot restart) — release everything and exit
-      // instead of squatting on the serial port. The status/error below
-      // only ever reach a live listener in tests (a dead main hears
-      // nothing); there they pin the shutdown down.
+      // Liveness lease, stage one: no word from main within [workerLeaseMs].
+      // OS sleep freezes timers while the wall clock advances, so this is
+      // indistinguishable from a dead main isolate (hot restart) — release
+      // the link but stay alive to serve commands. A merely-sleeping app
+      // renews the lease with its next ping and reconnects cleanly; a true
+      // orphan holds no port from here on. Deliberately error-free: there is
+      // nobody to hear it when the main is really dead, and a wake is not
+      // a failure worth toasting about.
       if (workerLeaseExpired(
         lastSignalMs: lastSignalMs,
         nowMs: DateTime.now().millisecondsSinceEpoch,
       )) {
         if (status.isConnected) {
+          byteSubscription?.cancel();
+          byteSubscription = null;
+          service.disconnect();
+          parser.reset();
           pushStatus(status.copyWith(isConnected: false, connectedPort: null));
-          mainSendPort.send(ErrorEvent(
-            'Worker shutting down: lost contact with the app',
-          ));
+          emitStats(force: true);
         }
-        await shutdown();
+        // Stage two: minutes of continued silence means the main isolate is
+        // really gone — exit instead of idling forever.
+        if (workerLeaseExpired(
+          lastSignalMs: lastSignalMs,
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+          leaseMs: workerOrphanExitMs,
+        )) {
+          await shutdown();
+        }
         return;
       }
       if (status.isConnected && !service.isConnected) {

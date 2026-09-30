@@ -126,4 +126,41 @@ void main() {
       expect(newWorker.currentStatus.isConnected, isTrue);
     }, timeout: const Timeout(Duration(seconds: 60)));
   });
+
+  group('sleep recovery (lease lapses, main comes back)', () {
+    test('worker releases the link but still answers a reconnect', () async {
+      // Sleep looks like death to the worker: no pings until the lease
+      // lapses, then the app wakes and pings + reconnects. The worker must
+      // have released the link (8 s lease) yet still be alive to answer —
+      // previously it self-exited, wedging every post-wake connect.
+      final worker = await SerialWorker.spawn();
+      addTearDown(worker.dispose);
+      await worker.ready;
+      worker.send(const ConnectCommand('MOCK'));
+      await worker.frameStream.first.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TestFailure('worker never emitted a frame'),
+      );
+
+      await worker.statusStream
+          .firstWhere((s) => !s.isConnected)
+          .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () => throw TestFailure(
+              'unpinged worker never released the link',
+            ),
+          );
+
+      // Wake: ping like the app does, then reconnect.
+      worker.send(const PingCommand());
+      worker.send(const ConnectCommand('MOCK'));
+      await worker.frameStream.first.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw TestFailure(
+          'worker did not answer after lease expiry',
+        ),
+      );
+      expect(worker.currentStatus.isConnected, isTrue);
+    }, timeout: const Timeout(Duration(seconds: 60)));
+  });
 }

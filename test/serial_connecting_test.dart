@@ -218,6 +218,40 @@ void main() {
       expect(toasts.single.title, 'Connecting');
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('connect timeout toasts instead of dying silent', (tester) async {
+      // A worker isolate that is already gone drops commands silently (the
+      // sleep/wake wedge): the pill must still resolve, and the timeout —
+      // not just the pill unwinding — must say so.
+      late SerialWorker dead;
+      await tester.runAsync(() async {
+        dead = await SerialWorker.spawn();
+        await dead.ready;
+      });
+      dead.dispose();
+      final container = ProviderContainer(
+        overrides: [serialWorkerProvider.overrideWithValue(dead)],
+      );
+      addTearDown(container.dispose);
+      await pumpHarness(tester, const SizedBox.shrink(), container);
+
+      final notifier = container.read(serialConfigProvider.notifier);
+      notifier.setPort('COM9');
+      notifier.connect();
+      expect(container.read(serialConfigProvider).connectingPort, 'COM9');
+
+      // Fake-async: jump past the 10 s connect timeout (no runAsync — no
+      // worker answer will ever arrive).
+      await tester.pump(const Duration(seconds: 11));
+      expect(container.read(serialConfigProvider).connectingPort, isNull);
+      final toasts = container.read(toastStoreProvider);
+      expect(
+        toasts.any((t) =>
+            t.title == 'Serial error' && t.message.contains('COM9')),
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('SerialToastBridge.isDisconnectMessage', () {

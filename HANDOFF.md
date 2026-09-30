@@ -523,6 +523,8 @@ Stat-first scan (fixed v3 header: site/stats/connector) + per-card concurrent pr
 
 - Consumer docs (user: simple api.md): new `docs/api.md` — endpoint table, packet field table with units, age-based staleness rule, and copy-paste `curl` / browser `EventSource` / Python examples. Linked from the bridge section of `docs/data-flow.md`.
 
+- Sleep/wake reconnect wedge (user: after sleep the app shows disconnected, reconnect spins then drops back to disconnected with no error): root cause was the worker liveness lease — `workerLeaseMs` (8 s) vs the app ping (2 s). Sleep freezes timers while the wall clock advances, so on wake the worker mistook the gap for hot-restart death, shut down and exited; every later `ConnectCommand` dropped into the dead isolate silently while the 10 s pill timeout unwound silently too (wedged until app restart). Fix is two-stage: lease expiry now only releases the link (no `ErrorEvent` — a wake is not a failure) while the isolate keeps serving commands, and only `workerOrphanExitMs` (60 s, `packages/serial/lib/worker/protocol.dart`) of continued silence exits the true orphan; `lib/main.dart` gap-detects the wake (beat interval > 6 s) and immediately rescans ports since USB often re-enumerates across sleep; the connect-timeout fallback in `SerialConfigNotifier` now toasts (`Serial error`, names the port once) so an attempt can never die silently. Tests: worker `sleep recovery` (lease lapses, ping + reconnect answered) and `connect timeout toasts instead of dying silent` (dead worker, fake-async past 10 s). `flutter analyze` clean, **533 green root**.
+
 ---
 
 ## Part 9 — Design Decisions

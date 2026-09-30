@@ -29,9 +29,21 @@ void main() async {
   final worker = await SerialWorker.spawn();
 
   // Heartbeat lease: child isolates survive a hot restart, so a worker
-  // whose main dies must self-exit instead of squatting on the serial port
-  // (see workerLeaseMs). Ping for the life of the app — ack-free, ~1 msg/2 s.
+  // whose main dies must release its link instead of squatting on the
+  // serial port (see workerLeaseMs). Ping for the life of the app —
+  // ack-free, ~1 msg/2 s.
+  var lastBeat = DateTime.now();
   Timer.periodic(const Duration(seconds: 2), (_) {
+    final now = DateTime.now();
+    // Wake gap: timers freeze across OS sleep while the wall clock
+    // advances, so a beat arriving long after the previous one means the
+    // machine just woke — USB serial often re-enumerates across sleep, so
+    // rescan immediately instead of offering a stale picker.
+    if (now.difference(lastBeat) > const Duration(seconds: 6)) {
+      worker.send(const ListPortsCommand());
+      if (kDebugMode) AppLog.warn('[app] wake from sleep — rescanned ports');
+    }
+    lastBeat = now;
     worker.send(const PingCommand());
   });
   if (kDebugMode) {

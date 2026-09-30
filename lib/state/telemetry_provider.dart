@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../foundation/store.dart';
+import '../session/feedback.dart';
 import './connector_provider.dart';
 import './recording_provider.dart';
 export './connector_provider.dart';
@@ -54,7 +55,7 @@ final linkStatsStreamProvider = StreamProvider<LinkStats>((ref) {
 
 /// Most recently reported list of available serial ports.
 ///
-/// Dev-gated: the MOCK / MOCK-BQ / MOCK-DC simulator ports only show in debug builds.
+/// Dev-gated: the MOCK / MOCK-BQ / Brno / MOCK-DC simulator ports only show in debug builds.
 /// Release builds list physical ports alone (the worker still accepts a mock
 /// name via `connect()` for tests, it just isn't offered in the picker).
 final availablePortsProvider = StreamProvider<List<String>>((ref) async* {
@@ -220,7 +221,8 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   /// attempt is marked optimistic ([SerialConfig.connectingPort]) — the
   /// native open can stall for a moment on cranky hardware — and cleared
   /// when the worker answers: [SerialControls] clears it on a connected
-  /// status, [SerialToastBridge] on any error (plus the timeout below).
+  /// status, [SerialToastBridge] on any error, or the timeout below (which
+  /// toasts, so an attempt never dies silently).
   void connect() {
     final cfg = state;
     if (cfg.selectedPort == null) return;
@@ -230,6 +232,13 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
     _connectTimer = Timer(connectTimeout, () {
       if (ref.mounted && state.connectingPort == port) {
         state = state.copyWith(connectingPort: null);
+        // The worker never answered — a dead isolate drops commands
+        // silently, so the pill unwinding is the only signal unless the
+        // timeout says so itself.
+        ref.errorToast(
+          'Connecting to $port timed out — check the cable and retry.',
+          title: 'Serial error',
+        );
       }
     });
     final connectorId = ref.read(activeConnectorIdProvider).value ??
