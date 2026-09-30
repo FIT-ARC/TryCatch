@@ -171,7 +171,21 @@ class _BridgeHost {
     } catch (_) {}
   }
 
-  Future<void> _applyConfig(Map message) async {
+  /// Serializes config applications: duplicate configs arriving back-to-back
+  /// (handshake flush + fresh send on startup) must not interleave a stop
+  /// and two binds on the same port and fail against each other.
+  Future<void> _configChain = Future.value();
+
+  void _applyConfig(Map message) {
+    _configChain = _configChain.then((_) => _applyConfigNow(message)).then(
+          (_) {},
+          // _applyConfigNow handles bind failures itself; this only keeps
+          // an unexpected throw from stalling later configs.
+          onError: (Object e, StackTrace s) {},
+        );
+  }
+
+  Future<void> _applyConfigNow(Map message) async {
     final enabled = message['enabled'] == true;
     final port = message['port'];
     final bind = message['bind'];
@@ -183,7 +197,11 @@ class _BridgeHost {
       await _stop();
       return;
     }
-    if (_running && _boundPort == _port && _server!.address.host == _bind) {
+    // Port 0 means "any free port": keep a live binding instead of
+    // bouncing to a new ephemeral port on a duplicate config.
+    if (_running &&
+        (_port == 0 || _boundPort == _port) &&
+        _server!.address.host == _bind) {
       _report();
       return;
     }

@@ -87,11 +87,18 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
       final port = message['commandPort'];
       if (port is SendPort) {
         _bridge = port;
+        var flushedConfig = false;
         for (final pending in _outbox) {
+          if (pending[LiveBridgeMessages.type] ==
+              LiveBridgeMessages.config) {
+            flushedConfig = true;
+          }
           _bridge!.send(pending);
         }
         _outbox.clear();
-        _sendConfig();
+        // The outbox may already hold the current config (queued before the
+        // handshake); resending it would bind the same port twice.
+        if (!flushedConfig) _sendConfig();
       }
       return;
     }
@@ -155,6 +162,12 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
   void _send(Map<String, dynamic> message) {
     final bridge = _bridge;
     if (bridge == null) {
+      // Only the newest queued config matters; older ones are stale.
+      if (message[LiveBridgeMessages.type] == LiveBridgeMessages.config) {
+        _outbox.removeWhere(
+          (m) => m[LiveBridgeMessages.type] == LiveBridgeMessages.config,
+        );
+      }
       _outbox.add(message);
       return;
     }

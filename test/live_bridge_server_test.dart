@@ -244,6 +244,30 @@ void main() {
       }
     });
 
+    test('duplicate back-to-back configs do not fail against each other',
+        () async {
+      // Startup delivers the same config twice (queued pre-handshake config
+      // plus the fresh send on ready); the second must be a no-op report,
+      // not a rebind that fails with a busy port.
+      final seen = <Map>[];
+      final sub = bridge.statuses.listen(seen.add);
+      Map<String, dynamic> config() => {
+            LiveBridgeMessages.type: LiveBridgeMessages.config,
+            'enabled': true,
+            'port': port,
+            'bind': '127.0.0.1',
+            'cors': '*',
+          };
+      bridge.command.send(config());
+      bridge.command.send(config());
+      await Future<void>.delayed(const Duration(seconds: 1));
+      await sub.cancel();
+      expect(seen.where((s) => s['error'] != null), isEmpty);
+      expect(seen.where((s) => s['running'] == true), isNotEmpty);
+      final health = jsonDecode(await bridge.getBody('/health', port));
+      expect(health, {'status': 'ok'});
+    });
+
     test('stops serving when disabled', () async {
       bridge.command.send({
         LiveBridgeMessages.type: LiveBridgeMessages.config,
