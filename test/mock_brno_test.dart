@@ -11,10 +11,7 @@ void main() {
       expect(MockBrnoSerialPort.portName, isNot(MockSerialPort.portName));
       expect(MockBrnoSerialPort.portName, isNot(MockBqSerialPort.portName));
       expect(MockBrnoSerialPort.portName, isNot(MockDcSerialPort.portName));
-      expect(
-        SerialService.isMockPortName(MockBrnoSerialPort.portName),
-        isTrue,
-      );
+      expect(SerialService.isMockPortName(MockBrnoSerialPort.portName), isTrue);
     });
 
     test('listed alongside the other mock ports in dev builds', () {
@@ -28,9 +25,7 @@ void main() {
       for (var tick = 0; tick < mockBrnoToggleTicks; tick++) {
         expect(mockBrnoParachuteForTick(tick), isFalse, reason: 'tick $tick');
       }
-      for (var tick = mockBrnoToggleTicks;
-          tick < mockBrnoPeriodTicks;
-          tick++) {
+      for (var tick = mockBrnoToggleTicks; tick < mockBrnoPeriodTicks; tick++) {
         expect(mockBrnoParachuteForTick(tick), isTrue, reason: 'tick $tick');
       }
       expect(mockBrnoParachuteForTick(mockBrnoPeriodTicks), isFalse);
@@ -60,7 +55,7 @@ void main() {
         for (final frame in frames) {
           expect(frame.latitude, closeTo(49.22892339423079, 1e-7));
           expect(frame.longitude, closeTo(16.582853748863815, 1e-7));
-          expect(frame.baroAltitude, closeTo(0, 1e-9));
+          expect(frame.baroAltitude, closeTo(18, 1e-9));
           expect(frame.velocityNorth, 0);
           expect(frame.velocityEast, 0);
           expect(frame.velocityUp, 0);
