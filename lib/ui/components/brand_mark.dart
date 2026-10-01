@@ -41,7 +41,7 @@ class BrandMark extends StatelessWidget {
             ),
             if (!compact)
               Text(
-                'TESTING IN PRODUCTION',
+                'ARC@FIT',
                 style: AppText.microLabel.copyWith(
                   fontSize: 8,
                   letterSpacing: 1.2,
