@@ -1,5 +1,5 @@
 name: trycatch
-description: "Ground station software for model rockets developed by Testing in Production"
+description: "Ground station software for model rockets developed by ARC@FIT"
 publish_to: "none"
 
 version: 1.0.0+1
@@ -71,9 +71,9 @@ flutter_launcher_icons:
 # publisher CN must match the signing certificate subject.
 msix_config:
     display_name: TryCatch
-    publisher_display_name: Testing in Production
+    publisher_display_name: ARC@FIT
     identity_name: com.krychlic.trycatch
-    publisher: CN=Testing in Production
+    publisher: CN=ARC@FIT
     logo_path: assets/icon.png
     capabilities: internetClient
     execution_alias: trycatch

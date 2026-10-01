@@ -31,384 +31,384 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
+    push:
+        tags:
+            - "v[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
-  contents: write
+    contents: write
 
 env:
-  # 3.47.5 ships a matched engine/impellerc pair (shader bundle format v2),
-# verified on-device for the flutter_scene GPU path.
-  FLUTTER_VERSION: "3.47.5"
-  APP_ID: com.krychlic.trycatch
+    # 3.47.5 ships a matched engine/impellerc pair (shader bundle format v2),
+    # verified on-device for the flutter_scene GPU path.
+    FLUTTER_VERSION: "3.47.5"
+    APP_ID: com.krychlic.trycatch
 
 jobs:
-  version:
-    name: Resolve version
-    runs-on: ubuntu-latest
-    outputs:
-      build_name: ${{ steps.v.outputs.build_name }}
-      build_number: ${{ steps.v.outputs.build_number }}
-      msix_version: ${{ steps.v.outputs.msix_version }}
-    steps:
-      - id: v
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          BUILD_NAME="$TAG"
-          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          # MSIX needs exactly a.b.c.d numerics: pad tag to 3 parts, append run number.
-          IFS='.' read -r -a P <<< "$TAG"
-          while [ ${#P[@]} -lt 3 ]; do P+=(0); done
-          MSIX="${P[0]}.${P[1]}.${P[2]}.${BUILD_NUMBER}"
-          echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
-          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "msix_version=$MSIX" >> "$GITHUB_OUTPUT"
-          echo "Release $BUILD_NAME+$BUILD_NUMBER (msix $MSIX)"
+    version:
+        name: Resolve version
+        runs-on: ubuntu-latest
+        outputs:
+            build_name: ${{ steps.v.outputs.build_name }}
+            build_number: ${{ steps.v.outputs.build_number }}
+            msix_version: ${{ steps.v.outputs.msix_version }}
+        steps:
+            - id: v
+              run: |
+                  TAG="${GITHUB_REF_NAME#v}"
+                  BUILD_NAME="$TAG"
+                  BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+                  # MSIX needs exactly a.b.c.d numerics: pad tag to 3 parts, append run number.
+                  IFS='.' read -r -a P <<< "$TAG"
+                  while [ ${#P[@]} -lt 3 ]; do P+=(0); done
+                  MSIX="${P[0]}.${P[1]}.${P[2]}.${BUILD_NUMBER}"
+                  echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
+                  echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+                  echo "msix_version=$MSIX" >> "$GITHUB_OUTPUT"
+                  echo "Release $BUILD_NAME+$BUILD_NUMBER (msix $MSIX)"
 
-  test:
-    name: Analyze + test (release gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
+    test:
+        name: Analyze + test (release gate)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v5
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+            - name: Set up Flutter
+              uses: subosito/flutter-action@v2
+              with:
+                  channel: stable
+                  flutter-version: ${{ env.FLUTTER_VERSION }}
+                  cache: true
 
-      - name: Install dependencies
-        run: |
-          flutter pub get
-          flutter pub get --directory=packages/dead_reckoning
-          flutter pub get --directory=packages/serial
+            - name: Install dependencies
+              run: |
+                  flutter pub get
+                  flutter pub get --directory=packages/dead_reckoning
+                  flutter pub get --directory=packages/serial
 
-      - name: Analyze
-        run: flutter analyze
+            - name: Analyze
+              run: flutter analyze
 
-      - name: Test
-        run: flutter test
+            - name: Test
+              run: flutter test
 
-      - name: Test dead_reckoning (pure Dart)
-        run: dart test
-        working-directory: packages/dead_reckoning
+            - name: Test dead_reckoning (pure Dart)
+              run: dart test
+              working-directory: packages/dead_reckoning
 
-  windows-x64:
-    name: Windows x64 (MSIX + zip)
-    needs: [version, test]
-    runs-on: windows-latest
-    env:
-      BUILD_NAME: ${{ needs.version.outputs.build_name }}
-      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-
-      - name: Stamp version + get packages
-        shell: pwsh
-        run: |
-          (Get-Content pubspec.yaml) -replace '^version: .*', "version: $env:BUILD_NAME+$env:BUILD_NUMBER" | Set-Content pubspec.yaml
-          flutter pub get
-
-      - name: Build Windows (x64)
-        shell: pwsh
-        run: flutter build windows --release --build-name "$env:BUILD_NAME" --build-number "$env:BUILD_NUMBER"
-
-      - name: Build + sign MSIX (x64)
-        shell: pwsh
+    windows-x64:
+        name: Windows x64 (MSIX + zip)
+        needs: [version, test]
+        runs-on: windows-latest
         env:
-          MSIX_PFX_BASE64: ${{ secrets.MSIX_PFX_BASE64 }}
-          MSIX_PASSWORD: ${{ secrets.MSIX_PASSWORD }}
-        run: |
-          New-Item -ItemType Directory -Force build\dist | Out-Null
-          # Flutter >=3.16 arch-split output; fall back to legacy path just in case.
-          if (Test-Path build\windows\x64\runner\Release) { $b = 'x64' } else { $b = $null }
-          if ($env:MSIX_PFX_BASE64) {
-            $pfx = Join-Path $env:RUNNER_TEMP 'trycatch-signing.pfx'
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:MSIX_PFX_BASE64))
-            dart run msix:create --architecture x64 --build-windows false `
-              --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-x64" `
-              --install-certificate false --certificate-path "$pfx" --certificate-password "$env:MSIX_PASSWORD"
-            # Export the public cert so users can install it once for sideloading.
-            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:MSIX_PASSWORD -AsPlainText -Force)
-            Export-Certificate -Cert $cert -FilePath "$PWD\build\dist\trycatch-signing.cer" | Out-Null
-          } else {
-            Write-Output '::warning::MSIX_PFX_BASE64 not set - producing UNSIGNED msix (zip is the installable fallback).'
-            dart run msix:create --architecture x64 --build-windows false `
-              --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-x64" `
-              --sign-msix false --install-certificate false --publisher 'CN=Testing in Production'
-          }
+            BUILD_NAME: ${{ needs.version.outputs.build_name }}
+            BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        steps:
+            - uses: actions/checkout@v5
 
-      - name: Portable zip (x64)
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force build\dist | Out-Null
-          if (Test-Path build\windows\x64\runner\Release) { $src = 'build\windows\x64\runner\Release\*' }
-          elseif (Test-Path build\windows\runner\Release) { $src = 'build\windows\runner\Release\*' }
-          else { Write-Output '::warning::No Windows build output found - skipping portable zip.'; exit 0 }
-          Compress-Archive -Path $src -DestinationPath "build\dist\trycatch-$env:BUILD_NAME-windows-x64-portable.zip" -Force
+            - name: Set up Flutter
+              uses: subosito/flutter-action@v2
+              with:
+                  channel: stable
+                  flutter-version: ${{ env.FLUTTER_VERSION }}
+                  cache: true
 
-      - uses: actions/upload-artifact@v5
-        if: ${{ !cancelled() }}
-        with:
-          name: windows-x64
-          path: build/dist/*
+            - name: Stamp version + get packages
+              shell: pwsh
+              run: |
+                  (Get-Content pubspec.yaml) -replace '^version: .*', "version: $env:BUILD_NAME+$env:BUILD_NUMBER" | Set-Content pubspec.yaml
+                  flutter pub get
 
-  windows-arm64:
-    name: Windows ARM64 (MSIX + zip)
-    needs: [version, test]
-    # Native ARM runner: free for public repos, longer queues expected.
-    # NOTE: subosito/flutter-action cannot resolve a windows-arm64 SDK
-    # ("Unable to determine Flutter version ... architecture: arm64"),
-    # so the SDK is installed manually here. Pinned via FLUTTER_VERSION.
-    runs-on: windows-11-arm
-    env:
-      BUILD_NAME: ${{ needs.version.outputs.build_name }}
-      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-    steps:
-      - uses: actions/checkout@v5
+            - name: Build Windows (x64)
+              shell: pwsh
+              run: flutter build windows --release --build-name "$env:BUILD_NAME" --build-number "$env:BUILD_NUMBER"
 
-      - name: Cache Flutter SDK (ARM64)
-        uses: actions/cache@v5
-        with:
-          path: ${{ runner.temp }}/flutter
-          key: flutter-arm64-${{ env.FLUTTER_VERSION }}-v1
+            - name: Build + sign MSIX (x64)
+              shell: pwsh
+              env:
+                  MSIX_PFX_BASE64: ${{ secrets.MSIX_PFX_BASE64 }}
+                  MSIX_PASSWORD: ${{ secrets.MSIX_PASSWORD }}
+              run: |
+                  New-Item -ItemType Directory -Force build\dist | Out-Null
+                  # Flutter >=3.16 arch-split output; fall back to legacy path just in case.
+                  if (Test-Path build\windows\x64\runner\Release) { $b = 'x64' } else { $b = $null }
+                  if ($env:MSIX_PFX_BASE64) {
+                    $pfx = Join-Path $env:RUNNER_TEMP 'trycatch-signing.pfx'
+                    [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:MSIX_PFX_BASE64))
+                    dart run msix:create --architecture x64 --build-windows false `
+                      --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-x64" `
+                      --install-certificate false --certificate-path "$pfx" --certificate-password "$env:MSIX_PASSWORD"
+                    # Export the public cert so users can install it once for sideloading.
+                    $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:MSIX_PASSWORD -AsPlainText -Force)
+                    Export-Certificate -Cert $cert -FilePath "$PWD\build\dist\trycatch-signing.cer" | Out-Null
+                  } else {
+                    Write-Output '::warning::MSIX_PFX_BASE64 not set - producing UNSIGNED msix (zip is the installable fallback).'
+                    dart run msix:create --architecture x64 --build-windows false `
+                      --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-x64" `
+                      --sign-msix false --install-certificate false --publisher 'CN=ARC@FIT'
+                  }
 
-      - name: Install Flutter (manual, ARM64)
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "$env:RUNNER_TEMP\flutter\bin\flutter.bat")) {
-            git clone --depth 1 --branch "$env:FLUTTER_VERSION" https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
-          }
-          Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\flutter\bin"
-          # NOTE: GITHUB_PATH takes effect only in later steps, so use the full
-          # path here to precache/verify the SDK within this step.
-          & "$env:RUNNER_TEMP\flutter\bin\flutter.bat" --version
+            - name: Portable zip (x64)
+              if: ${{ !cancelled() }}
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Force build\dist | Out-Null
+                  if (Test-Path build\windows\x64\runner\Release) { $src = 'build\windows\x64\runner\Release\*' }
+                  elseif (Test-Path build\windows\runner\Release) { $src = 'build\windows\runner\Release\*' }
+                  else { Write-Output '::warning::No Windows build output found - skipping portable zip.'; exit 0 }
+                  Compress-Archive -Path $src -DestinationPath "build\dist\trycatch-$env:BUILD_NAME-windows-x64-portable.zip" -Force
 
-      - name: Stamp version + get packages
-        shell: pwsh
-        run: |
-          (Get-Content pubspec.yaml) -replace '^version: .*', "version: $env:BUILD_NAME+$env:BUILD_NUMBER" | Set-Content pubspec.yaml
-          flutter pub get
+            - uses: actions/upload-artifact@v5
+              if: ${{ !cancelled() }}
+              with:
+                  name: windows-x64
+                  path: build/dist/*
 
-      - name: Build Windows (ARM64)
-        shell: pwsh
-        run: flutter build windows --release --build-name "$env:BUILD_NAME" --build-number "$env:BUILD_NUMBER"
-
-      - name: Build + sign MSIX (ARM64)
-        shell: pwsh
+    windows-arm64:
+        name: Windows ARM64 (MSIX + zip)
+        needs: [version, test]
+        # Native ARM runner: free for public repos, longer queues expected.
+        # NOTE: subosito/flutter-action cannot resolve a windows-arm64 SDK
+        # ("Unable to determine Flutter version ... architecture: arm64"),
+        # so the SDK is installed manually here. Pinned via FLUTTER_VERSION.
+        runs-on: windows-11-arm
         env:
-          MSIX_PFX_BASE64: ${{ secrets.MSIX_PFX_BASE64 }}
-          MSIX_PASSWORD: ${{ secrets.MSIX_PASSWORD }}
-        run: |
-          New-Item -ItemType Directory -Force build\dist | Out-Null
-          if ($env:MSIX_PFX_BASE64) {
-            $pfx = Join-Path $env:RUNNER_TEMP 'trycatch-signing.pfx'
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:MSIX_PFX_BASE64))
-            dart run msix:create --architecture arm64 --build-windows false `
-              --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-arm64" `
-              --install-certificate false --certificate-path "$pfx" --certificate-password "$env:MSIX_PASSWORD"
-            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:MSIX_PASSWORD -AsPlainText -Force)
-            Export-Certificate -Cert $cert -FilePath "$PWD\build\dist\trycatch-signing.cer" | Out-Null
-          } else {
-            Write-Output '::warning::MSIX_PFX_BASE64 not set - producing UNSIGNED msix (zip is the installable fallback).'
-            dart run msix:create --architecture arm64 --build-windows false `
-              --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-arm64" `
-              --sign-msix false --install-certificate false --publisher 'CN=Testing in Production'
-          }
+            BUILD_NAME: ${{ needs.version.outputs.build_name }}
+            BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        steps:
+            - uses: actions/checkout@v5
 
-      - name: Portable zip (ARM64)
+            - name: Cache Flutter SDK (ARM64)
+              uses: actions/cache@v5
+              with:
+                  path: ${{ runner.temp }}/flutter
+                  key: flutter-arm64-${{ env.FLUTTER_VERSION }}-v1
+
+            - name: Install Flutter (manual, ARM64)
+              shell: pwsh
+              run: |
+                  if (-not (Test-Path "$env:RUNNER_TEMP\flutter\bin\flutter.bat")) {
+                    git clone --depth 1 --branch "$env:FLUTTER_VERSION" https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
+                  }
+                  Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\flutter\bin"
+                  # NOTE: GITHUB_PATH takes effect only in later steps, so use the full
+                  # path here to precache/verify the SDK within this step.
+                  & "$env:RUNNER_TEMP\flutter\bin\flutter.bat" --version
+
+            - name: Stamp version + get packages
+              shell: pwsh
+              run: |
+                  (Get-Content pubspec.yaml) -replace '^version: .*', "version: $env:BUILD_NAME+$env:BUILD_NUMBER" | Set-Content pubspec.yaml
+                  flutter pub get
+
+            - name: Build Windows (ARM64)
+              shell: pwsh
+              run: flutter build windows --release --build-name "$env:BUILD_NAME" --build-number "$env:BUILD_NUMBER"
+
+            - name: Build + sign MSIX (ARM64)
+              shell: pwsh
+              env:
+                  MSIX_PFX_BASE64: ${{ secrets.MSIX_PFX_BASE64 }}
+                  MSIX_PASSWORD: ${{ secrets.MSIX_PASSWORD }}
+              run: |
+                  New-Item -ItemType Directory -Force build\dist | Out-Null
+                  if ($env:MSIX_PFX_BASE64) {
+                    $pfx = Join-Path $env:RUNNER_TEMP 'trycatch-signing.pfx'
+                    [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:MSIX_PFX_BASE64))
+                    dart run msix:create --architecture arm64 --build-windows false `
+                      --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-arm64" `
+                      --install-certificate false --certificate-path "$pfx" --certificate-password "$env:MSIX_PASSWORD"
+                    $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:MSIX_PASSWORD -AsPlainText -Force)
+                    Export-Certificate -Cert $cert -FilePath "$PWD\build\dist\trycatch-signing.cer" | Out-Null
+                  } else {
+                    Write-Output '::warning::MSIX_PFX_BASE64 not set - producing UNSIGNED msix (zip is the installable fallback).'
+                    dart run msix:create --architecture arm64 --build-windows false `
+                      --output-path "$PWD\build\dist" --output-name "trycatch-$env:BUILD_NAME-windows-arm64" `
+                      --sign-msix false --install-certificate false --publisher 'CN=ARC@FIT'
+                  }
+
+            - name: Portable zip (ARM64)
+              if: ${{ !cancelled() }}
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Force build\dist | Out-Null
+                  if (Test-Path build\windows\arm64\runner\Release) { $src = 'build\windows\arm64\runner\Release\*' }
+                  elseif (Test-Path build\windows\runner\Release) { $src = 'build\windows\runner\Release\*' }
+                  else { Write-Output '::warning::No Windows build output found - skipping portable zip.'; exit 0 }
+                  Compress-Archive -Path $src -DestinationPath "build\dist\trycatch-$env:BUILD_NAME-windows-arm64-portable.zip" -Force
+
+            - uses: actions/upload-artifact@v5
+              if: ${{ !cancelled() }}
+              with:
+                  name: windows-arm64
+                  path: build/dist/*
+
+    linux:
+        name: Linux (AppImage + tar.gz)
+        needs: [version, test]
+        runs-on: ubuntu-22.04 # old glibc -> runs on Cachy/Arch + Ubuntu/Fedora
+        env:
+            BUILD_NAME: ${{ needs.version.outputs.build_name }}
+            BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Set up Flutter
+              uses: subosito/flutter-action@v2
+              with:
+                  channel: stable
+                  flutter-version: ${{ env.FLUTTER_VERSION }}
+                  cache: true
+
+            - name: Install build deps
+              run: |
+                  sudo apt-get update -y
+                  sudo apt-get install -y ninja-build libgtk-3-dev pkg-config cmake clang \
+                    liblzma-dev file desktop-file-utils appstream fuse \
+                    libx11-dev libxi-dev libayatana-appindicator3-dev
+
+            - name: Stamp version + get packages
+              run: |
+                  sed -i.bak -E "s/^version: .*/version: $BUILD_NAME+$BUILD_NUMBER/" pubspec.yaml
+                  rm -f pubspec.yaml.bak
+                  flutter pub get
+
+            - name: Build Linux
+              run: flutter build linux --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+            - name: Build AppImage + tarball
+              run: |
+                  set -eux
+                  BUNDLE="build/linux/x64/release/bundle"
+                  test -x "$BUNDLE/trycatch"
+                  rm -rf AppDir dist && mkdir -p dist AppDir/usr/bin \
+                    AppDir/usr/share/applications \
+                    AppDir/usr/share/metainfo \
+                    AppDir/usr/share/icons
+                  cp -a "$BUNDLE/." AppDir/usr/bin/
+                  cp packaging/linux/com.krychlic.trycatch.desktop AppDir/usr/share/applications/
+                  cp -a packaging/linux/icons/hicolor AppDir/usr/share/icons/
+                  test -f AppDir/usr/share/icons/hicolor/512x512/apps/com.krychlic.trycatch.png
+                  cp packaging/linux/com.krychlic.trycatch.metainfo.xml AppDir/usr/share/metainfo/
+                  desktop-file-validate AppDir/usr/share/applications/com.krychlic.trycatch.desktop
+                  curl -L -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+                  chmod +x linuxdeploy
+                  # Runners lack FUSE, so run extracted.
+                  ./linuxdeploy --appimage-extract-and-run --appdir AppDir --output appimage
+                  mv TryCatch-*.AppImage "dist/TryCatch-${BUILD_NAME}-x86_64.AppImage"
+                  tar -czf "dist/trycatch-${BUILD_NAME}-linux-x64.tar.gz" -C AppDir/usr/bin .
+                  cp packaging/linux/69-trycatch-serial.rules dist/
+                  (cd dist && sha256sum * > SHA256SUMS-linux.txt)
+
+            - uses: actions/upload-artifact@v5
+              if: ${{ !cancelled() }}
+              with:
+                  name: linux
+                  path: dist/*
+
+    macos:
+        name: macOS arm64 (DMG + zip)
+        needs: [version, test]
+        runs-on: macos-14 # free M1 runner; arm64-only build (Intel runs via Rosetta)
+        env:
+            BUILD_NAME: ${{ needs.version.outputs.build_name }}
+            BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Set up Flutter
+              uses: subosito/flutter-action@v2
+              with:
+                  channel: stable
+                  flutter-version: ${{ env.FLUTTER_VERSION }}
+                  cache: true
+
+            - name: Stamp version + get packages
+              run: |
+                  sed -i.bak -E "s/^version: .*/version: $BUILD_NAME+$BUILD_NUMBER/" pubspec.yaml
+                  rm -f pubspec.yaml.bak
+                  flutter pub get
+
+            - name: Install CocoaPods build tools
+              # libserialport pod compiles from source via autotools during `pod install`.
+              run: brew install automake libtool
+
+            - name: Build macOS
+              run: flutter build macos --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+            - name: Ad-hoc sign + package DMG/zip
+              run: |
+                  set -eux
+                  APP="build/macos/Build/Products/Release/trycatch.app"
+                  test -d "$APP"
+                  # No paid Apple account: ad-hoc sign (Gatekeeper -> Right-click > Open on first launch).
+                  codesign --deep --force --sign - "$APP"
+                  codesign --verify --verbose=2 "$APP" || true
+                  mkdir -p dist
+                  brew install create-dmg
+                  create-dmg \
+                    --volname "TryCatch ${BUILD_NAME}" \
+                    --window-size 640 400 --icon-size 96 \
+                    --icon "trycatch.app" 160 200 \
+                    --hide-extension "trycatch.app" \
+                    --app-drop-link 480 200 \
+                    "dist/TryCatch-${BUILD_NAME}-macos-arm64.dmg" "$APP"
+                  ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/TryCatch-${BUILD_NAME}-macos-arm64.zip"
+                  (cd dist && shasum -a 256 * > SHA256SUMS-macos.txt)
+
+            - uses: actions/upload-artifact@v5
+              if: ${{ !cancelled() }}
+              with:
+                  name: macos
+                  path: dist/*
+
+    publish:
+        name: Publish GitHub Release
+        # Partial releases: runs even when some builders failed, attaching
+        # whatever was produced. Skipped only on manual cancellation.
         if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force build\dist | Out-Null
-          if (Test-Path build\windows\arm64\runner\Release) { $src = 'build\windows\arm64\runner\Release\*' }
-          elseif (Test-Path build\windows\runner\Release) { $src = 'build\windows\runner\Release\*' }
-          else { Write-Output '::warning::No Windows build output found - skipping portable zip.'; exit 0 }
-          Compress-Archive -Path $src -DestinationPath "build\dist\trycatch-$env:BUILD_NAME-windows-arm64-portable.zip" -Force
+        needs: [version, windows-x64, windows-arm64, linux, macos]
+        runs-on: ubuntu-latest
+        env:
+            BUILD_NAME: ${{ needs.version.outputs.build_name }}
+        steps:
+            - uses: actions/download-artifact@v5
+              with:
+                  path: dist
+                  merge-multiple: true
 
-      - uses: actions/upload-artifact@v5
-        if: ${{ !cancelled() }}
-        with:
-          name: windows-arm64
-          path: build/dist/*
+            - name: Checksums
+              run: |
+                  cd dist
+                  # Drop per-OS checksum files, produce one global file.
+                  rm -f SHA256SUMS-*.txt
+                  if [ -z "$(ls -A .)" ]; then
+                    echo "::error::No artifacts were produced - all builders failed. Nothing to release."
+                    exit 1
+                  fi
+                  sha256sum * > SHA256SUMS.txt
+                  ls -la
 
-  linux:
-    name: Linux (AppImage + tar.gz)
-    needs: [version, test]
-    runs-on: ubuntu-22.04 # old glibc -> runs on Cachy/Arch + Ubuntu/Fedora
-    env:
-      BUILD_NAME: ${{ needs.version.outputs.build_name }}
-      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-    steps:
-      - uses: actions/checkout@v5
+            - name: Release
+              uses: softprops/action-gh-release@v3
+              with:
+                  files: dist/*
+                  generate_release_notes: true
+                  body: |
+                      ## TryCatch ${{ env.BUILD_NAME }}
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+                      ### Windows (x64 + ARM64, .msix self-signed by ARC@FIT)
+                      1. Install `trycatch-signing.cer` once (double-click -> Install Certificate -> Local Machine -> Trusted People). App Installer must be enabled.
+                      2. Install the matching `.msix` for your architecture. No cert? Use the `-portable.zip` instead (extract & run, no install).
+                      SmartScreen will warn on first run (expected for self-signed).
 
-      - name: Install build deps
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y ninja-build libgtk-3-dev pkg-config cmake clang \
-            liblzma-dev file desktop-file-utils appstream fuse \
-            libx11-dev libxi-dev libayatana-appindicator3-dev
+                      ### Linux / CachyOS (AppImage + tarball)
+                      `chmod +x TryCatch-*.AppImage && ./TryCatch-*.AppImage` (needs FUSE). Real serial hardware: `sudo usermod -aG uucp $USER` (log out/in); optional udev rules file included.
 
-      - name: Stamp version + get packages
-        run: |
-          sed -i.bak -E "s/^version: .*/version: $BUILD_NAME+$BUILD_NUMBER/" pubspec.yaml
-          rm -f pubspec.yaml.bak
-          flutter pub get
+                      ### macOS (arm64 DMG, ad-hoc signed - no Apple account)
+                      Open the DMG, drag to Applications, first launch via Right-click -> Open. Intel Macs run through Rosetta.
 
-      - name: Build Linux
-        run: flutter build linux --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-
-      - name: Build AppImage + tarball
-        run: |
-          set -eux
-          BUNDLE="build/linux/x64/release/bundle"
-          test -x "$BUNDLE/trycatch"
-          rm -rf AppDir dist && mkdir -p dist AppDir/usr/bin \
-            AppDir/usr/share/applications \
-            AppDir/usr/share/metainfo \
-            AppDir/usr/share/icons
-          cp -a "$BUNDLE/." AppDir/usr/bin/
-          cp packaging/linux/com.krychlic.trycatch.desktop AppDir/usr/share/applications/
-          cp -a packaging/linux/icons/hicolor AppDir/usr/share/icons/
-          test -f AppDir/usr/share/icons/hicolor/512x512/apps/com.krychlic.trycatch.png
-          cp packaging/linux/com.krychlic.trycatch.metainfo.xml AppDir/usr/share/metainfo/
-          desktop-file-validate AppDir/usr/share/applications/com.krychlic.trycatch.desktop
-          curl -L -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy
-          # Runners lack FUSE, so run extracted.
-          ./linuxdeploy --appimage-extract-and-run --appdir AppDir --output appimage
-          mv TryCatch-*.AppImage "dist/TryCatch-${BUILD_NAME}-x86_64.AppImage"
-          tar -czf "dist/trycatch-${BUILD_NAME}-linux-x64.tar.gz" -C AppDir/usr/bin .
-          cp packaging/linux/69-trycatch-serial.rules dist/
-          (cd dist && sha256sum * > SHA256SUMS-linux.txt)
-
-      - uses: actions/upload-artifact@v5
-        if: ${{ !cancelled() }}
-        with:
-          name: linux
-          path: dist/*
-
-  macos:
-    name: macOS arm64 (DMG + zip)
-    needs: [version, test]
-    runs-on: macos-14 # free M1 runner; arm64-only build (Intel runs via Rosetta)
-    env:
-      BUILD_NAME: ${{ needs.version.outputs.build_name }}
-      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
-
-      - name: Stamp version + get packages
-        run: |
-          sed -i.bak -E "s/^version: .*/version: $BUILD_NAME+$BUILD_NUMBER/" pubspec.yaml
-          rm -f pubspec.yaml.bak
-          flutter pub get
-
-      - name: Install CocoaPods build tools
-        # libserialport pod compiles from source via autotools during `pod install`.
-        run: brew install automake libtool
-
-      - name: Build macOS
-        run: flutter build macos --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-
-      - name: Ad-hoc sign + package DMG/zip
-        run: |
-          set -eux
-          APP="build/macos/Build/Products/Release/trycatch.app"
-          test -d "$APP"
-          # No paid Apple account: ad-hoc sign (Gatekeeper -> Right-click > Open on first launch).
-          codesign --deep --force --sign - "$APP"
-          codesign --verify --verbose=2 "$APP" || true
-          mkdir -p dist
-          brew install create-dmg
-          create-dmg \
-            --volname "TryCatch ${BUILD_NAME}" \
-            --window-size 640 400 --icon-size 96 \
-            --icon "trycatch.app" 160 200 \
-            --hide-extension "trycatch.app" \
-            --app-drop-link 480 200 \
-            "dist/TryCatch-${BUILD_NAME}-macos-arm64.dmg" "$APP"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/TryCatch-${BUILD_NAME}-macos-arm64.zip"
-          (cd dist && shasum -a 256 * > SHA256SUMS-macos.txt)
-
-      - uses: actions/upload-artifact@v5
-        if: ${{ !cancelled() }}
-        with:
-          name: macos
-          path: dist/*
-
-  publish:
-    name: Publish GitHub Release
-    # Partial releases: runs even when some builders failed, attaching
-    # whatever was produced. Skipped only on manual cancellation.
-    if: ${{ !cancelled() }}
-    needs: [version, windows-x64, windows-arm64, linux, macos]
-    runs-on: ubuntu-latest
-    env:
-      BUILD_NAME: ${{ needs.version.outputs.build_name }}
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Checksums
-        run: |
-          cd dist
-          # Drop per-OS checksum files, produce one global file.
-          rm -f SHA256SUMS-*.txt
-          if [ -z "$(ls -A .)" ]; then
-            echo "::error::No artifacts were produced - all builders failed. Nothing to release."
-            exit 1
-          fi
-          sha256sum * > SHA256SUMS.txt
-          ls -la
-
-      - name: Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*
-          generate_release_notes: true
-          body: |
-            ## TryCatch ${{ env.BUILD_NAME }}
-
-            ### Windows (x64 + ARM64, .msix self-signed by Testing in Production)
-            1. Install `trycatch-signing.cer` once (double-click -> Install Certificate -> Local Machine -> Trusted People). App Installer must be enabled.
-            2. Install the matching `.msix` for your architecture. No cert? Use the `-portable.zip` instead (extract & run, no install).
-            SmartScreen will warn on first run (expected for self-signed).
-
-            ### Linux / CachyOS (AppImage + tarball)
-            `chmod +x TryCatch-*.AppImage && ./TryCatch-*.AppImage` (needs FUSE). Real serial hardware: `sudo usermod -aG uucp $USER` (log out/in); optional udev rules file included.
-
-            ### macOS (arm64 DMG, ad-hoc signed - no Apple account)
-            Open the DMG, drag to Applications, first launch via Right-click -> Open. Intel Macs run through Rosetta.
-
-            ### Caveats
-            - MSIX publisher must stay `CN=Testing in Production`; the wire format + command bytes are placeholders (see README).
-            - This release attaches every platform that built successfully. If a file above is missing, that builder failed - check the workflow run.
-            - Verify integrity with `SHA256SUMS.txt`.
+                      ### Caveats
+                      - MSIX publisher must stay `CN=ARC@FIT`; the wire format + command bytes are placeholders (see README).
+                      - This release attaches every platform that built successfully. If a file above is missing, that builder failed - check the workflow run.
+                      - Verify integrity with `SHA256SUMS.txt`.

@@ -1,6 +1,6 @@
 # TryCatch
 
-Ground station for model rockets — _Testing in Production_.
+Ground station for model rockets — _ARC@FIT_.
 
 A Flutter desktop app that receives live telemetry from a rocket over a serial link, displays it on a tileable dashboard, records flights to disk and replays them, and sends commands back to the rocket.
 

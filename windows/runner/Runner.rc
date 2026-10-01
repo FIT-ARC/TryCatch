@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Testing in Production" "\0"
+            VALUE "CompanyName", "ARC@FIT" "\0"
             VALUE "FileDescription", "trycatch" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "trycatch" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Testing in Production. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 ARC@FIT. All rights reserved." "\0"
             VALUE "OriginalFilename", "trycatch.exe" "\0"
             VALUE "ProductName", "trycatch" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

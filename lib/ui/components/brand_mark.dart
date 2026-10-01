@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
 
-/// Brand mark: logo image + wordmark with the "Testing in Production"
+/// Brand mark: logo image + wordmark with the "ARC@FIT"
 /// tagline as a monospace micro-label.
 ///
 /// All colors resolve inside [build] (never cached) so theme flips repaint.

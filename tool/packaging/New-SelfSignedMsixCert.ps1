@@ -5,14 +5,14 @@
   Run ONCE on your Windows machine. Creates trycatch-signing.pfx (keep SECRET,
   upload base64 to GitHub secret MSIX_PFX_BASE64) and trycatch-signing.cer
   (PUBLIC - commit or attach to releases so users can install it).
-  Subject MUST stay CN=Testing in Production to match pubspec msix_config publisher.
+  Subject MUST stay CN=ARC@FIT to match pubspec msix_config publisher.
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tool/packaging/New-SelfSignedMsixCert.ps1
   # then: [Convert]::ToBase64String([IO.File]::ReadAllBytes("trycatch-signing.pfx")) | Set-Content b64.txt
   # Add b64.txt content as secret MSIX_PFX_BASE64, password as MSIX_PASSWORD.
 #>
 $ErrorActionPreference = 'Stop'
-$Subject = 'CN=Testing in Production'
+$Subject = 'CN=ARC@FIT'
 $Cert = New-SelfSignedCertificate -Type Custom `
   -Subject $Subject `
   -KeyUsage DigitalSignature `
