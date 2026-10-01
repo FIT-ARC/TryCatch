@@ -315,7 +315,7 @@ void main() {
       await tester.pump();
       expect(tester.takeException(), isNull);
       expect(
-        find.text('Locked while connected — disconnect to switch.'),
+        find.text('Cannot be changed while connected to a port.'),
         findsOneWidget,
       );
       final absorbers = tester.widgetList<AbsorbPointer>(
@@ -345,10 +345,11 @@ void main() {
       );
       await tester.pump();
       expect(tester.takeException(), isNull);
+      // Both the launch-site and the connector section lock while
+      // recording.
       expect(
-        find.text(
-            'Locked while recording — the file stamps this connector.'),
-        findsOneWidget,
+        find.text('Cannot be changed while recording.'),
+        findsNWidgets(2),
       );
     });
     testWidgets('launch site card selects inline with add action',
@@ -402,14 +403,16 @@ void main() {
       );
       await tester.pump();
       expect(tester.takeException(), isNull);
+      // Both the launch-site and the connector section lock while
+      // recording.
       expect(
-        find.text('Locked while recording — the file stamps this site.'),
-        findsOneWidget,
+        find.text('Cannot be changed while recording.'),
+        findsNWidgets(2),
       );
       final addButton =
-          find.widgetWithText(OutlinedButton, 'Add');
+          find.widgetWithText(TextButton, 'Add');
       expect(addButton, findsOneWidget);
-      expect(tester.widget<OutlinedButton>(addButton).onPressed, isNull);
+      expect(tester.widget<TextButton>(addButton).onPressed, isNull);
     });
 
     testWidgets('row delete offers undo that restores the preset',
@@ -555,7 +558,11 @@ void main() {
         altitudeMsl: 300,
       );
       await tester.enterText(
-          find.byType(TextField), shared.toShareString());
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(TextField),
+          ),
+          shared.toShareString());
       await tester.tap(find.text('Import').last);
       await tester.pump();
       final state = container.read(launchSiteProvider).value!;
@@ -589,7 +596,10 @@ void main() {
 
       await tester.tap(find.text('Add'));
       await tester.pump();
-      final fields = find.byType(TextField);
+      final fields = find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      );
       await tester.enterText(fields.at(0), 'Field');
       await tester.enterText(fields.at(1), '51');
       await tester.enterText(fields.at(2), '15');

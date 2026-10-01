@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/launch_site_store.dart';
 import '../../theme/app_colors.dart';
+import './settings_inputs.dart';
 import '../tiles/shared/map_tiles.dart';
 
 /// Opens the add-site dialog: manual name + coordinates.
@@ -199,7 +200,8 @@ class _SiteFormBodyState extends ConsumerState<_SiteFormBody> {
       children: [
         TextField(
           controller: _name,
-          decoration: const InputDecoration(labelText: 'Name'),
+          decoration: settingsFieldDecoration(context, 'Name'),
+          style: settingsFieldStyle,
         ),
         const SizedBox(height: 8),
         Row(
@@ -210,7 +212,8 @@ class _SiteFormBodyState extends ConsumerState<_SiteFormBody> {
                 controller: _lat,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: 'Latitude (°)'),
+                    settingsFieldDecoration(context, 'Latitude (°)'),
+                style: settingsFieldStyle,
               ),
             ),
             const SizedBox(width: 8),
@@ -219,7 +222,8 @@ class _SiteFormBodyState extends ConsumerState<_SiteFormBody> {
                 controller: _lon,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: 'Longitude (°)'),
+                    settingsFieldDecoration(context, 'Longitude (°)'),
+                style: settingsFieldStyle,
               ),
             ),
             const SizedBox(width: 8),
@@ -228,7 +232,8 @@ class _SiteFormBodyState extends ConsumerState<_SiteFormBody> {
                 controller: _alt,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: 'Alt MSL (m)'),
+                    settingsFieldDecoration(context, 'Alt MSL (m)'),
+                style: settingsFieldStyle,
               ),
             ),
           ],
@@ -258,12 +263,9 @@ class _SiteFormBodyState extends ConsumerState<_SiteFormBody> {
         const SizedBox(height: 8),
         TextField(
           controller: _share,
-          decoration: const InputDecoration(
-            labelText: 'LAUNCHSITE1.…',
-            isDense: true,
-            border: OutlineInputBorder(),
-          ),
-          style: AppText.mono.copyWith(fontSize: 11.5),
+          decoration:
+              settingsFieldDecoration(context, 'LAUNCHSITE1.…'),
+          style: settingsFieldStyle,
         ),
         if (_error != null) ...[
           const SizedBox(height: 8),

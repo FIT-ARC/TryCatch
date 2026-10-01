@@ -94,8 +94,8 @@ class OptionRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     Text(
@@ -104,7 +104,7 @@ class OptionRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: subtitleStyle ??
                           TextStyle(
-                              fontSize: 11.5,
+                              fontSize: 12,
                               color: AppColors.mutedForeground),
                     ),
                   ],
