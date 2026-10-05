@@ -2,9 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 
 void main() {
-  group('RocketCommand / RocketCommands', () {
-    test('all commands have valid wire byte framing', () {
-      for (final cmd in RocketCommands.all) {
+  group('Mock connector commands', () {
+    test('owns five uplink commands with valid framing', () {
+      expect(
+        [for (final cmd in mockConnector.commands) cmd.id],
+        ['arm', 'disarm', 'fire_parachute', 'beep', 'reset_fsm'],
+      );
+      for (final cmd in mockConnector.commands) {
         expect(cmd.bytes.length, 4);
         expect(cmd.bytes[0], rocketMagicT);
         expect(cmd.bytes[1], rocketMagicC);
@@ -14,25 +18,23 @@ void main() {
     });
 
     test('expected command bytes are defined', () {
-      final arm = RocketCommands.all.firstWhere((c) => c.id == 'arm');
-      expect(arm.bytes, [0x54, 0x43, 0x01, 0x00]);
-      expect(arm.danger, isTrue);
+      final byId = {
+        for (final cmd in mockConnector.commands) cmd.id: cmd,
+      };
+      expect(byId['arm']!.bytes, [0x54, 0x43, 0x01, 0x00]);
+      expect(byId['arm']!.danger, isTrue);
 
-      final disarm = RocketCommands.all.firstWhere((c) => c.id == 'disarm');
-      expect(disarm.bytes, [0x54, 0x43, 0x02, 0x00]);
-      expect(disarm.danger, isFalse);
+      expect(byId['disarm']!.bytes, [0x54, 0x43, 0x02, 0x00]);
+      expect(byId['disarm']!.danger, isFalse);
 
-      final chute = RocketCommands.all.firstWhere((c) => c.id == 'fire_parachute');
-      expect(chute.bytes, [0x54, 0x43, 0x03, 0x00]);
-      expect(chute.danger, isTrue);
+      expect(byId['fire_parachute']!.bytes, [0x54, 0x43, 0x03, 0x00]);
+      expect(byId['fire_parachute']!.danger, isTrue);
 
-      final beep = RocketCommands.all.firstWhere((c) => c.id == 'beep');
-      expect(beep.bytes, [0x54, 0x43, 0x05, 0x00]);
-      expect(beep.danger, isFalse);
+      expect(byId['beep']!.bytes, [0x54, 0x43, 0x05, 0x00]);
+      expect(byId['beep']!.danger, isFalse);
 
-      final reset = RocketCommands.all.firstWhere((c) => c.id == 'reset_fsm');
-      expect(reset.bytes, [0x54, 0x43, 0x06, 0x00]);
-      expect(reset.danger, isTrue);
+      expect(byId['reset_fsm']!.bytes, [0x54, 0x43, 0x06, 0x00]);
+      expect(byId['reset_fsm']!.danger, isTrue);
     });
   });
 

@@ -119,8 +119,12 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
   /// Resolves the terrain-grounded scene and anchor for the current
   /// providers, or `null` while frames/anchor are missing. Starts or
   /// upgrades the terrain fetch and syncs the retained meshes as side
-  /// effects. Call once per build.
-  ({FlightScene scene, FlightAnchor anchor})? resolveTerrainScene() {
+  /// effects. Call once per build. [positionMsOverride] carries the
+  /// vsync-extrapolated display clock (3D tiles tick at the screen refresh
+  /// rate while the provider ticks at 20 Hz).
+  ({FlightScene scene, FlightAnchor anchor})? resolveTerrainScene({
+    int? positionMsOverride,
+  }) {
     final state = ref.watch(telemetryStoreProvider);
     final site = ref.watch(effectiveLaunchSiteProvider);
     final replay = ref.watch(replayProvider);
@@ -134,7 +138,7 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
     if (replay.isActive && replay.frames.isNotEmpty) {
       scene = buildReplayScene(
         frames: replay.frames,
-        positionMs: replay.positionMs,
+        positionMs: positionMsOverride ?? replay.positionMs,
         site: sceneSite,
         smoothingEnabled: replay.smoothingEnabled,
         connector: connector,

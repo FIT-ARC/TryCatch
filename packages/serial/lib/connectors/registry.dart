@@ -10,6 +10,7 @@
 /// [defaultVisibleConnectorId].
 library;
 
+import 'brno_connector.dart';
 import 'connector.dart';
 import 'mock_connector.dart';
 import 'segfault_connector.dart';
@@ -30,6 +31,9 @@ const TelemetryConnector segfaultConnector = SegfaultConnector();
 /// The SegFault Demo connector instance (minimal event firmware).
 const TelemetryConnector segfaultDemoConnector = SegfaultDemoConnector();
 
+/// The Brno connector instance (static pad with 1 m nudge commands).
+const TelemetryConnector brnoConnector = BrnoConnector();
+
 /// Every available connector, in settings display order.
 ///
 /// Full list for decoding — always includes `mock` so v3 recordings stamped
@@ -37,21 +41,30 @@ const TelemetryConnector segfaultDemoConnector = SegfaultDemoConnector();
 /// [visibleConnectors] instead.
 const List<TelemetryConnector> allConnectors = [
   mockConnector,
+  brnoConnector,
   segfaultConnector,
   segfaultDemoConnector,
 ];
 
-/// Connectors the settings picker may offer. The MOCK connector is a dev
-/// tool and only shows in debug builds; release builds offer the SegFault
-/// firmwares alone.
+/// Connectors the settings picker may offer. The MOCK and Brno connectors
+/// are dev tools and only show in debug builds; release builds offer the
+/// SegFault firmwares alone.
 List<TelemetryConnector> get visibleConnectors => [
       if (isDevMode) mockConnector,
+      if (isDevMode) brnoConnector,
       segfaultConnector,
       segfaultDemoConnector,
     ];
 
 /// Whether [id] is the dev-only MOCK connector.
 bool isMockConnectorId(String id) => id == mockConnector.id;
+
+/// Whether [id] is the dev-only Brno connector.
+bool isBrnoConnectorId(String id) => id == brnoConnector.id;
+
+/// Whether [id] names a dev-only connector (MOCK or Brno).
+bool isDevOnlyConnectorId(String id) =>
+    isMockConnectorId(id) || isBrnoConnectorId(id);
 
 /// Default connector id (used before the persisted setting loads and as a
 /// fallback for corrupt preferences).

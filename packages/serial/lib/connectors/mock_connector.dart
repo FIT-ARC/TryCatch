@@ -135,16 +135,41 @@ class MockConnector extends TelemetryConnector {
   int get unknownStateId => FsmState.unknown.id;
 
   @override
-  List<ConnectorCommand> get commands => [
-    for (final cmd in RocketCommands.all)
-      ConnectorCommand(
-        id: cmd.id,
-        label: cmd.label,
-        description: cmd.description,
-        bytes: cmd.bytes,
-        danger: cmd.danger,
-      ),
-  ];
+  List<ConnectorCommand> get commands => const [
+        ConnectorCommand(
+          id: 'arm',
+          label: 'Arm',
+          description: 'Enable igniter and deployment circuits',
+          bytes: [rocketMagicT, rocketMagicC, 0x01, 0x00],
+          danger: true,
+        ),
+        ConnectorCommand(
+          id: 'disarm',
+          label: 'Disarm',
+          description: 'Disable all pyro and igniter circuits',
+          bytes: [rocketMagicT, rocketMagicC, 0x02, 0x00],
+        ),
+        ConnectorCommand(
+          id: 'fire_parachute',
+          label: 'Fire chute',
+          description: 'Manual parachute deployment',
+          bytes: [rocketMagicT, rocketMagicC, 0x03, 0x00],
+          danger: true,
+        ),
+        ConnectorCommand(
+          id: 'beep',
+          label: 'Beep',
+          description: 'Play the locator beep on the rocket',
+          bytes: [rocketMagicT, rocketMagicC, 0x05, 0x00],
+        ),
+        ConnectorCommand(
+          id: 'reset_fsm',
+          label: 'Reset FSM',
+          description: 'Force the flight computer back to Idle',
+          bytes: [rocketMagicT, rocketMagicC, 0x06, 0x00],
+          danger: true,
+        ),
+      ];
 
   @override
   List<int>? bytesForState(int stateId) {
@@ -154,7 +179,36 @@ class MockConnector extends TelemetryConnector {
   }
 
   @override
-  UplinkDescription describeCommand(List<int> bytes) => describeUplink(bytes);
+  UplinkDescription describeCommand(List<int> bytes) {
+    for (final cmd in commands) {
+      if (_bytesEqual(cmd.bytes, bytes)) {
+        return UplinkDescription(
+          label: cmd.label,
+          subtitle: cmd.description,
+          danger: cmd.danger,
+        );
+      }
+    }
+    if (bytes.length == 4 &&
+        bytes[0] == rocketMagicT &&
+        bytes[1] == rocketMagicC &&
+        bytes[2] == FsmStateCommands.setStateCmd) {
+      final state = FsmState.fromId(bytes[3]);
+      if (state != FsmState.unknown) {
+        return UplinkDescription(
+          label: 'Set ${state.label}',
+          subtitle: 'Flight-computer state request → ${state.label}',
+        );
+      }
+    }
+    final hex = [
+      for (final b in bytes.take(4)) b.toRadixString(16).padLeft(2, '0'),
+    ].join(' ');
+    return UplinkDescription(
+      label: 'Unknown command',
+      subtitle: 'Unrecognized uplink frame ($hex)',
+    );
+  }
 
   @override
   List<ConnectorEventDef> get events => const [
@@ -184,4 +238,12 @@ class MockConnector extends TelemetryConnector {
 
   @override
   FieldCapabilities get capabilities => FieldCapabilities.all;
+}
+
+bool _bytesEqual(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

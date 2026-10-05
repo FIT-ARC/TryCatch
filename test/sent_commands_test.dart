@@ -75,28 +75,29 @@ void main() {
     });
   });
 
-  group('describeUplink', () {
-    test('resolves the catalog', () {
-      final arm = describeUplink([0x54, 0x43, 0x01, 0x00]);
+  group('describeCommand', () {
+    test('resolves the mock catalog', () {
+      final arm = mockConnector.describeCommand([0x54, 0x43, 0x01, 0x00]);
       expect(arm.label, 'Arm');
       expect(arm.danger, isTrue);
 
-      final beep = describeUplink([0x54, 0x43, 0x05, 0x00]);
+      final beep = mockConnector.describeCommand([0x54, 0x43, 0x05, 0x00]);
       expect(beep.label, 'Beep');
       expect(beep.danger, isFalse);
     });
 
     test('resolves FSM set-state commands', () {
-      final set = describeUplink(FsmStateCommands.bytesFor(FsmState.ascent));
+      final set = mockConnector
+          .describeCommand(FsmStateCommands.bytesFor(FsmState.ascent));
       expect(set.label, 'Set Ascent');
       expect(set.danger, isFalse);
     });
 
     test('falls back for unknown frames', () {
-      expect(describeUplink([0x54, 0x43, 0x09, 0x00]).label,
+      expect(mockConnector.describeCommand([0x54, 0x43, 0x09, 0x00]).label,
           'Unknown command');
       // Well-formed set-state prefix but unmapped state id.
-      expect(describeUplink([0x54, 0x43, 0x07, 0x42]).label,
+      expect(mockConnector.describeCommand([0x54, 0x43, 0x07, 0x42]).label,
           'Unknown command');
     });
 

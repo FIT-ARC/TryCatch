@@ -8,6 +8,7 @@ import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
 import './shared/gpu/rocket_gpu_view.dart';
 import './shared/orbit_camera.dart';
+import './shared/replay_vsync.dart';
 
 /// 3D rocket orientation view: the parametric rocket mesh rendered on the
 /// GPU (`RocketGpuView`), transformed by the rocket's attitude. Drag orbits
@@ -24,7 +25,8 @@ class Rocket3dTile extends ConsumerStatefulWidget {
   ConsumerState<Rocket3dTile> createState() => _Rocket3dWidgetState();
 }
 
-class _Rocket3dWidgetState extends ConsumerState<Rocket3dTile> {
+class _Rocket3dWidgetState extends ConsumerState<Rocket3dTile>
+    with SingleTickerProviderStateMixin, ReplayVsync {
   @override
   Widget build(BuildContext context) {
     final latest = ref.watch(telemetryStoreProvider).latest;
@@ -45,14 +47,17 @@ class _Rocket3dWidgetState extends ConsumerState<Rocket3dTile> {
     final showNoseCone = airframe.hasNosecone;
     final showParachute = airframe.showsParachute;
 
-    // Replay smoothing also steadies the rotation: same trailing-average
+    // Replay smoothing also steadies the rotation: same smoothed recorded
     // attitude the flight views use, so the orientation viewer stops
     // jittering when the toggle is on. Raw replay and live stay untouched.
+    // With smoothing the rotation interpolates between packets at the
+    // display refresh rate via the vsync display clock.
     final attitude = resolveDisplayAttitude(
       pitchDeg: latest.pitch,
       yawDeg: latest.yaw,
       rollDeg: latest.roll,
       replay: replay,
+      positionMsOverride: replayDisplayMs(replay),
     );
 
     return GestureDetector(

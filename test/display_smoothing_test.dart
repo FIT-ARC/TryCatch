@@ -4,23 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:vector_math/vector_math_64.dart';
 import 'package:trycatch/state/launch_site_store.dart';
+import 'package:trycatch/state/replay_controller.dart';
 import 'package:trycatch/ui/tiles/shared/flight_3d_common.dart';
-
-/// Legacy per-packet tilt formula (old ground-station decodePacket.ts),
-/// the reference the smoothed helpers must agree with on clean data.
-({double rollDeg, double pitchDeg}) legacyTilt(
-  double ax,
-  double ay,
-  double az,
-) =>
-    (
-      rollDeg: math.atan2(ay, az) * 180 / math.pi,
-      pitchDeg:
-          math.atan2(-ax, math.sqrt(ay * ay + az * az)) * 180 / math.pi,
-    );
-
-TelemetryFrame frameWithAccel(double ax, double ay, double az) =>
-    TelemetryFrame(accelX: ax, accelY: ay, accelZ: az);
 
 const _site = LaunchSite(
   name: 'Pad',
@@ -189,53 +174,339 @@ void main() {
     });
   });
 
-  group('smoothedAttitude', () {
-    test('empty input yields level', () {
-      expect(
-        smoothedAttitude(const []),
-        (rollDeg: 0.0, pitchDeg: 0.0),
+  group('smoothed replay attitude (recorded angles)', () {
+    List<TelemetryFrame> attitudeFrames(
+      int count,
+      double Function(int i) pitchOf, {
+      double Function(int i)? yawOf,
+      double Function(int i)? rollOf,
+    }) =>
+        [
+          for (var i = 0; i < count; i++)
+            TelemetryFrame(
+              receivedAtMs: 1700000000000 + i * 100,
+              pitch: pitchOf(i),
+              yaw: yawOf?.call(i) ?? 0,
+              roll: rollOf?.call(i) ?? 0,
+            ),
+        ];
+
+    test('follows recorded tilt instead of collapsing to vertical', () {
+      // Regression: the smoother re-derived tilt from accelerometers and
+      // forced yaw to 0, so any recording with level-ish specific force
+      // rendered nose-up/north no matter what the flight computer reported.
+      final frames = attitudeFrames(40, (_) => 30,
+          yawOf: (_) => 90, rollOf: (_) => 10);
+      final got = replayAttitude(
+          frames: frames, positionMs: 2000, smoothingEnabled: true);
+      expect(got.pitchDeg, closeTo(30, 1e-9));
+      expect(got.yawDeg, closeTo(90, 1e-9));
+      expect(got.rollDeg, closeTo(10, 1e-9));
+    });
+
+    test('tracks a canopy swing instead of cancelling it', () {
+      // ±12° swing at a 2.8 s period (the MOCK chute): the short centered
+      // window follows it at most of its amplitude; a multi-second window
+      // would average whole periods away to vertical.
+      final frames = attitudeFrames(
+          100, (i) => 12 * math.sin(2 * math.pi * (i * 0.1) / 2.8));
+      var peak = 0.0;
+      for (var i = 0; i < 100; i++) {
+        final got = replayAttitude(
+            frames: frames, positionMs: i * 100, smoothingEnabled: true);
+        peak = math.max(peak, got.pitchDeg.abs());
+      }
+      expect(peak, greaterThan(8.0));
+    });
+
+    test('yaw takes the short way around the wrap', () {
+      final frames = attitudeFrames(40, (_) => 0,
+          yawOf: (i) => i < 20 ? 350 : 10, rollOf: (_) => 0);
+      final got = replayAttitude(
+          frames: frames, positionMs: 1950, smoothingEnabled: true);
+      // Circular mean of {350 ×n, 10 ×m} sits at/near 0 (or 360), never
+      // mid-way at 180.
+      final wrapped = ((got.yawDeg % 360) + 360) % 360;
+      expect(wrapped < 30 || wrapped > 330, isTrue);
+    });
+
+    test('single-packet spikes melt away', () {
+      final frames = attitudeFrames(40, (i) => i == 20 ? 45 : 5);
+      final got = replayAttitude(
+          frames: frames, positionMs: 2000, smoothingEnabled: true);
+      // One 45° spike in a ±0.5 s window of 5° readings barely registers.
+      expect(got.pitchDeg, lessThan(10.0));
+    });
+  });
+
+  group('smoothed replay interpolation (low-rate recordings)', () {
+    List<TelemetryFrame> fixes10Hz(int count) => [
+          for (var i = 0; i < count; i++)
+            TelemetryFrame(
+              receivedAtMs: 1700000000000 + i * 100,
+              flags: FrameFlags.gpsFix,
+              latitude: 49.799,
+              longitude: 16.693 + i * 1e-5,
+              baroAltitude: i * 1.0,
+              accelX: 0,
+              accelY: 0,
+              accelZ: 9.81,
+              fsmStateId: 2,
+            ),
+        ];
+
+    test('spline tip beats the chord on curves', () {
+      // A 2 Hz arc (200 m radius): linear interpolation cuts the chord and
+      // ticks through corners at every fix; the spline rounds them. The
+      // sampled tip must sit nearer truth than the chord midpoint, and
+      // exactly on the smoothed point at fix times.
+      const r = 200.0;
+      const omega = 20.0 / r;
+      const mPerDeg = 111194.9;
+      const cosLat = 0.6428; // cos(50 deg)
+      double q(double v) => (v * 1e5).round() / 1e5;
+      const site = LaunchSite(
+        name: 'Pad',
+        latitude: 50.0,
+        longitude: 14.0,
+        altitudeMsl: 400,
       );
+      final frames = <TelemetryFrame>[];
+      for (var i = 0; i < 60; i++) {
+        final th = omega * (i * 0.5);
+        frames.add(TelemetryFrame(
+          receivedAtMs: 1700000000000 + (i * 500).round(),
+          flags: FrameFlags.gpsFix,
+          latitude: q(50.0 + r * (1 - math.cos(th)) / mPerDeg),
+          longitude: q(14.0 + r * math.sin(th) / (mPerDeg * cosLat)),
+          baroAltitude: 100,
+        ));
+      }
+      Vector3 truth(double secs) {
+        final th = omega * secs;
+        return Vector3(
+            r * math.sin(th), 100, -(r * (1 - math.cos(th))));
+      }
+
+      // At fix times the tip is exactly the smoothed point (no drift).
+      final at = buildReplayScene(
+        frames: frames,
+        positionMs: 30 * 500,
+        site: site,
+        smoothingEnabled: true,
+      )!;
+      expect((at.rocketPos - at.trail.last).length, closeTo(0.0, 1e-9));
+      // Between fixes the spline hugs the arc tighter than the chord.
+      final s0 = buildReplayScene(
+        frames: frames,
+        positionMs: 30 * 500,
+        site: site,
+        smoothingEnabled: true,
+      )!
+          .rocketPos;
+      final s1 = buildReplayScene(
+        frames: frames,
+        positionMs: 31 * 500,
+        site: site,
+        smoothingEnabled: true,
+      )!
+          .rocketPos;
+      final mid = buildReplayScene(
+        frames: frames,
+        positionMs: 30 * 500 + 250,
+        site: site,
+        smoothingEnabled: true,
+      )!
+          .rocketPos;
+      final chord = (s0 + s1) * 0.5;
+      final want = truth(15.25);
+      expect((mid - want).length, lessThan((chord - want).length));
+      expect((mid - want).length, lessThan(2.0));
+      // The rocket never detaches from the trail tip.
+      final midScene = buildReplayScene(
+        frames: frames,
+        positionMs: 30 * 500 + 250,
+        site: site,
+        smoothingEnabled: true,
+      )!;
+      expect((midScene.rocketPos - midScene.trail.last).length,
+          closeTo(0.0, 1e-9));
     });
 
-    test('matches the legacy formula on a steady vector', () {
-      const ax = -2.139;
-      const ay = -2.239;
-      const az = 31.75;
+    test('single-fix glitch despikes in place', () {
+      // One 50 m GPS jump on an otherwise straight 10 Hz line: the median
+      // stage kills it instead of smearing it through the mean window.
       final frames = [
-        for (var i = 0; i < 25; i++) frameWithAccel(ax, ay, az),
+        for (var i = 0; i < 40; i++)
+          TelemetryFrame(
+            receivedAtMs: 1700000000000 + i * 100,
+            flags: FrameFlags.gpsFix,
+            latitude: 49.799,
+            longitude: 16.693 + (i == 20 ? 70e-5 : i * 1e-5),
+            baroAltitude: 100,
+          ),
       ];
-      final got = smoothedAttitude(frames);
-      final want = legacyTilt(ax, ay, az);
-      expect(got.rollDeg, closeTo(want.rollDeg, 1e-9));
-      expect(got.pitchDeg, closeTo(want.pitchDeg, 1e-9));
+      var worst = 0.0;
+      // Interior only: at the flight ends the clamped window goes one-sided
+      // and legitimately leads/lags truth by half a window.
+      for (var i = 10; i < 30; i++) {
+        final scene = buildReplayScene(
+          frames: frames,
+          positionMs: i * 100,
+          site: _site,
+          smoothingEnabled: true,
+        )!;
+        final want = worldFromLatLon(
+          49.799,
+          16.693 + i * 1e-5,
+          100,
+          _site.latitude,
+          _site.longitude,
+          math.cos(49.799 * math.pi / 180),
+        );
+        worst = math.max(worst, (scene.rocketPos - want).length);
+      }
+      expect(worst, lessThan(1.0));
     });
 
-    test('averages the vector, not the angles (stable near free-fall)', () {
-      // Per-frame tilts swing wildly when |a| is small; the averaged vector
-      // still points roughly up with a slight -x lean.
-      final frames = <TelemetryFrame>[
-        frameWithAccel(-3.0, 0.0, 0.5),
-        frameWithAccel(1.0, 2.0, -0.5),
-        frameWithAccel(-2.0, -2.0, 1.0),
-        frameWithAccel(0.0, 1.0, 0.5),
-      ];
-      final got = smoothedAttitude(frames, window: 4);
-      final want = legacyTilt(-1.0, 0.25, 0.375);
-      expect(got.rollDeg, closeTo(want.rollDeg, 1e-9));
-      expect(got.pitchDeg, closeTo(want.pitchDeg, 1e-9));
-      expect(got.rollDeg.isFinite, isTrue);
-      expect(got.pitchDeg.isFinite, isTrue);
+    test('raw position stays stepwise between fixes', () {
+      final frames = fixes10Hz(20);
+      final atFix = buildReplayScene(
+        frames: frames,
+        positionMs: 10 * 100,
+        site: _site,
+      )!;
+      final mid = buildReplayScene(
+        frames: frames,
+        positionMs: 10 * 100 + 50,
+        site: _site,
+      )!;
+      expect((mid.rocketPos - atFix.rocketPos).length, closeTo(0.0, 1e-9));
     });
 
-    test('uses only the trailing window', () {
-      final frames = <TelemetryFrame>[
-        for (var i = 0; i < 10; i++) frameWithAccel(0, 0, 9.81),
-        for (var i = 0; i < 25; i++) frameWithAccel(9.81, 0, 0),
+    test('attitude holds steady values exactly when smoothed', () {
+      final frames = [
+        for (var i = 0; i < 40; i++)
+          TelemetryFrame(
+            receivedAtMs: 1700000000000 + i * 100,
+            pitch: 12,
+            yaw: 90,
+            roll: 5,
+          ),
       ];
-      final got = smoothedAttitude(frames);
-      final want = legacyTilt(9.81, 0, 0);
-      expect(got.rollDeg, closeTo(want.rollDeg, 1e-9));
-      expect(got.pitchDeg, closeTo(want.pitchDeg, 1e-9));
+      for (final at in [1900, 1950, 2000]) {
+        final got = replayAttitude(
+            frames: frames, positionMs: at, smoothingEnabled: true);
+        expect(got.pitchDeg, closeTo(12, 1e-9));
+        expect(got.yawDeg, closeTo(90, 1e-9));
+        expect(got.rollDeg, closeTo(5, 1e-9));
+      }
+      final rawMid = replayAttitude(
+          frames: frames, positionMs: 1950, smoothingEnabled: false);
+      expect(rawMid.pitchDeg, closeTo(12, 1e-12));
+    });
+
+    test('attitude spline beats the chord on swings', () {
+      // Heading swinging ±30° at a 5 s period, sampled at 10 Hz: halfway
+      // between packets the spline sits nearer truth than the chord.
+      double yawAt(double secs) => 90 + 30 * math.sin(2 * math.pi * secs / 5);
+      final frames = [
+        for (var i = 0; i < 60; i++)
+          TelemetryFrame(
+            receivedAtMs: 1700000000000 + i * 100,
+            pitch: 5,
+            yaw: yawAt(i * 0.1),
+            roll: 0,
+          ),
+      ];
+      double yawErr(int posMs) => (replayAttitude(
+                  frames: frames, positionMs: posMs, smoothingEnabled: true)
+              .yawDeg -
+          yawAt(posMs / 1000))
+          .abs();
+      // Interior swing (away from clamped edges).
+      expect(yawErr(3050), lessThan(1.5));
+      final a = replayAttitude(
+          frames: frames, positionMs: 3000, smoothingEnabled: true);
+      final b = replayAttitude(
+          frames: frames, positionMs: 3100, smoothingEnabled: true);
+      final chordErr =
+          (((a.yawDeg + b.yawDeg) / 2 - yawAt(3.05)).abs());
+      expect(yawErr(3050), lessThan(chordErr));
+    });
+
+    test('low-rate arc stays on the arc when smoothed', () {
+      // Regression: a fix-count window spans whole minutes at low GPS rates
+      // and chord-cuts every curve (160 m off on this arc); the time window
+      // keeps the tip on the flown line.
+      const r = 200.0;
+      const omega = 20.0 / r;
+      const mPerDeg = 111194.9;
+      const cosLat = 0.6428; // cos(50 deg)
+      double q(double v) => (v * 1e5).round() / 1e5;
+      final frames = <TelemetryFrame>[];
+      for (var i = 0; i < 120; i++) {
+        final th = omega * (i * 0.5);
+        frames.add(TelemetryFrame(
+          receivedAtMs: 1700000000000 + (i * 500).round(),
+          flags: FrameFlags.gpsFix,
+          latitude: q(50.0 + r * (1 - math.cos(th)) / mPerDeg),
+          longitude: q(14.0 + r * math.sin(th) / (mPerDeg * cosLat)),
+          baroAltitude: 100,
+        ));
+      }
+      var worst = 0.0;
+      // Interior only: at the flight ends the clamped window goes one-sided
+      // and legitimately leads/lags truth by half a window.
+      for (var i = 12; i < 108; i += 6) {
+        final scene = buildReplayScene(
+          frames: frames,
+          positionMs: i * 500,
+          site: const LaunchSite(
+            name: 'Pad',
+            latitude: 50.0,
+            longitude: 14.0,
+            altitudeMsl: 400,
+          ),
+          smoothingEnabled: true,
+        )!;
+        final th = omega * (i * 0.5);
+        final want = Vector3(
+            r * math.sin(th), 100, -(r * (1 - math.cos(th))));
+        worst = math.max(worst, (scene.rocketPos - want).length);
+      }
+      expect(worst, lessThan(5.0));
+    });
+
+    test('display clock extrapolates while playing, frozen when paused', () {
+      const base = ReplayState(
+        filePath: 'f.bin',
+        playing: true,
+        speed: 1,
+        positionMs: 1000,
+        durationMs: 10000,
+        positionWallMs: 5000,
+      );
+      expect(replayDisplayPositionMs(base, 5000), 1000);
+      expect(replayDisplayPositionMs(base, 5050), 1050);
+      const fast = ReplayState(
+        filePath: 'f.bin',
+        playing: true,
+        speed: 4,
+        positionMs: 1000,
+        durationMs: 10000,
+        positionWallMs: 5000,
+      );
+      expect(replayDisplayPositionMs(fast, 5025), 1100);
+      expect(replayDisplayPositionMs(base, 5000 + 20000), 10000);
+      const paused = ReplayState(
+        filePath: 'f.bin',
+        playing: false,
+        positionMs: 1000,
+        durationMs: 10000,
+        positionWallMs: 5000,
+      );
+      expect(replayDisplayPositionMs(paused, 9000), 1000);
     });
   });
 }

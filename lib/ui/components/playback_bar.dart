@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/path_utils.dart';
 import '../../state/replay_controller.dart';
 import '../../theme/app_colors.dart';
 import '../../core/flight_events.dart';
@@ -13,17 +12,18 @@ import './flight_event_style.dart';
 /// Playback controls shown in the top bar while a replay is active.
 ///
 /// Replaces the serial connection and recording groups — the app is replaying
-/// recorded telemetry, not listening to the radio. File name, transport,
-/// seek and speed. The constant "Back to live" close action lives in the
-/// top-bar menu slot (see TopBar), in the exact spot the hamburger button
-/// occupies when live.
+/// recorded telemetry, not listening to the radio. Three port-selector boxes
+/// (32 px, one outer border, 18 px hairlines): steppers + clock, transport +
+/// timeline, speed + toggles. The constant "Back to live" close action lives
+/// in the top-bar menu slot (see TopBar), in the exact spot the hamburger
+/// button occupies when live.
 class PlaybackBar extends ConsumerWidget {
   const PlaybackBar({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Select only the fields the clock text + slider need so the outer row
-    // doesn't rebuild on every 50 ms positionMs tick. The buttons are leaf
+    // doesn't rebuild on every 50 ms positionMs tick. The boxes are leaf
     // consumers that each subscribe to exactly the fields they render —
     // a pure rebuild-avoidance optimization.
     final duration = ref.watch(
@@ -38,34 +38,187 @@ class PlaybackBar extends ConsumerWidget {
     final speed = ref.watch(replayProvider.select((s) => s.speed));
     final controller = ref.read(replayProvider.notifier);
 
-    return Row(
-      children: [
-        const _ReplayBadge(),
-        // Isolated leaf consumer: rebuilds only when playing/finished/loading
-        // changes — not on every positionMs tick.
-        const _PlayPauseButton(),
-        // Fixed-width clock: position pads to the duration's minute width
-        // ("7:42 / 17:29") so scrubbing never shifts siblings as digits grow.
-        _ClockText(position: position, duration: duration),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: _ReplayTimeline(duration: duration, position: position),
+    final timeline = _ReplayTimeline(duration: duration, position: position);
+
+    // Box A holds the steppers + clock at port-selector density; the
+    // transport (play + timeline) and box C (speed + toggles) follow.
+    // Below this width the timeline keeps a usable minimum and the row
+    // scrolls instead of overflowing (the live controls scroll the same
+    // way).
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const fixedEstimate = 530.0;
+        const minTimeline = 140.0;
+        if (constraints.maxWidth >= fixedEstimate + minTimeline) {
+          return Row(
+            children: [
+              const _StepClockBox(),
+              const SizedBox(width: 12),
+              const _PlayPauseButton(),
+              Expanded(child: timeline),
+              const SizedBox(width: 12),
+              _ControlBox(children: [
+                _SpeedMenu(
+                  speed: speed,
+                  onSelect: controller.setSpeed,
+                  enabled: !isLoading,
+                ),
+                // Isolated leaf consumer: rebuilds only when
+                // smoothing/loading changes — not on every positionMs tick.
+                const _SmoothingButton(),
+                // Isolated leaf consumer: rebuilds only when loop/loading
+                // changes.
+                const _LoopButton(),
+              ]),
+            ],
+          );
+        }
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              const _StepClockBox(),
+              const SizedBox(width: 12),
+              const _PlayPauseButton(),
+              SizedBox(width: minTimeline, child: timeline),
+              const SizedBox(width: 12),
+              _ControlBox(children: [
+                _SpeedMenu(
+                  speed: speed,
+                  onSelect: controller.setSpeed,
+                  enabled: !isLoading,
+                ),
+                const _SmoothingButton(),
+                const _LoopButton(),
+              ]),
+            ],
           ),
-        ),
-        const SizedBox(width: 4),
-        _SpeedMenu(
-          speed: speed,
-          onSelect: controller.setSpeed,
-          enabled: !isLoading,
-        ),
-        // Isolated leaf consumer: rebuilds only when smoothing/loading
-        // changes — not on every positionMs tick.
-        const _SmoothingButton(),
-        // Isolated leaf consumer: rebuilds only when loop/loading changes.
-        const _LoopButton(),
-      ],
+        );
+      },
+    );
+  }
+}
+
+/// Shared 32 px control box in the port-selector language: one outer border
+/// with 18 px hairlines between segments.
+class _ControlBox extends StatelessWidget {
+  final List<Widget> children;
+
+  const _ControlBox({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
+        border: Border.all(color: AppColors.strongBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0)
+              Container(
+                width: 1,
+                height: 18,
+                color: AppColors.border,
+              ),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Stepper + clock box: three prev steppers, the elapsed/total clock, three
+/// next steppers.
+///
+/// One leaf consumer on the playhead: only this box rebuilds at the ticker
+/// rate (to disable at the ends), never the outer bar.
+class _StepClockBox extends ConsumerWidget {
+  const _StepClockBox();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isLoading = ref.watch(replayProvider.select((s) => s.isLoading));
+    final position = ref.watch(replayProvider.select((s) => s.positionMs));
+    final duration = ref.watch(replayProvider.select((s) => s.durationMs)) ?? 0;
+    final events = ref.watch(replayFlightEventsProvider);
+    final controller = ref.read(replayProvider.notifier);
+    final atStart = position <= 0;
+    final atEnd = duration <= 0 || position >= duration;
+
+    VoidCallback? gated(bool atLimit, VoidCallback action) =>
+        isLoading || atLimit ? null : action;
+
+    return _ControlBox(children: [
+      _StepButton(
+        icon: Icons.skip_previous,
+        tooltip: 'Previous event or start (Ctrl+J)',
+        onPressed: gated(atStart, () => controller.stepEvent(-1, events)),
+      ),
+      _StepButton(
+        icon: Icons.keyboard_double_arrow_left,
+        tooltip: 'Back 1 second (J)',
+        onPressed: gated(atStart, () => controller.stepTime(-1000)),
+      ),
+      _StepButton(
+        icon: Icons.chevron_left,
+        tooltip: 'Previous packet (,)',
+        onPressed: gated(atStart, () => controller.stepPacket(-1)),
+      ),
+      // Fixed-width clock: position pads to the duration's minute width
+      // ("7:42 / 17:29") so scrubbing never shifts siblings as digits grow.
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: _ClockText(position: position, duration: duration),
+      ),
+      _StepButton(
+        icon: Icons.chevron_right,
+        tooltip: 'Next packet (.)',
+        onPressed: gated(atEnd, () => controller.stepPacket(1)),
+      ),
+      _StepButton(
+        icon: Icons.keyboard_double_arrow_right,
+        tooltip: 'Forward 1 second (L)',
+        onPressed: gated(atEnd, () => controller.stepTime(1000)),
+      ),
+      _StepButton(
+        icon: Icons.skip_next,
+        tooltip: 'Next event or end (Ctrl+L)',
+        onPressed: gated(atEnd, () => controller.stepEvent(1, events)),
+      ),
+    ]);
+  }
+}
+
+/// One box segment: 32 px like the port-selector segments, muted like the
+/// other toggles.
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  const _StepButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      iconSize: 18,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(32, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: EdgeInsets.zero,
+      ),
+      icon: Icon(icon, color: AppColors.mutedForeground),
     );
   }
 }
@@ -122,8 +275,8 @@ class _PlayPauseButton extends ConsumerWidget {
 
     return IconButton(
       tooltip: finished
-          ? 'Replay from the start (Space)'
-          : (playing ? 'Pause (Space)' : 'Play (Space)'),
+          ? 'Replay from the start (Space/K)'
+          : (playing ? 'Pause (Space/K)' : 'Play (Space/K)'),
       // toggle() keys off the live ticker, not just the last-published
       // flag, so the button can never desync from actual playback.
       onPressed: isLoading ? null : controller.toggle,
@@ -163,9 +316,14 @@ class _SmoothingButton extends ConsumerWidget {
       onPressed: isLoading
           ? null
           : () => controller.setSmoothing(!smoothingEnabled),
+      iconSize: 18,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(40, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: EdgeInsets.zero,
+      ),
       icon: Icon(
         Icons.blur_on,
-        size: 20,
         color: smoothingEnabled
             ? AppColors.pinkDeep
             : AppColors.mutedForeground,
@@ -197,9 +355,14 @@ class _LoopButton extends ConsumerWidget {
           : 'Loop off — tap to replay in a loop',
       onPressed:
           isLoading ? null : () => controller.setLooping(!loopEnabled),
+      iconSize: 18,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(40, 32),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: EdgeInsets.zero,
+      ),
       icon: Icon(
         Icons.repeat,
-        size: 20,
         color:
             loopEnabled ? AppColors.pinkDeep : AppColors.mutedForeground,
       ),
@@ -226,15 +389,15 @@ class _ReplayTimeline extends ConsumerWidget {
 
   const _ReplayTimeline({required this.duration, required this.position});
 
-  /// Pinned slider geometry. These are the Material 3 defaults, so the
-  /// slider looks exactly as before — but pinning them fixes the thumb
-  /// travel by construction: with `padding: null` the track is inset by
-  /// `max(overlay, thumb) / 2` on each side
-  /// (`BaseSliderTrackShape.getPreferredRect`), i.e. 24 px from the r24
-  /// overlay, and the thumb center runs from 24 to `width - 24`.
+  /// Pinned slider geometry. The thumb keeps the Material 3 default, but the
+  /// overlay is compact: the default r24 halo would inset the whole track
+  /// 24 px per side, pushing the timeline away from the transport button.
+  /// With r12 the thumb center runs from 12 to `width - 12`
+  /// (`BaseSliderTrackShape.getPreferredRect` insets the track by
+  /// `max(overlay, thumb) / 2` on each side when `padding` is null).
   /// [_timelineInsetPx] mirrors that inset so markers sit on the thumb path.
   static const _thumbShape = RoundSliderThumbShape();
-  static const _overlayShape = RoundSliderOverlayShape();
+  static const _overlayShape = RoundSliderOverlayShape(overlayRadius: 12);
 
   static double _timelineInsetPx() {
     final thumb = _thumbShape.getPreferredSize(true, false).width / 2;
@@ -378,41 +541,8 @@ class _EventDot extends ConsumerWidget {
   }
 }
 
-/// Replay filename + tooltip, watching the file path only.
-///
-/// The playhead rebuilds this bar ~20 Hz while playing; keeping the filename
-/// Tooltip out of those rebuilds avoids re-creating it at ticker rate.
-class _ReplayBadge extends ConsumerWidget {
-  const _ReplayBadge();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final fileName = ref.watch(
-      replayProvider.select(
-        (s) => s.filePath == null ? 'recording' : basename(s.filePath!),
-      ),
-    );
-    return Tooltip(
-      message: 'Replaying $fileName — the radio is not being listened to',
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 180),
-        child: Text(
-          fileName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppText.mono.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.mutedForeground,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Playback-speed picker: a compact popup instead of a row of chips.
+/// Playback-speed picker: an inline label segment (text + glyph, no own
+/// border) like the port-selector picker, opening the preset popup.
 class _SpeedMenu extends StatelessWidget {
   final double speed;
   final ValueChanged<double> onSelect;
@@ -433,6 +563,7 @@ class _SpeedMenu extends StatelessWidget {
       initialValue: speed,
       enabled: enabled,
       tooltip: enabled ? 'Playback speed' : 'Loading flight…',
+      padding: EdgeInsets.zero,
       onSelected: onSelect,
       itemBuilder: (context) => [
         for (final s in ReplayController.speeds)
@@ -448,30 +579,29 @@ class _SpeedMenu extends StatelessWidget {
             ),
           ),
       ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
-          border: Border.all(color: AppColors.strongBorder),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _label(speed),
-              style: AppText.mono.copyWith(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+      child: SizedBox(
+        height: 32,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 10, right: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _label(speed),
+                style: AppText.mono.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.foreground,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 16,
                 color: AppColors.mutedForeground,
               ),
-            ),
-            const SizedBox(width: 2),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 16,
-              color: AppColors.mutedForeground,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../state/replay_controller.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
 import './shared/flight_3d_shell.dart';
 import './shared/gpu/flight_gpu_view.dart';
 import './shared/orbit_camera.dart';
+import './shared/replay_vsync.dart';
 import './shared/satellite_terrain_state.dart';
 
 /// 3D flight path over satellite imagery: the same scene and orbit cameras
@@ -26,11 +28,17 @@ class Flight3dSatelliteTile extends ConsumerStatefulWidget {
 
 class _Flight3dSatelliteWidgetState
     extends ConsumerState<Flight3dSatelliteTile>
-    with SatelliteTerrainState, Flight3dShellState {
+    with
+        SatelliteTerrainState,
+        Flight3dShellState,
+        SingleTickerProviderStateMixin,
+        ReplayVsync {
   @override
   Widget build(BuildContext context) {
     final camera = ref.watch(orbitCameraProvider);
-    final resolved = resolveTerrainScene();
+    final replay = ref.watch(replayProvider);
+    final resolved =
+        resolveTerrainScene(positionMsOverride: replayDisplayMs(replay));
     if (resolved == null) {
       return Center(child: WaitingForData());
     }

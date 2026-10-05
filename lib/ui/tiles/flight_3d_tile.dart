@@ -9,6 +9,7 @@ import './shared/flight_3d_common.dart';
 import './shared/flight_3d_shell.dart';
 import './shared/gpu/flight_gpu_view.dart';
 import './shared/orbit_camera.dart';
+import './shared/replay_vsync.dart';
 
 /// 3D flight path view: the rocket flies through a metric world (east/up/
 /// south metres relative to the launch site), leaving its trail behind it.
@@ -28,7 +29,7 @@ class Flight3dTile extends ConsumerStatefulWidget {
 }
 
 class _Flight3dWidgetState extends ConsumerState<Flight3dTile>
-    with Flight3dShellState {
+    with Flight3dShellState, SingleTickerProviderStateMixin, ReplayVsync {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(telemetryStoreProvider);
@@ -47,6 +48,7 @@ class _Flight3dWidgetState extends ConsumerState<Flight3dTile>
       site: site,
       replay: replay,
       connector: connector,
+      positionMsOverride: replayDisplayMs(replay),
     );
     if (scene == null) {
       // Frames are arriving but no position anchor (no fix, no site) yet.

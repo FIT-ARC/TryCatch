@@ -127,10 +127,11 @@ Not aircraft-oriented. Three scalars, degrees:
 - v1 has no compass: `roll`/`pitch` derive from the accel vector (gravity
   projection, same as the legacy web client), `yaw`/`heading` stay 0.
   Mock and the new compass firmware report all three.
-- Replay smoothing averages the specific-force *vector* before `atan2`
-  (`smoothedAttitude` in
-  [flight_scene_builder.dart](../lib/ui/tiles/shared/flight_scene_builder.dart)),
-  never the angles — stable through apogee free-fall and chute swing.
+- Replay smoothing averages the *recorded* pitch/yaw/roll over a short
+  centered time window ([replayAttitude] in
+  [flight_scene_builder.dart](../lib/ui/tiles/shared/flight_scene_builder.dart)):
+  the same motion the raw view shows, minus the steps. Yaw/roll average
+  circularly so the 0/360 wrap never smears.
 
 ## GPS fix: one flag
 

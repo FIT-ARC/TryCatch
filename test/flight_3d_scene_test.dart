@@ -369,6 +369,92 @@ void main() {
     });
   });
 
+  group('trail input hygiene', () {
+    test('collapseDuplicateRuns drops sub-millimetre runs only', () {
+      final pts = [
+        Vector3.zero(),
+        Vector3.zero(),
+        Vector3(0.0005, 0, 0),
+        Vector3(0.01, 0, 0),
+        Vector3(0.01, 0, 0),
+        Vector3(0.02, 0, 0),
+      ];
+      expect(collapseDuplicateRuns(pts), [0, 3, 5]);
+      expect(collapseDuplicateRuns(const []), isEmpty);
+    });
+
+    test('hasFiniteFix rejects unflagged and non-finite frames', () {
+      TelemetryFrame fix({
+        double lat = 50.0,
+        double lon = 14.0,
+        double alt = 100,
+        bool flagged = true,
+      }) =>
+          TelemetryFrame(
+            flags: flagged ? FrameFlags.gpsFix : 0,
+            latitude: lat,
+            longitude: lon,
+            baroAltitude: alt,
+          );
+      expect(hasFiniteFix(fix()), isTrue);
+      expect(hasFiniteFix(fix(flagged: false)), isFalse);
+      expect(hasFiniteFix(fix(lat: double.nan)), isFalse);
+      expect(hasFiniteFix(fix(lon: double.infinity)), isFalse);
+      expect(hasFiniteFix(fix(alt: double.nan)), isFalse);
+    });
+
+    test('NaN fix never reaches the replay trail', () {
+      TelemetryFrame fixAt(int ms, double lon) => TelemetryFrame(
+            receivedAtMs: 1700000000000 + ms,
+            flags: FrameFlags.gpsFix,
+            latitude: 50.0,
+            longitude: lon,
+            baroAltitude: 100,
+          );
+      final frames = [
+        fixAt(0, 14.0),
+        TelemetryFrame(
+          receivedAtMs: 1700000000100,
+          flags: FrameFlags.gpsFix,
+          latitude: double.nan,
+          longitude: 14.0,
+          baroAltitude: 100,
+        ),
+        fixAt(200, 14.00002),
+      ];
+      final scene = buildReplayScene(
+        frames: frames,
+        positionMs: 200,
+        site: null,
+      )!;
+      // Both valid fixes render; the corrupt one leaves no joint behind.
+      expect(scene.trail.length, 2);
+      for (final p in scene.trail) {
+        expect(p.x.isFinite && p.y.isFinite && p.z.isFinite, isTrue);
+      }
+    });
+
+    test('pad cluster of identical fixes collapses to one trail point', () {
+      final frames = [
+        for (var i = 0; i < 10; i++)
+          TelemetryFrame(
+            receivedAtMs: 1700000000000 + i * 100,
+            flags: FrameFlags.gpsFix,
+            latitude: 50.0,
+            longitude: 14.0,
+            baroAltitude: 0,
+          ),
+      ];
+      final scene = buildReplayScene(
+        frames: frames,
+        positionMs: 900,
+        site: null,
+        smoothingEnabled: true,
+      )!;
+      expect(scene.trail.length, 1);
+    });
+  });
+
   group('trail bucket stability', () {
     TelemetryFrame fixAt(int ms, double alt) => TelemetryFrame(
           flags: FrameFlags.gpsFix,

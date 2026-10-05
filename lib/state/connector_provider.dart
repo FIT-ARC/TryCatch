@@ -38,9 +38,11 @@ class ConnectorIdStore extends PersistedStore<String> {
   @override
   String decode(String raw) {
     if (!isKnownConnectorId(raw)) throw const FormatException('unknown id');
-    // The MOCK connector is dev-only: a release build that inherits a
-    // persisted mock choice falls back to the visible default.
-    if (!kDebugMode && isMockConnectorId(raw)) return defaultVisibleConnectorId;
+    // The MOCK and Brno connectors are dev-only: a release build that
+    // inherits a persisted dev choice falls back to the visible default.
+    if (!kDebugMode && isDevOnlyConnectorId(raw)) {
+      return defaultVisibleConnectorId;
+    }
     return raw;
   }
 
@@ -48,13 +50,13 @@ class ConnectorIdStore extends PersistedStore<String> {
   Future<String> build() => loadPersisted();
 
   /// Selects the connector, persisting unless [persist] is false (replay's
-  /// in-memory override). Unknown ids are ignored. The MOCK connector can
-  /// only be *persisted* in debug builds; replay may still override to it
-  /// in memory ([persist] false) so mock-stamped recordings replay in
+  /// in-memory override). Unknown ids are ignored. Dev-only connectors can
+  /// only be *persisted* in debug builds; replay may still override to them
+  /// in memory ([persist] false) so dev-stamped recordings replay in
   /// release.
   Future<void> set(String id, {bool persist = true}) async {
     if (!isKnownConnectorId(id)) return;
-    if (persist && !kDebugMode && isMockConnectorId(id)) return;
+    if (persist && !kDebugMode && isDevOnlyConnectorId(id)) return;
     stage(id);
     if (!persist) return;
     await writeRaw(id);

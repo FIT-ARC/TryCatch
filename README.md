@@ -11,7 +11,7 @@ No hardware? The built-in **MOCK** port runs a full-flight simulator (pad → as
 - **Live telemetry** — 10 Hz serial frames, parsed and CRC-checked in a background isolate.
 - **Tiling dashboard** — hyprland-style workspaces with drag-to-resize splits, drag-to-swap tiles, and per-workspace persistence. Factory presets: Flight control, Pre-flight check, Recovery, Replay.
 - **Telemetry tiles** — altitude / velocity / acceleration / battery / hall-sensor charts, GPS + dead-reckoning map, 3D rocket attitude, 3D flight path (plain + satellite), flight-state machine, GPS position, dead-reckoning estimate (packet loss only, live only), max altitude, nose-cone lock state, and a command panel.
-- **Recording & replay** — one-click recording to `Documents/TryCatch/recordings/*.bin`, with seek + speed + loop control on replay (Space toggles pause/play). Recordings carry launch site, time span, packet count and peaks in the file header. The playback bar has a display-smoothing toggle (3D trail + rotation, off by default); recordings, charts and map stay raw.
+- **Recording & replay** — one-click recording to `Documents/TryCatch/recordings/*.bin`, with seek + packet/1-second/event stepping + speed + loop control on replay (Space toggles pause/play). Recordings carry launch site, time span, packet count and peaks in the file header. The playback bar has a display-smoothing toggle (3D trail + rotation, off by default); recordings, charts and map stay raw.
 - **Sample flights** — drop `.bin` recordings in `assets/recordings/` to ship them with the app; they appear in Recorded flights as read-only bundled samples (replayed straight from the asset, never copied to disk).
 - **GPS gap filling** — ground-side dead reckoning bridges GPS outages so tracks stay connected.
 - **Dead reckoning tuning** — its own screen: guided re-tune against a flight recording (one 0–100 score per tune, per-phase breakdown, rotatable 3D outage preview), apply live or share as a short string.
@@ -34,11 +34,11 @@ Verify downloads with `SHA256SUMS.txt` in the release.
 
 ## Quick start / how to use
 
-1. **Connect** — pick a port in the top bar and hit **Connect**. Use `MOCK` for the simulator (`MOCK-BQ` is the same flight but cuts out for ~5 s every ~15 s to test link-loss behavior; `MOCK-DC` randomly refuses opens, drops the link, and NAKs uplinks to test failure toasts; `Brno` is a static pad at 49.22892339, 16.58285375 that toggles parachute on/off every 5 s for testing downstream software), or the rocket's serial port for real hardware.
+1. **Connect** — pick a port in the top bar and hit **Connect**. Use `MOCK` for the simulator (`MOCK-BQ` is the same flight but cuts out for ~5 s every ~15 s to test link-loss behavior; `MOCK-DC` randomly refuses opens, drops the link, and NAKs uplinks to test failure toasts; `Brno` is a static pad at 49.22892339, 16.58285375 — pair it with the Brno connector for Up/Down/East/West 1 m nudge commands that move the reported position for testing downstream software), or the rocket's serial port for real hardware.
 2. **Set a launch site** — open Settings → LAUNCH SITE and pick a saved site (or save the rocket's current GPS as one). Recording stays disabled until a site is set, and the site locks while recording.
 3. **Arrange the dashboard** — toggle **Edit layout** to drag dividers, swap tiles by dragging them onto each other, double-click a divider to flip horizontal/vertical, or use Add-tile / per-tile split. Tabs (`Ctrl+1..9`) are separate workspaces.
 4. **Record** — hit **Record** in the top bar during a live session. Files land in `Documents/TryCatch/recordings/`.
-5. **Replay** — open the Recordings screen, pick a flight (stat grid + 3D previews), hit play. Use the playback bar for seek/speed/loop, Space for pause/play, **Back to live** to exit.
+5. **Replay** — open the Recordings screen, pick a flight (stat grid + 3D previews), hit play. Use the playback bar for seek/stepping (packet, ±1 s, event with start/end stops)/speed/loop, Space for pause/play, **Back to live** to exit. Keys: Space/K play, `,`/`.` frame, J/L 1 s, Ctrl+J/L event.
 6. **Check the channel** — open the Monitor screen before launch. If it says interference, change frequency.
 7. **Send commands** — use the command panel tile (disabled while disconnected or replaying). Arming/pyro need a second confirm click within 3 s.
 

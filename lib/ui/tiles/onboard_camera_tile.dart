@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../state/replay_controller.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
 import './shared/flight_3d_shell.dart';
 import './shared/gpu/flight_gpu_view.dart';
+import './shared/replay_vsync.dart';
 import './shared/satellite_terrain_state.dart';
 
 /// Onboard camera view: the rocket's-eye strap-down lens over the same
@@ -22,7 +24,10 @@ class OnboardCameraTile extends ConsumerStatefulWidget {
 }
 
 class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
-    with SatelliteTerrainState {
+    with
+        SatelliteTerrainState,
+        SingleTickerProviderStateMixin,
+        ReplayVsync {
   /// Spin (degrees) around the rocket's long axis from the pure side view.
   double _spinDeg = 0.0;
 
@@ -31,7 +36,9 @@ class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
 
   @override
   Widget build(BuildContext context) {
-    final resolved = resolveTerrainScene();
+    final replay = ref.watch(replayProvider);
+    final resolved = resolveTerrainScene(
+        positionMsOverride: replayDisplayMs(replay));
     if (resolved == null) {
       return Center(child: WaitingForData());
     }

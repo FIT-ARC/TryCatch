@@ -16,6 +16,10 @@ extension ConnectorCommandUi on ConnectorCommand {
         'fire_parachute' => Icons.paragliding,
         'beep' => Icons.campaign_outlined,
         'reset_fsm' => Icons.restart_alt,
+        'move_up' => Icons.arrow_upward,
+        'move_down' => Icons.arrow_downward,
+        'move_east' => Icons.arrow_forward,
+        'move_west' => Icons.arrow_back,
         _ => Icons.terminal,
       };
 }

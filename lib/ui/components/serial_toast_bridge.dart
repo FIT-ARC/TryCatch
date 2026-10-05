@@ -71,7 +71,10 @@ class SerialToastBridge extends ConsumerWidget {
     ref.listen(commandEventsProvider, (_, next) {
       next.whenData((event) {
         if (!event.ok) {
-          final label = describeUplink(event.bytes.toList()).label;
+          final label = ref
+              .read(activeConnectorProvider)
+              .describeCommand(event.bytes.toList())
+              .label;
           ref.errorToast(
             'Uplink "$label" was not sent — check the link and retry.',
             title: 'Command failed',

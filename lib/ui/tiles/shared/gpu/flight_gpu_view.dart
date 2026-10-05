@@ -170,8 +170,8 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
 
   fs.Geometry? _grid;
   ({double half, double step, double width})? _gridKey;
-  fs.LineSegmentsGeometry? _trailLines;
-  int _trailLineSegments = 0;
+  fs.PolylineGeometry? _trailLines;
+  int _trailPointCount = 0;
   double? _trailLineWidth;
   int? _trailFingerprint;
   fs.LineSegmentsGeometry? _dropLine;
@@ -317,46 +317,36 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
     );
   }
 
-  /// GPS trail as depth-tested engine lines: the path correctly occludes
-  /// behind the airframe and relief. Line ribbons are world-width, so the
-  /// width scales with the camera distance (~2 px); rebuilt when the trail
-  /// content (points move when the replay smoothing toggle flips) or the
-  /// width bucket changes. Positions are x-negated (mirrored frame, see
-  /// `_engineCamera`); the node lives outside the mirroring root like the
-  /// grid.
+  /// GPS trail as one connected camera-facing strip: joints share averaged
+  /// directions, so a dense polyline reads as one line instead of a dashed
+  /// set of butt-jointed quads (the old per-segment batch). The strip is
+  /// rebuilt when the trail content (points move when the replay smoothing
+  /// toggle flips) or the width bucket changes, and re-aimed at the camera
+  /// every frame via [updateForCamera]. Positions are x-negated (mirrored
+  /// frame, see `_engineCamera`); the node lives outside the mirroring root
+  /// like the grid.
   void _ensureTrailLines(FlightScene scene, double camDist) {
     if (scene.trail.length < 2) {
       _trailLines = null;
-      _trailLineSegments = 0;
+      _trailPointCount = 0;
       _trailFingerprint = null;
       return;
     }
     final width = _lineWidthBucket(camDist, px: 2.0);
     final fingerprint = _trailFingerprintOf(scene.trail);
     if (_trailLines != null &&
-        _trailLineSegments == scene.trail.length - 1 &&
+        _trailPointCount == scene.trail.length &&
         _trailLineWidth == width &&
         _trailFingerprint == fingerprint) {
       return;
     }
     _trailLineWidth = width;
     _trailFingerprint = fingerprint;
-    _trailLineSegments = scene.trail.length - 1;
-    final segments = Float32List(_trailLineSegments * 6);
-    var o = 0;
-    for (var i = 0; i + 1 < scene.trail.length; i++) {
-      final a = scene.trail[i];
-      final b = scene.trail[i + 1];
-      segments[o++] = -a.x;
-      segments[o++] = a.y;
-      segments[o++] = a.z;
-      segments[o++] = -b.x;
-      segments[o++] = b.y;
-      segments[o++] = b.z;
-    }
-    _trailLines = fs.LineSegmentsGeometry(
-      fs.LineSegmentData(positions: segments),
+    _trailPointCount = scene.trail.length;
+    _trailLines = fs.PolylineGeometry(
+      [for (final p in scene.trail) vm.Vector3(-p.x, p.y, p.z)],
       width: width,
+      widthMode: fs.PolylineWidthMode.worldUnits,
     );
   }
 
@@ -696,6 +686,9 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
         _ensureTrailLines(scene, camDist);
         _ensureDropLine(scene, meshAnchor, display.surfaceY, camDist);
         final engineCamera = _engineCamera(clamped);
+        // The strip is view-dependent: re-aim it at the live camera every
+        // frame (cheap CPU expansion over ≤400 points, GPU buffers reused).
+        _trailLines?.updateForCamera(engineCamera, size);
 
         // Meshes render under the mirroring root (paired with the mirrored
         // camera, see `_engineCamera`). The camera-facing line ribbons would

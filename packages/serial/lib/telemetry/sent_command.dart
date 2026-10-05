@@ -36,9 +36,9 @@ enum CommandSource {
 ///
 /// Stored verbatim in the recording's command section: the 4 raw uplink
 /// bytes (`54 43 cmd arg`) plus the attempt timestamp, outcome and source.
-/// The human-readable label is resolved at display time via
-/// `describeUplink` (see `rocket_commands.dart`) so catalog renames never
-/// invalidate old recordings.
+/// The human-readable label is resolved at display time via the active
+/// connector's `describeCommand` so catalog renames never invalidate old
+/// recordings.
 class SentCommand {
   /// Attempt time, microseconds since epoch (same clock as chunk stamps).
   final int tsUs;

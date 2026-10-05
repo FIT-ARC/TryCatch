@@ -92,6 +92,12 @@ class ReplayState {
   /// and keeps playing instead of pausing. Defaults off.
   final bool loopEnabled;
 
+  /// Wall-clock (ms since epoch) of the last [positionMs] publish while
+  /// playing. Lets the 3D tiles extrapolate the display clock between the
+  /// 20 Hz provider ticks at the screen refresh rate without waking charts
+  /// and the store. Zero when never published.
+  final int positionWallMs;
+
   const ReplayState({
     this.filePath,
     this.playing = false,
@@ -107,6 +113,7 @@ class ReplayState {
     this.connectorId = defaultConnectorId,
     this.smoothingEnabled = false,
     this.loopEnabled = false,
+    this.positionWallMs = 0,
   });
 
   bool get isActive => filePath != null;
@@ -126,6 +133,7 @@ class ReplayState {
     String? connectorId,
     bool? smoothingEnabled,
     bool? loopEnabled,
+    int? positionWallMs,
   }) => ReplayState(
     filePath: filePath ?? this.filePath,
     playing: playing ?? this.playing,
@@ -141,7 +149,25 @@ class ReplayState {
     connectorId: connectorId ?? this.connectorId,
     smoothingEnabled: smoothingEnabled ?? this.smoothingEnabled,
     loopEnabled: loopEnabled ?? this.loopEnabled,
+    positionWallMs: positionWallMs ?? this.positionWallMs,
   );
+}
+
+/// Display clock for the 3D tiles: the provider clock plus wall-clock
+/// extrapolation while playing, so smoothed replays advance every display
+/// frame instead of stepping at the 20 Hz provider tick. Paused replays,
+/// raw replays and idle states return [replay.positionMs] untouched —
+/// callers gate the vsync ticker on `playing && smoothingEnabled`, this
+/// stays pure for unit tests. Pure.
+int replayDisplayPositionMs(ReplayState replay, int nowWallMs) {
+  if (!replay.isActive || !replay.playing) return replay.positionMs;
+  final elapsed = nowWallMs - replay.positionWallMs;
+  if (elapsed <= 0) return replay.positionMs;
+  final extrapolated =
+      replay.positionMs + (elapsed * replay.speed).round();
+  final duration = replay.durationMs;
+  if (duration == null || duration <= 0) return replay.positionMs;
+  return extrapolated.clamp(0, duration);
 }
 
 /// Plays a recorded binary telemetry file back through [telemetryStoreProvider]
@@ -333,6 +359,7 @@ class ReplayController extends SessionStore<ReplayState> {
       connectorId: loaded.connector.id,
       smoothingEnabled: state.smoothingEnabled,
       loopEnabled: state.loopEnabled,
+      positionWallMs: DateTime.now().millisecondsSinceEpoch,
     );
 
     _lastTickMs = DateTime.now().millisecondsSinceEpoch;
@@ -394,7 +421,7 @@ class ReplayController extends SessionStore<ReplayState> {
 
     final duration = state.durationMs ?? (_frames.last.receivedAtMs - t0);
     final clampedClock = duration > 0 ? clock.clamp(0, duration) : 0;
-    state = state.copyWith(positionMs: clampedClock);
+    state = state.copyWith(positionMs: clampedClock, positionWallMs: now);
 
     if (_index >= _frames.length) pause();
   }
@@ -416,13 +443,18 @@ class ReplayController extends SessionStore<ReplayState> {
     // Idempotent: a stray live ticker is replaced, a dead one while
     // `playing` is healed — resume always converges on ticking playback.
     _ticker?.cancel();
-    _lastTickMs = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _lastTickMs = now;
     _ticker = Timer.periodic(
       const Duration(milliseconds: AppConfig.replayTickMs),
       (_) => _tick(),
     );
     if (!state.playing) {
-      state = state.copyWith(playing: true);
+      // Re-anchor the vsync extrapolation so the display clock restarts
+      // from the current position instead of including the pause gap.
+      state = state.copyWith(playing: true, positionWallMs: now);
+    } else {
+      state = state.copyWith(positionWallMs: now);
     }
   }
 
@@ -486,11 +518,13 @@ class ReplayController extends SessionStore<ReplayState> {
       );
     }
     _index = lo;
-    _lastTickMs = DateTime.now().millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _lastTickMs = now;
     if (!state.playing) {
-      state = state.copyWith(positionMs: atPositionMs, playing: true);
+      state = state.copyWith(
+          positionMs: atPositionMs, playing: true, positionWallMs: now);
     } else {
-      state = state.copyWith(positionMs: atPositionMs);
+      state = state.copyWith(positionMs: atPositionMs, positionWallMs: now);
     }
   }
 
@@ -529,7 +563,113 @@ class ReplayController extends SessionStore<ReplayState> {
     }
 
     _index = index;
-    state = state.copyWith(positionMs: positionMs);
+    state = state.copyWith(
+      positionMs: positionMs,
+      positionWallMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// Steps one packet backward ([direction] < 0) or forward (> 0) in
+  /// flight-clock time: the nearest frame strictly before/after the clock.
+  /// At the ends it parks at the recording start/end instead. Zero is a
+  /// no-op; empty and loading replays ignore the call.
+  void stepPacket(int direction) {
+    if (state.isLoading || _frames.isEmpty) return;
+    final dir = direction.sign;
+    if (dir == 0) return;
+    final t0 = _frames.first.receivedAtMs;
+    int rel(int i) => _frames[i].receivedAtMs - t0;
+    final pos = state.positionMs;
+    if (dir > 0) {
+      var lo = 0;
+      var hi = _frames.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (rel(mid) <= pos) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      seek(lo < _frames.length ? rel(lo) : _durationMs());
+    } else {
+      var lo = 0;
+      var hi = _frames.length;
+      while (lo < hi) {
+        final mid = (lo + hi) >> 1;
+        if (rel(mid) < pos) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      seek(lo > 0 ? rel(lo - 1) : 0);
+    }
+  }
+
+  /// Steps the clock by [deltaMs] (the 1-second buttons pass ∓1000),
+  /// clamped to the recording bounds.
+  void stepTime(int deltaMs) {
+    if (state.isLoading || _frames.isEmpty) return;
+    seek((state.positionMs + deltaMs).clamp(0, _durationMs()));
+  }
+
+  /// Steps to the previous ([direction] < 0) or next (> 0) flight
+  /// milestone: the nearest entry of [events] strictly before/after the
+  /// clock, with the recording start/end as implicit stops past the
+  /// outermost entries. Callers pass [replayFlightEventsProvider] so the
+  /// targets match the timeline markers (the controller cannot read that
+  /// provider itself — it derives from this provider's own frames).
+  /// Event-free flights jump straight between start and end.
+  ///
+  /// While playing, stepping back skips the milestone covered just behind
+  /// the clock ([prevEventGraceMs]): the ticker keeps advancing between two
+  /// quick presses, so without this the second press lands right back on
+  /// the event the first press just reached. Only the closest one is
+  /// skipped — denser history stays walkable one press at a time. Paused
+  /// seeks stay strict (an event exactly under a scrubbed playhead is a
+  /// valid target).
+  static const int prevEventGraceMs = 500;
+
+  void stepEvent(int direction, List<FlightEvent> events) {
+    if (state.isLoading || _frames.isEmpty) return;
+    final dir = direction.sign;
+    if (dir == 0) return;
+    final duration = _durationMs();
+    final pos = state.positionMs;
+    var target = dir > 0 ? duration : 0;
+    if (dir > 0) {
+      for (final event in events) {
+        if (event.positionMs > pos) {
+          target = event.positionMs;
+          break;
+        }
+      }
+    } else {
+      var nearest = -1;
+      for (var i = events.length - 1; i >= 0; i--) {
+        if (events[i].positionMs < pos) {
+          nearest = i;
+          break;
+        }
+      }
+      if (nearest >= 0) {
+        var index = nearest;
+        if (state.playing && pos - events[nearest].positionMs <= prevEventGraceMs) {
+          index = nearest - 1;
+        }
+        target = index >= 0 ? events[index].positionMs : 0;
+      }
+    }
+    seek(target);
+  }
+
+  /// Total flight time behind the clock (ms): the published duration, or
+  /// the frame span while it is still unknown.
+  int _durationMs() {
+    if (_frames.isEmpty) return 0;
+    return state.durationMs ??
+        (_frames.last.receivedAtMs - _frames.first.receivedAtMs);
   }
 
   /// SessionStore entry: stops playback and returns to live mode.

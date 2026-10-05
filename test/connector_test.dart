@@ -8,11 +8,17 @@ void main() {
     test('lists the mock connector as the default', () {
       expect(allConnectors, isNotEmpty);
       expect(allConnectors.map((c) => c.id), contains('mock'));
+      expect(allConnectors.map((c) => c.id), contains('brno'));
       expect(defaultConnectorId, 'mock');
       expect(connectorById('mock'), same(mockConnector));
+      expect(connectorById('brno'), same(brnoConnector));
       expect(connectorById('nope'), isNull);
       expect(isKnownConnectorId('mock'), isTrue);
+      expect(isKnownConnectorId('brno'), isTrue);
       expect(isKnownConnectorId('nope'), isFalse);
+      expect(isDevOnlyConnectorId('mock'), isTrue);
+      expect(isDevOnlyConnectorId('brno'), isTrue);
+      expect(isDevOnlyConnectorId('segfault'), isFalse);
     });
   });
 

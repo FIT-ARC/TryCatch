@@ -505,7 +505,88 @@ void main() {
         ),
       );
       await pumpBar(tester, stub);
-      expect(find.byTooltip('Play (Space)'), findsOneWidget);
+      expect(find.byTooltip('Play (Space/K)'), findsOneWidget);
+    });
+
+    testWidgets('stepper buttons call the controller with their step', (
+      tester,
+    ) async {
+      final stub = _StubReplay(
+        ReplayState(
+          filePath: 'steps.bin',
+          positionMs: 1000,
+          durationMs: 4000,
+          frames: const [],
+        ),
+      );
+      await pumpBar(tester, stub);
+
+      await tester.tap(find.byTooltip('Previous packet (,)'));
+      expect(stub.steppedPacket, -1);
+      await tester.tap(find.byTooltip('Next packet (.)'));
+      expect(stub.steppedPacket, 1);
+      await tester.tap(find.byTooltip('Back 1 second (J)'));
+      expect(stub.steppedMs, -1000);
+      await tester.tap(find.byTooltip('Forward 1 second (L)'));
+      expect(stub.steppedMs, 1000);
+      await tester.tap(find.byTooltip('Previous event or start (Ctrl+J)'));
+      expect(stub.steppedEvent?.$1, -1);
+      await tester.tap(find.byTooltip('Next event or end (Ctrl+L)'));
+      expect(stub.steppedEvent?.$1, 1);
+    });
+
+    testWidgets('backward steppers disable at the recording start', (
+      tester,
+    ) async {
+      IconButton button(String tooltip) => tester.widget<IconButton>(
+            find.ancestor(
+              of: find.byTooltip(tooltip),
+              matching: find.byType(IconButton),
+            ),
+          );
+
+      final start = _StubReplay(
+        ReplayState(
+          filePath: 'start.bin',
+          positionMs: 0,
+          durationMs: 4000,
+          frames: const [],
+        ),
+      );
+      await pumpBar(tester, start);
+      expect(button('Previous packet (,)').onPressed, isNull);
+      expect(button('Back 1 second (J)').onPressed, isNull);
+      expect(button('Previous event or start (Ctrl+J)').onPressed, isNull);
+      expect(button('Next packet (.)').onPressed, isNotNull);
+      expect(button('Forward 1 second (L)').onPressed, isNotNull);
+      expect(button('Next event or end (Ctrl+L)').onPressed, isNotNull);
+    });
+
+    testWidgets('forward steppers disable at the recording end', (
+      tester,
+    ) async {
+      IconButton button(String tooltip) => tester.widget<IconButton>(
+            find.ancestor(
+              of: find.byTooltip(tooltip),
+              matching: find.byType(IconButton),
+            ),
+          );
+
+      final end = _StubReplay(
+        ReplayState(
+          filePath: 'end.bin',
+          positionMs: 4000,
+          durationMs: 4000,
+          frames: const [],
+        ),
+      );
+      await pumpBar(tester, end);
+      expect(button('Previous packet (,)').onPressed, isNotNull);
+      expect(button('Back 1 second (J)').onPressed, isNotNull);
+      expect(button('Previous event or start (Ctrl+J)').onPressed, isNotNull);
+      expect(button('Next packet (.)').onPressed, isNull);
+      expect(button('Forward 1 second (L)').onPressed, isNull);
+      expect(button('Next event or end (Ctrl+L)').onPressed, isNull);
     });
   });
 }
@@ -514,6 +595,9 @@ class _StubReplay extends ReplayController {
   final ReplayState initial;
 
   int? sought;
+  int? steppedPacket;
+  int? steppedMs;
+  (int, int)? steppedEvent;
 
   _StubReplay(this.initial);
 
@@ -524,6 +608,21 @@ class _StubReplay extends ReplayController {
   void seek(int positionMs) {
     sought = positionMs;
     state = state.copyWith(positionMs: positionMs);
+  }
+
+  @override
+  void stepPacket(int direction) {
+    steppedPacket = direction;
+  }
+
+  @override
+  void stepTime(int deltaMs) {
+    steppedMs = deltaMs;
+  }
+
+  @override
+  void stepEvent(int direction, List<FlightEvent> events) {
+    steppedEvent = (direction, events.length);
   }
 
   @override

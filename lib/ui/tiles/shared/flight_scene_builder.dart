@@ -173,7 +173,32 @@ const int flightTrailBucketMs = 100;
 /// [capTrailPoints] so the tip stays exact.
 const int flightTrailMaxPoints = 400;
 
-/// Caps a chronological point list to about [maxPoints], striding from the
+/// Whether [f] carries a usable GPS fix: flagged AND finite coordinates.
+/// A NaN joint poisons its neighbours' averaged strip tangents (streaking
+/// the whole line), where independent quads contained it to one segment.
+/// Pure.
+bool hasFiniteFix(TelemetryFrame f) =>
+    f.gpsHasFix &&
+    f.latitude.isFinite &&
+    f.longitude.isFinite &&
+    f.baroAltitude.isFinite;
+
+/// Indices surviving the collapse of consecutive near-identical points
+/// (closer than [eps2] squared, 3D): zero-length spans carry no shape but
+/// force arbitrary fallback tangents in joined strips, spiking where
+/// independent quads rendered them invisibly. Pure.
+List<int> collapseDuplicateRuns(List<Vector3> points,
+    [double eps2 = 1e-6]) {
+  final keep = <int>[];
+  for (var k = 0; k < points.length; k++) {
+    if (keep.isEmpty ||
+        (points[k] - points[keep.last]).length2 > eps2) {
+      keep.add(k);
+    }
+  }
+  return keep;
+}
+
 /// Caps a chronological point list to about [maxPoints] with a start-anchored
 /// power-of-two stride, so the tip is always exact and the start always kept.
 /// Pure — unit-tested.
@@ -237,13 +262,14 @@ FlightScene? buildFlightScene(
 
   for (var i = 0; i < history.length; i++) {
     final f = history.getChronological(i);
-    if (!f.gpsHasFix) continue;
+    if (!hasFiniteFix(f)) continue;
     final bucket = f.receivedAtMs ~/ flightTrailBucketMs;
     if (bucket == lastGpsBucket) continue;
     all.add(enu(f.latitude, f.longitude, f.baroAltitude));
     lastGpsBucket = bucket;
   }
-  final trail = capTrailPoints(all);
+  final trail =
+      capTrailPoints([for (final k in collapseDuplicateRuns(all)) all[k]]);
 
   // Current rocket position: GPS when available, dead reckoning otherwise.
   // Before the first fix (pad wait) the rocket sits on the pad — show it
@@ -299,13 +325,13 @@ FlightScene? buildFlightScene(
 ///
 /// Unlike [buildFlightScene] (bounded live ring, raw), the whole flight is
 /// addressable here, so with [smoothingEnabled] the trail AND the rocket
-/// position share one centered moving average with full lookahead — exactly
-/// like the legacy web visualizer — and the rocket always sits on the trail
-/// tip instead of teleporting ahead of a lagging line. Raw frames are
-/// smoothed first and decimated after: decimating first aliases the GPS
-/// quantization grid (1e-5 deg ≈ 1.1 m) into visible wiggles no post-hoc
-/// average can remove. Altitude stays raw in both modes; the recorded
-/// frames, charts and map are unaffected (always raw).
+/// position share one centered time average with full lookahead, and the
+/// rocket always sits on the trail tip instead of teleporting ahead of a
+/// lagging line. Raw frames are smoothed first and decimated after:
+/// decimating first aliases the GPS quantization grid (1e-5 deg ≈ 1.1 m)
+/// into visible wiggles no post-hoc average can remove. Altitude stays raw
+/// in both modes; the recorded frames, charts and map are unaffected
+/// (always raw).
 FlightScene? buildReplayScene({
   required List<TelemetryFrame> frames,
   required int positionMs,
@@ -359,21 +385,22 @@ FlightScene? buildReplayScene({
         cosLat0,
       );
 
-  // Fix-only subsequence (matches the live builder: the trail is GPS).
-  final fixIdx = <int>[];
-  for (var i = 0; i < frames.length; i++) {
-    if (frames[i].gpsHasFix) fixIdx.add(i);
-  }
+  // Fix subsequence + world positions from the per-recording cache (one
+  // O(n) build per recording, then O(log n) binary searches per display
+  // frame instead of an O(n) rescan every tick).
+  final pos = _replayPositions(frames, lat0, lon0, cosLat0, t0);
   // Grid extents cover the WHOLE recording (FlightScene.gridMax*): the
   // ground grid holds the full flight from the first frame while the camera
   // framing follows the played flight. Cached per decoded frame list.
   final (fullMaxAlt, fullMaxHoriz) = _replayFlightExtents(frames, worldOf);
-  // Tip: last fix at or before the playhead.
+  // Tip: last fix at or before the playhead (by flight-clock time, so a
+  // vsync-extrapolated position between provider ticks still brackets the
+  // right pair for interpolation).
   lo = 0;
-  hi = fixIdx.length;
+  hi = pos.fixRelMs.length;
   while (lo < hi) {
     final mid = (lo + hi) >> 1;
-    if (fixIdx[mid] <= idx) {
+    if (pos.fixRelMs[mid] <= positionMs) {
       lo = mid + 1;
     } else {
       hi = mid;
@@ -408,36 +435,26 @@ FlightScene? buildReplayScene({
     );
   }
 
-  Vector3 rawAt(int k) => worldOf(frames[fixIdx[k]]);
-
-  Vector3 smoothAt(int k) {
-    // Centered ±35 over the fix subsequence, clamped to the FULL recording
-    // (lookahead into not-yet-played frames — the legacy visualizer smoothed
-    // its whole dataset the same way). Horizontal only; altitude stays raw.
-    var a = k - replayTrailHalfWindow;
-    var b = k + replayTrailHalfWindow;
-    if (a < 0) a = 0;
-    if (b > fixIdx.length - 1) b = fixIdx.length - 1;
-    var sx = 0.0;
-    var sz = 0.0;
-    for (var j = a; j <= b; j++) {
-      final p = rawAt(j);
-      sx += p.x;
-      sz += p.z;
-    }
-    final n = b - a + 1;
-    return Vector3(sx / n, rawAt(k).y, sz / n);
+  // Trail: GPS fixes only, capped to a paintable count (tip-exact,
+  // start-kept, stable as the playhead advances). With smoothing the rocket
+  // AND the trail tip share the despiked time average, and the tip is
+  // spline-sampled between fixes by flight-clock fraction — at 10 Hz
+  // telemetry the rocket would otherwise hold 100 ms then jump a full
+  // step, visible even at that rate. The chase/onboard lenses ride on
+  // `rocketPos`, so their cameras smooth with the same interpolation.
+  final full = smoothingEnabled ? pos.smoothWorld : pos.rawWorld;
+  final trail = _cappedPrefix(full, tip + 1);
+  Vector3 tipPoint;
+  if (smoothingEnabled &&
+      tip >= 0 &&
+      tip + 1 < pos.smoothWorld.length &&
+      pos.fixRelMs[tip + 1] > pos.fixRelMs[tip] &&
+      positionMs > pos.fixRelMs[tip]) {
+    tipPoint = _splineTip(pos, tip, positionMs);
+    if (trail.isNotEmpty) trail[trail.length - 1] = tipPoint;
+  } else {
+    tipPoint = trail.last;
   }
-
-  // Decimate to a paintable point count via capTrailPoints: tip-exact,
-  // start-kept, and stable as the playhead advances (the old tip-derived
-  // stride resampled earlier points on every seek step).
-  final rawTrail = <Vector3>[];
-  for (var k = 0; k <= tip; k++) {
-    rawTrail.add(smoothingEnabled ? smoothAt(k) : rawAt(k));
-  }
-  final trail = capTrailPoints(rawTrail);
-  final tipPoint = trail.last;
 
   // Camera framing follows the played flight; the grid holds the whole
   // recording's extents (see FlightScene.gridMax*).
@@ -511,16 +528,20 @@ final Map<List<TelemetryFrame>, (double, double)> _replayExtentsCache = {};
 /// Replays render from the recording's full pre-decoded frames (whole flight
 /// addressable, shared trail/rocket smoothing); live renders raw from the
 /// bounded ring buffer. `null` when no position anchor exists yet.
+/// [positionMsOverride] carries the vsync-extrapolated display clock (3D
+/// tiles tick at the screen refresh rate while the provider ticks at 20 Hz);
+/// charts and the store keep using the provider clock.
 FlightScene? resolveFlightScene({
   required TelemetryState state,
   required LaunchSite? site,
   required ReplayState replay,
   TelemetryConnector? connector,
+  int? positionMsOverride,
 }) {
   if (replay.isActive && replay.frames.isNotEmpty) {
     return buildReplayScene(
       frames: replay.frames,
-      positionMs: replay.positionMs,
+      positionMs: positionMsOverride ?? replay.positionMs,
       site: site,
       smoothingEnabled: replay.smoothingEnabled,
       connector: connector,
@@ -530,40 +551,282 @@ FlightScene? resolveFlightScene({
 }
 
 /// Display attitude shared by the orientation viewer: raw live angles, or
-/// the trailing-average smoothed attitude while a smoothed replay runs, so
-/// the airframe stops jittering when the toggle is on.
+/// the smoothed recorded attitude while a smoothed replay runs, so the
+/// airframe stops jittering when the toggle is on.
 ({double pitchDeg, double yawDeg, double rollDeg}) resolveDisplayAttitude({
   required double pitchDeg,
   required double yawDeg,
   required double rollDeg,
   required ReplayState replay,
+  int? positionMsOverride,
 }) {
   if (replay.isActive &&
       replay.frames.isNotEmpty &&
       replay.smoothingEnabled) {
     return replayAttitude(
       frames: replay.frames,
-      positionMs: replay.positionMs,
+      positionMs: positionMsOverride ?? replay.positionMs,
       smoothingEnabled: true,
     );
   }
   return (pitchDeg: pitchDeg, yawDeg: yawDeg, rollDeg: rollDeg);
 }
 
-/// Half-width of the centered trail average ([buildReplayScene]) and the
-/// length of the trailing rotation average ([replayAttitude]).
-const int replayTrailHalfWindow = 35;
-const int replayAttitudeWindow = 35;
+/// Half-width (ms) of the centered trail average ([buildReplayScene]).
+/// Time-based so the smoothing span is rate-independent: a fix-count window
+/// smears whole minutes of a low-rate recording into corner-cutting mush
+/// while barely covering a second at high rates.
+const int replayTrailHalfMs = 1000;
+
+/// Half-width (ms) of the centered attitude average ([replayAttitude]).
+/// Short enough to track real dynamics (canopy swing, coning, heading
+/// changes) while killing per-packet jitter.
+const int replayAttitudeHalfMs = 500;
+
+/// Per-recording GPS position cache for the replay scene builder.
+///
+/// `buildReplayScene` runs on every replay tick (and, with smoothing, on
+/// every display vsync via the 3D tiles' ticker). Rescanning all frames per
+/// build is O(N) per frame — a 26k-frame flight would sweep the whole log
+/// 60×/s. The fix subsequence, its world positions and the centered
+/// smoothed positions depend only on the frame list + anchor, so they are
+/// built once per recording and reused. Per build is then two binary
+/// searches plus a ≤400-point capped trail.
+class _ReplayPosCache {
+  final double lat0;
+  final double lon0;
+  final double cosLat0;
+  final List<int> fixRelMs;
+  final List<Vector3> rawWorld;
+  final List<Vector3> smoothWorld;
+
+  const _ReplayPosCache({
+    required this.lat0,
+    required this.lon0,
+    required this.cosLat0,
+    required this.fixRelMs,
+    required this.rawWorld,
+    required this.smoothWorld,
+  });
+}
+
+final Map<List<TelemetryFrame>, _ReplayPosCache> _replayPosCache = {};
+
+/// Cached fix subsequence + world positions for [frames] around
+/// ([lat0], [lon0]). Rebuilt when the frame list identity or the anchor
+/// changes; otherwise the retained lists are returned directly.
+_ReplayPosCache _replayPositions(
+  List<TelemetryFrame> frames,
+  double lat0,
+  double lon0,
+  double cosLat0,
+  int t0,
+) {
+  final cached = _replayPosCache[frames];
+  if (cached != null && cached.lat0 == lat0 && cached.lon0 == lon0) {
+    return cached;
+  }
+  final rawRelMs = <int>[];
+  var rawWorld = <Vector3>[];
+  for (var i = 0; i < frames.length; i++) {
+    final f = frames[i];
+    if (!hasFiniteFix(f)) continue;
+    rawRelMs.add(f.receivedAtMs - t0);
+    rawWorld.add(worldFromLatLon(
+        f.latitude, f.longitude, f.baroAltitude, lat0, lon0, cosLat0));
+  }
+  // Collapse consecutive near-identical fixes alongside, keeping the three
+  // lists aligned (see [collapseDuplicateRuns]).
+  final keep = collapseDuplicateRuns(rawWorld);
+  final fixRelMs = [for (final k in keep) rawRelMs[k]];
+  rawWorld = [for (final k in keep) rawWorld[k]];
+  // Despike: ±3-fix median on raw x/z first — a lone GPS glitch would
+  // otherwise smear through the whole mean window. Median preserves real
+  // steps and ramps; y stays raw.
+  const medHalf = 3;
+  final n = rawWorld.length;
+  final medX = List<double>.filled(n, 0.0);
+  final medZ = List<double>.filled(n, 0.0);
+  final buf = List<double>.filled(2 * medHalf + 1, 0.0);
+  for (var k = 0; k < n; k++) {
+    for (var j = -medHalf; j <= medHalf; j++) {
+      final m = (k + j).clamp(0, n - 1);
+      buf[j + medHalf] = rawWorld[m].x;
+    }
+    buf.sort();
+    medX[k] = buf[medHalf];
+    for (var j = -medHalf; j <= medHalf; j++) {
+      final m = (k + j).clamp(0, n - 1);
+      buf[j + medHalf] = rawWorld[m].z;
+    }
+    buf.sort();
+    medZ[k] = buf[medHalf];
+  }
+  // Centered time average with full-flight lookahead (the legacy visualizer
+  // smoothed its whole dataset the same way). Horizontal only; altitude
+  // stays raw. A sliding window over the sorted fix times keeps the build
+  // O(n): the naive per-point scan is O(n × window).
+  final smoothWorld = List<Vector3>.filled(n, Vector3.zero());
+  var a = 0;
+  var b = -1;
+  var sumX = 0.0;
+  var sumZ = 0.0;
+  for (var k = 0; k < n; k++) {
+    final center = fixRelMs[k];
+    while (center - fixRelMs[a] > replayTrailHalfMs) {
+      sumX -= medX[a];
+      sumZ -= medZ[a];
+      a++;
+    }
+    while (b + 1 < n && fixRelMs[b + 1] - center <= replayTrailHalfMs) {
+      b++;
+      sumX += medX[b];
+      sumZ += medZ[b];
+    }
+    final count = b - a + 1;
+    smoothWorld[k] = Vector3(
+      sumX / count,
+      rawWorld[k].y,
+      sumZ / count,
+    );
+  }
+  final out = _ReplayPosCache(
+    lat0: lat0,
+    lon0: lon0,
+    cosLat0: cosLat0,
+    fixRelMs: fixRelMs,
+    rawWorld: rawWorld,
+    smoothWorld: smoothWorld,
+  );
+  if (_replayPosCache.length > 4) _replayPosCache.clear();
+  _replayPosCache[frames] = out;
+  return out;
+}
+
+/// Capped prefix of [full] with [count] points, mirroring
+/// `capTrailPoints(full.sublist(0, count))` without copying the full prefix:
+/// start-kept, tip-exact, start-anchored power-of-two stride. Returns a new
+/// list; [full] is never mutated.
+List<Vector3> _cappedPrefix(List<Vector3> full, int count,
+    {int maxPoints = flightTrailMaxPoints}) {
+  if (count <= 0) return const [];
+  if (count <= maxPoints) return List<Vector3>.of(full.sublist(0, count));
+  final budget = math.max(2, maxPoints);
+  var stride = 1;
+  while (2 + (count - 2) ~/ stride > budget) {
+    stride *= 2;
+  }
+  final out = <Vector3>[full[0]];
+  for (var i = stride; i < count - 1; i += stride) {
+    out.add(full[i]);
+  }
+  out.add(full[count - 1]);
+  return out;
+}
+
+/// Time-parameterized Catmull-Rom sample of one scalar channel through
+/// [p1]→[p2] at time [t] (knot times [t0]..[t3], Barry–Goldman form).
+/// C1-continuous across knots: unlike linear interpolation, velocity never
+/// steps at a fix, so low-rate curves stop ticking. Reproduces straight
+/// constant-velocity runs exactly and hits both endpoints; degenerate
+/// timestamp spans fall back to the nearer endpoint. Pure.
+double _crSample(
+  double p0,
+  double p1,
+  double p2,
+  double p3,
+  double t0,
+  double t1,
+  double t2,
+  double t3,
+  double t,
+) {
+  double seg(double a, double b, double ta, double tb) {
+    final span = tb - ta;
+    if (span.abs() < 1e-9) return t >= tb ? b : a;
+    return a + (b - a) * ((t - ta) / span);
+  }
+
+  final a1 = seg(p0, p1, t0, t1);
+  final a2 = seg(p1, p2, t1, t2);
+  final a3 = seg(p2, p3, t2, t3);
+  final b1 = seg(a1, a2, t0, t2);
+  final b2 = seg(a2, a3, t1, t3);
+  return seg(b1, b2, t1, t2);
+}
+
+/// Shortest-path unwrap of [angles] in sample order: each value shifted by
+/// whole turns to sit nearest its predecessor, so cubic sampling never
+/// slews the long way around the 0/360 wrap. Pure.
+List<double> _unwrapAngles(List<double> angles) {
+  final out = List<double>.filled(angles.length, 0.0);
+  if (angles.isEmpty) return out;
+  out[0] = angles[0];
+  for (var i = 1; i < angles.length; i++) {
+    var d = (angles[i] - out[i - 1]) % 360.0;
+    if (d > 180.0) d -= 360.0;
+    if (d < -180.0) d += 360.0;
+    out[i] = out[i - 1] + d;
+  }
+  return out;
+}
+
+/// Spline tip sample at flight-clock [positionMs] between fixes [tip] and
+/// [tip]+1: Catmull-Rom over x/z (velocity-continuous around curves),
+/// linear over the raw baro altitude. The trail tip is replaced by this
+/// value so the rocket always rides the line it draws. Pure.
+Vector3 _splineTip(_ReplayPosCache pos, int tip, int positionMs) {
+  final n = pos.smoothWorld.length;
+  final i0 = math.max(0, tip - 1);
+  final i3 = math.min(n - 1, tip + 2);
+  final t = positionMs.toDouble();
+  final t0 = pos.fixRelMs[i0].toDouble();
+  final t1 = pos.fixRelMs[tip].toDouble();
+  final t2 = pos.fixRelMs[tip + 1].toDouble();
+  final t3 = pos.fixRelMs[i3].toDouble();
+  final x = _crSample(
+    pos.smoothWorld[i0].x,
+    pos.smoothWorld[tip].x,
+    pos.smoothWorld[tip + 1].x,
+    pos.smoothWorld[i3].x,
+    t0,
+    t1,
+    t2,
+    t3,
+    t,
+  );
+  final z = _crSample(
+    pos.smoothWorld[i0].z,
+    pos.smoothWorld[tip].z,
+    pos.smoothWorld[tip + 1].z,
+    pos.smoothWorld[i3].z,
+    t0,
+    t1,
+    t2,
+    t3,
+    t,
+  );
+  final f = ((t - t1) / (t2 - t1)).clamp(0.0, 1.0);
+  final y = pos.smoothWorld[tip].y +
+      (pos.smoothWorld[tip + 1].y - pos.smoothWorld[tip].y) * f;
+  return Vector3(x, y, z);
+}
 
 /// Replay rotation at [positionMs]: raw frame angles by default, or the
 /// smoothed display attitude when [smoothingEnabled].
 ///
-/// The smoothed path matches [buildReplayScene]: a trailing
-/// [replayAttitudeWindow]-frame averaged specific-force vector via
-/// [smoothedAttitude] with yaw forced to 0 (compass heading is unknown —
-/// the legacy yaw was always 0). Shared by the flight views (via
-/// [buildReplayScene]) and the orientation viewer so the toggle smooths
-/// every rotating airframe, not just the trail views.
+/// The smoothed path averages the RECORDED pitch/yaw/roll over a short
+/// centered time window: the same motion the raw view shows, minus the
+/// steps. Re-deriving tilt from accelerometers instead collapses real
+/// dynamics (spin, canopy swing, heading) to vertical — averaging a
+/// seconds-long swing over a multi-second window cancels it outright.
+/// Shared by the flight views (via [buildReplayScene]) and the orientation
+/// viewer so the toggle smooths every rotating airframe, not just the trail
+/// views.
+///
+/// The window bracketing [positionMs] is spline-sampled by timestamp
+/// fraction, so a 10 Hz recording rotates every display frame instead of
+/// stepping once per packet.
 ({double pitchDeg, double yawDeg, double rollDeg}) replayAttitude({
   required List<TelemetryFrame> frames,
   required int positionMs,
@@ -587,43 +850,114 @@ const int replayAttitudeWindow = 35;
     final f = frames[idx];
     return (pitchDeg: f.pitch, yawDeg: f.yaw, rollDeg: f.roll);
   }
-  var from = idx - (replayAttitudeWindow - 1);
-  if (from < 0) from = 0;
-  final attitude = smoothedAttitude(frames.sublist(from, idx + 1),
-      window: replayAttitudeWindow);
-  return (
-    pitchDeg: attitude.pitchDeg,
-    yawDeg: 0.0,
-    rollDeg: attitude.rollDeg,
-  );
-}
 
-/// Display attitude from an averaged specific-force vector, using the same
-/// tilt-from-accelerometer formula the legacy ground station applied per
-/// packet. Averaging the vector (not the angles) keeps `atan2` stable when
-/// the per-frame estimate swings — near free-fall at apogee, chute swing,
-/// vibration — while still tracking real orientation changes. `frames` must
-/// be chronological with the newest last; at most the trailing [window]
-/// entries are used. Pure: safe to unit-test.
-({double rollDeg, double pitchDeg}) smoothedAttitude(
-  List<TelemetryFrame> frames, {
-  int window = 25,
-}) {
-  if (frames.isEmpty) return (rollDeg: 0.0, pitchDeg: 0.0);
-  final n = math.min(window, frames.length);
-  var ax = 0.0;
-  var ay = 0.0;
-  var az = 0.0;
-  for (var i = frames.length - n; i < frames.length; i++) {
-    ax += frames[i].accelX;
-    ay += frames[i].accelY;
-    az += frames[i].accelZ;
+  /// Centered ±[replayAttitudeHalfMs] boxcar of one recorded channel around
+  /// frame [at] (bounds by binary search — frames are chronological — then
+  /// a plain mean over the small in-window run). Yaw/roll channels pass
+  /// through circularly via sin/cos accumulation.
+  ({double lin, double sinSum, double cosSum, int n}) channelAt(
+      int at, double Function(TelemetryFrame) read) {
+    final center = frames[at].receivedAtMs;
+    var loB = 0;
+    var hiB = frames.length;
+    while (loB < hiB) {
+      final mid = (loB + hiB) >> 1;
+      if (frames[mid].receivedAtMs < center - replayAttitudeHalfMs) {
+        loB = mid + 1;
+      } else {
+        hiB = mid;
+      }
+    }
+    final from = loB;
+    loB = 0;
+    hiB = frames.length;
+    while (loB < hiB) {
+      final mid = (loB + hiB) >> 1;
+      if (frames[mid].receivedAtMs <= center + replayAttitudeHalfMs) {
+        loB = mid + 1;
+      } else {
+        hiB = mid;
+      }
+    }
+    var lin = 0.0;
+    var sinSum = 0.0;
+    var cosSum = 0.0;
+    var n = 0;
+    for (var j = from; j < loB; j++) {
+      final v = read(frames[j]);
+      lin += v;
+      final rad = v * math.pi / 180;
+      sinSum += math.sin(rad);
+      cosSum += math.cos(rad);
+      n++;
+    }
+    return (lin: lin, sinSum: sinSum, cosSum: cosSum, n: n);
   }
-  ax /= n;
-  ay /= n;
-  az /= n;
-  return (
-    rollDeg: math.atan2(ay, az) * 180 / math.pi,
-    pitchDeg: math.atan2(-ax, math.sqrt(ay * ay + az * az)) * 180 / math.pi,
+
+  double pitchAt(int at) {
+    final c = channelAt(at, (f) => f.pitch);
+    return c.n == 0 ? frames[at].pitch : c.lin / c.n;
+  }
+
+  double circAt(int at, double Function(TelemetryFrame) read) {
+    final c = channelAt(at, read);
+    if (c.n == 0) return read(frames[at]);
+    return math.atan2(c.sinSum, c.cosSum) * 180 / math.pi;
+  }
+
+  final last = frames.length - 1;
+  final t = positionMs.toDouble();
+  double rel(int i) => (frames[i].receivedAtMs - t0).toDouble();
+
+  // Single centered value at the flight end (or when the bracket
+  // collapses): nothing after it to spline toward.
+  if (idx + 1 > last) {
+    return (
+      pitchDeg: pitchAt(idx),
+      yawDeg: circAt(idx, (f) => f.yaw) % 360,
+      rollDeg: circAt(idx, (f) => f.roll),
+    );
+  }
+  final controls = [math.max(0, idx - 1), idx, idx + 1, math.min(last, idx + 2)];
+  List<double> times() => [for (final i in controls) rel(i)];
+  final ts = times();
+
+  final pitch = _crSample(
+    pitchAt(controls[0]),
+    pitchAt(controls[1]),
+    pitchAt(controls[2]),
+    pitchAt(controls[3]),
+    ts[0],
+    ts[1],
+    ts[2],
+    ts[3],
+    t,
   );
+  final yawChain = _unwrapAngles(
+      [for (final i in controls) circAt(i, (f) => f.yaw)]);
+  final yaw = _crSample(
+    yawChain[0],
+    yawChain[1],
+    yawChain[2],
+    yawChain[3],
+    ts[0],
+    ts[1],
+    ts[2],
+    ts[3],
+    t,
+  ) % 360;
+  final rollChain = _unwrapAngles(
+      [for (final i in controls) circAt(i, (f) => f.roll)]);
+  final roll = _crSample(
+    rollChain[0],
+    rollChain[1],
+    rollChain[2],
+    rollChain[3],
+    ts[0],
+    ts[1],
+    ts[2],
+    ts[3],
+    t,
+  );
+  return (pitchDeg: pitch, yawDeg: yaw, rollDeg: roll);
 }
