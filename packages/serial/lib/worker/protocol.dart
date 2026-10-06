@@ -35,8 +35,7 @@ bool workerLeaseExpired({
   required int lastSignalMs,
   required int nowMs,
   int leaseMs = workerLeaseMs,
-}) =>
-    nowMs - lastSignalMs > leaseMs;
+}) => nowMs - lastSignalMs > leaseMs;
 
 /// Base class for all commands sent to the serial worker isolate.
 sealed class SerialCommand {
@@ -127,10 +126,20 @@ class StopRecordingCommand extends SerialCommand {
   const StopRecordingCommand();
 }
 
+/// Flushes recordings, releases the link and acknowledges graceful shutdown.
+class ShutdownCommand extends SerialCommand {
+  const ShutdownCommand();
+}
+
 // ─── Events (Serial Worker Isolate → UI) ─────────────────────────────────────
 
 /// Base class for all events emitted from the serial worker isolate.
 sealed class SerialEvent {}
+
+class ShutdownCompleteEvent extends SerialEvent {
+  final String? error;
+  ShutdownCompleteEvent({this.error});
+}
 
 /// Emitted whenever the active connector decodes a [TelemetryFrame] from
 /// the bytestream. Raw bytes never leave the worker — the UI only deals in
@@ -199,8 +208,7 @@ class ErrorEvent extends SerialEvent {
   final int timestampMs;
 
   ErrorEvent(this.message, [int? timestampMs])
-      : timestampMs = timestampMs ??
-            DateTime.now().millisecondsSinceEpoch;
+    : timestampMs = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
 }
 
 /// Emitted for every uplink attempt handled by the worker (one per

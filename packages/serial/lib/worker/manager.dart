@@ -18,6 +18,15 @@ import 'worker.dart';
 /// message passing over [SendPort] and [ReceivePort].
 class SerialWorker {
   final Isolate _isolate;
+  final ReceivePort _inbox;
+  final ReceivePort _lifecycle;
+  late final StreamSubscription<dynamic> _inboxSubscription;
+  late final StreamSubscription<dynamic> _lifecycleSubscription;
+  bool _disposed = false;
+  bool _failed = false;
+  bool _shuttingDown = false;
+  final _shutdown = Completer<void>();
+  Future<void>? _shutdownFuture;
 
   /// The communication pipe endpoint (SendPort) to send commands to the background worker.
   /// Initialized during the two-way handshake upon isolate startup.
@@ -80,11 +89,44 @@ class SerialWorker {
   /// and is ready to receive commands. Await before time-sensitive sends
   /// in tests; the app itself doesn't need it ([send] buffers early
   /// commands in [_outbox]).
-  Future<void> get ready => _readyCompleter.future;
+  Future<void> get ready => _readyCompleter.future.timeout(
+    const Duration(seconds: 10),
+    onTimeout: () => throw StateError('Serial worker did not start.'),
+  );
 
-  SerialWorker._(this._isolate, ReceivePort receivePort) {
-    // Listen for incoming events emitted by the background worker isolate
-    receivePort.listen(_handleMessage);
+  SerialWorker._(this._isolate, this._inbox, this._lifecycle) {
+    _readyCompleter.future.ignore();
+    _inboxSubscription = _inbox.listen(_handleMessage);
+    _lifecycleSubscription = _lifecycle.listen((message) {
+      if (_disposed ||
+          _failed ||
+          _shutdown.isCompleted ||
+          (_shuttingDown && message == null)) {
+        return;
+      }
+      _failed = true;
+      _commandPort = null;
+      final failure = StateError(
+        'Serial worker stopped before completing its work.',
+      );
+      if (!_readyCompleter.isCompleted) _readyCompleter.completeError(failure);
+      if (_shuttingDown && !_shutdown.isCompleted) {
+        _shutdown.completeError(failure);
+      }
+      _status = _status.copyWith(
+        isConnected: false,
+        connectedPort: null,
+        isRecording: false,
+        recordingPath: null,
+      );
+      _statusController.add(_status);
+      _errorController.add(
+        ErrorEvent(
+          'Serial worker stopped${message is List ? ': ${message.first}' : ''} — restart the app',
+        ),
+      );
+      _outbox.clear();
+    });
   }
 
   /// Handles incoming messages received from the background worker isolate.
@@ -111,6 +153,14 @@ class SerialWorker {
     // Every add is close-guarded: late isolate messages racing [dispose]
     // (app shutdown, hot restart, test teardown) must not throw.
     switch (message) {
+      case ShutdownCompleteEvent(:final error):
+        if (!_shutdown.isCompleted) {
+          if (error == null) {
+            _shutdown.complete();
+          } else {
+            _shutdown.completeError(StateError(error));
+          }
+        }
       case PacketReceivedEvent(:final frame):
         if (!_frameController.isClosed) _frameController.add(frame);
 
@@ -142,15 +192,23 @@ class SerialWorker {
   static Future<SerialWorker> spawn() async {
     // Create an inbox (ReceivePort) for the main isolate
     final receivePort = ReceivePort();
+    final lifecycle = ReceivePort();
 
     // Spawn the background thread and pass our SendPort so it can talk back
-    final isolate = await Isolate.spawn(
-      workerMain,
-      receivePort.sendPort,
-      debugName: 'SerialWorker',
-    );
-
-    return SerialWorker._(isolate, receivePort);
+    try {
+      final isolate = await Isolate.spawn(
+        workerMain,
+        receivePort.sendPort,
+        debugName: 'SerialWorker',
+        onError: lifecycle.sendPort,
+        onExit: lifecycle.sendPort,
+      );
+      return SerialWorker._(isolate, receivePort, lifecycle);
+    } catch (_) {
+      receivePort.close();
+      lifecycle.close();
+      rethrow;
+    }
   }
 
   /// Posts a [SerialCommand] to the background worker isolate.
@@ -159,6 +217,7 @@ class SerialWorker {
   /// Safe to call before the startup handshake finishes: early commands
   /// wait in an outbox and flush in order once the command port arrives.
   void send(SerialCommand command) {
+    if (_disposed || _failed) return;
     final port = _commandPort;
     if (port == null) {
       _outbox.add(command);
@@ -167,8 +226,31 @@ class SerialWorker {
     port.send(command);
   }
 
-  /// Terminates the background isolate and releases all stream controllers.
+  /// Flushes the recording before releasing worker resources.
+  Future<void> shutdown() => _shutdownFuture ??= _shutdownGracefully();
+
+  Future<void> _shutdownGracefully() async {
+    if (_disposed) return;
+    try {
+      if (_failed) throw StateError('Serial worker is unavailable.');
+      await ready;
+      _shuttingDown = true;
+      send(const ShutdownCommand());
+      await _shutdown.future.timeout(const Duration(seconds: 15));
+    } finally {
+      dispose();
+    }
+  }
+
+  /// Emergency teardown. Normal app exit uses [shutdown] to flush recording.
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _outbox.clear();
+    _inboxSubscription.cancel();
+    _lifecycleSubscription.cancel();
+    _inbox.close();
+    _lifecycle.close();
     _statusController.close();
     _frameController.close();
     _portsController.close();

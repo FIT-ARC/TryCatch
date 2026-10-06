@@ -10,8 +10,7 @@ bool workerLeaseExpired({
   required int lastSignalMs,
   required int nowMs,
   int leaseMs = workerLeaseMs,
-}) =>
-    nowMs - lastSignalMs > leaseMs;
+}) => nowMs - lastSignalMs > leaseMs;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // workerMain: Entry Point (Runs in the BACKGROUND Isolate)
@@ -82,15 +81,29 @@ void workerMain(SendPort mainSendPort) async {
     mainSendPort.send(StatusChangedEvent(next));
   }
 
+  void recordingFailed(Object error) {
+    pushStatus(status.copyWith(isRecording: false, recordingPath: null));
+    mainSendPort.send(
+      ErrorEvent(
+        'Recording failed: $error — check disk space and permissions, then retry',
+      ),
+    );
+  }
+
+  recorder.onError = (error) {
+    recordingFailed(error);
+    unawaited(recorder.stop().catchError((Object _) {}));
+  };
+
   LinkStats snapshotStats() => LinkStats(
-        timestampMs: DateTime.now().millisecondsSinceEpoch,
-        totalBytes: parser.totalBytes,
-        matchedBytes: parser.matchedBytes,
-        garbageBytes: parser.garbageBytes,
-        crcErrorBytes: parser.crcErrorBytes,
-        matchedPackets: parser.matchedPackets,
-        crcErrors: parser.crcErrorCount,
-      );
+    timestampMs: DateTime.now().millisecondsSinceEpoch,
+    totalBytes: parser.totalBytes,
+    matchedBytes: parser.matchedBytes,
+    garbageBytes: parser.garbageBytes,
+    crcErrorBytes: parser.crcErrorBytes,
+    matchedPackets: parser.matchedPackets,
+    crcErrors: parser.crcErrorCount,
+  );
 
   LinkStats? lastEmitted;
 
@@ -224,7 +237,12 @@ void workerMain(SendPort mainSendPort) async {
     byteSubscription = service.byteStream.listen(
       (chunk) {
         // 1. Exact 1:1 raw binary disk recording (includes noise, preamble, fragments)
-        recorder.recordBytes(chunk);
+        try {
+          recorder.recordBytes(chunk);
+        } catch (e) {
+          recordingFailed(e);
+          unawaited(recorder.stop().catchError((Object _) {}));
+        }
 
         // 2. Decode valid telemetry frames and forward them to the UI isolate
         for (final frame in parser.feed(chunk)) {
@@ -292,13 +310,15 @@ void workerMain(SendPort mainSendPort) async {
           // Port named exactly once: native failures may already name it.
           const hint =
               'check the cable, driver and that no other app holds the port';
-          mainSendPort.send(ErrorEvent(
-            failure == null
-                ? 'Failed to open $port — $hint'
-                : failure.contains(port)
-                    ? '$failure — $hint'
-                    : 'Failed to open $port — $failure',
-          ));
+          mainSendPort.send(
+            ErrorEvent(
+              failure == null
+                  ? 'Failed to open $port — $hint'
+                  : failure.contains(port)
+                  ? '$failure — $hint'
+                  : 'Failed to open $port — $failure',
+            ),
+          );
         }
 
       case DisconnectCommand():
@@ -326,19 +346,22 @@ void workerMain(SendPort mainSendPort) async {
         final now = DateTime.now();
         // File every attempt (sent or failed) in the recording's command
         // section and report it to the UI for the live command log.
-        recorder.recordCommand(SentCommand(
-          tsUs: now.microsecondsSinceEpoch,
-          bytes: Uint8List.fromList(bytes),
-          status:
-              ok ? CommandStatus.sent : CommandStatus.failed,
-          source: CommandSource.fromValue(source),
-        ));
-        mainSendPort.send(CommandResultEvent(
-          bytes: Uint8List.fromList(bytes),
-          timestampMs: now.millisecondsSinceEpoch,
-          ok: ok,
-          source: source,
-        ));
+        recorder.recordCommand(
+          SentCommand(
+            tsUs: now.microsecondsSinceEpoch,
+            bytes: Uint8List.fromList(bytes),
+            status: ok ? CommandStatus.sent : CommandStatus.failed,
+            source: CommandSource.fromValue(source),
+          ),
+        );
+        mainSendPort.send(
+          CommandResultEvent(
+            bytes: Uint8List.fromList(bytes),
+            timestampMs: now.millisecondsSinceEpoch,
+            ok: ok,
+            source: source,
+          ),
+        );
         if (!ok) {
           // A failed transmit on a dead handle means the link is gone even
           // when packets were still arriving a moment ago (TX stall on a
@@ -347,39 +370,74 @@ void workerMain(SendPort mainSendPort) async {
           if (status.isConnected && !service.isConnected) {
             final lostPort = status.connectedPort;
             pushStatus(
-                status.copyWith(isConnected: false, connectedPort: null));
+              status.copyWith(isConnected: false, connectedPort: null),
+            );
             parser.reset();
             byteSubscription?.cancel();
             byteSubscription = null;
-            mainSendPort.send(ErrorEvent(
-              'Port disconnected — failed to send ${bytes.length} byte(s)'
-              '${lostPort == null ? '' : ' ($lostPort)'}',
-            ));
+            mainSendPort.send(
+              ErrorEvent(
+                'Port disconnected — failed to send ${bytes.length} byte(s)'
+                '${lostPort == null ? '' : ' ($lostPort)'}',
+              ),
+            );
             emitStats(force: true);
           } else {
-            mainSendPort.send(ErrorEvent(
-              status.isConnected
-                  ? 'Send failed (${bytes.length} byte(s)) — link may be down, try reconnecting'
-                  : 'Not connected — failed to send ${bytes.length} byte(s)',
-            ));
+            mainSendPort.send(
+              ErrorEvent(
+                status.isConnected
+                    ? 'Send failed (${bytes.length} byte(s)) — link may be down, try reconnecting'
+                    : 'Not connected — failed to send ${bytes.length} byte(s)',
+              ),
+            );
           }
         }
 
       case StartRecordingCommand(
-            :final filePath,
-            :final launch,
-            :final connectorId
-          ):
-        await recorder.start(
-          filePath,
-          launch: launch,
-          connectorId: connectorId,
-        );
-        pushStatus(status.copyWith(isRecording: true, recordingPath: filePath));
+        :final filePath,
+        :final launch,
+        :final connectorId,
+      ):
+        if (recorder.isRecording) {
+          pushStatus(status);
+          continue;
+        }
+        try {
+          await recorder.start(
+            filePath,
+            launch: launch,
+            connectorId: connectorId,
+          );
+          pushStatus(
+            status.copyWith(isRecording: true, recordingPath: filePath),
+          );
+        } catch (e) {
+          recordingFailed(e);
+        }
 
       case StopRecordingCommand():
-        await recorder.stop();
-        pushStatus(status.copyWith(isRecording: false, recordingPath: null));
+        try {
+          await recorder.stop();
+          pushStatus(status.copyWith(isRecording: false, recordingPath: null));
+        } catch (e) {
+          recordingFailed(e);
+        }
+
+      case ShutdownCommand():
+        await byteSubscription?.cancel();
+        byteSubscription = null;
+        statsTimer?.cancel();
+        statsTimer = null;
+        service.disconnect();
+        String? error;
+        try {
+          await recorder.stop();
+        } catch (e) {
+          error = '$e';
+        }
+        mainSendPort.send(ShutdownCompleteEvent(error: error));
+        commandPort.close();
+        return;
     }
   }
 }

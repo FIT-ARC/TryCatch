@@ -157,26 +157,25 @@ class RecordingHeader {
     required int telemetryByteLen,
     required int commandsOffset,
     required int commandCount,
-  }) =>
-      RecordingHeader(
-        payloadLength: payloadLength,
-        hasLaunchSite: hasLaunchSite,
-        hasStats: hasStats,
-        startMicros: startMicros,
-        endMicros: endMicros,
-        packetCount: packetCount,
-        maxBaroAltM: maxBaroAltM,
-        maxSpeedMps: maxSpeedMps,
-        maxAccelMps2: maxAccelMps2,
-        launchLatitude: launchLatitude,
-        launchLongitude: launchLongitude,
-        launchMslM: launchMslM,
-        launchName: launchName,
-        telemetryByteLen: telemetryByteLen,
-        commandsOffset: commandsOffset,
-        commandCount: commandCount,
-        connectorId: connectorId,
-      );
+  }) => RecordingHeader(
+    payloadLength: payloadLength,
+    hasLaunchSite: hasLaunchSite,
+    hasStats: hasStats,
+    startMicros: startMicros,
+    endMicros: endMicros,
+    packetCount: packetCount,
+    maxBaroAltM: maxBaroAltM,
+    maxSpeedMps: maxSpeedMps,
+    maxAccelMps2: maxAccelMps2,
+    launchLatitude: launchLatitude,
+    launchLongitude: launchLongitude,
+    launchMslM: launchMslM,
+    launchName: launchName,
+    telemetryByteLen: telemetryByteLen,
+    commandsOffset: commandsOffset,
+    commandCount: commandCount,
+    connectorId: connectorId,
+  );
 
   /// Serializes to exactly [recordingHeaderLength] bytes.
   Uint8List encode() {
@@ -193,10 +192,16 @@ class RecordingHeader {
     b.setFloat32(32, maxBaroAltM, Endian.big);
     b.setFloat32(36, maxSpeedMps, Endian.big);
     b.setFloat32(40, maxAccelMps2, Endian.big);
-    b.setInt32(44, (launchLatitude.clamp(-90.0, 90.0) / 1e-7).round(),
-        Endian.big);
-    b.setInt32(48, (launchLongitude.clamp(-180.0, 180.0) / 1e-7).round(),
-        Endian.big);
+    b.setInt32(
+      44,
+      (launchLatitude.clamp(-90.0, 90.0) / 1e-7).round(),
+      Endian.big,
+    );
+    b.setInt32(
+      48,
+      (launchLongitude.clamp(-180.0, 180.0) / 1e-7).round(),
+      Endian.big,
+    );
     b.setFloat32(52, launchMslM, Endian.big);
     final nameBytes = _truncateUtf8(launchName, 48);
     b.buffer.asUint8List().setRange(56, 56 + nameBytes.length, nameBytes);
@@ -208,13 +213,16 @@ class RecordingHeader {
     b.setUint64(120, commandsOffset, Endian.big);
     b.setUint32(128, commandCount, Endian.big);
     b.setUint16(134, 0, Endian.big);
-    final connectorBytes =
-        _truncateUtf8(connectorId, recordingConnectorIdLength);
-    b.buffer
-        .asUint8List()
-        .setRange(136, 136 + connectorBytes.length, connectorBytes);
-    b.setUint16(
-        132, _directoryCrc(b.buffer.asUint8List()), Endian.big);
+    final connectorBytes = _truncateUtf8(
+      connectorId,
+      recordingConnectorIdLength,
+    );
+    b.buffer.asUint8List().setRange(
+      136,
+      136 + connectorBytes.length,
+      connectorBytes,
+    );
+    b.setUint16(132, _directoryCrc(b.buffer.asUint8List()), Endian.big);
     return b.buffer.asUint8List();
   }
 
@@ -253,8 +261,7 @@ class RecordingHeader {
     final nameBytes = bytes.sublist(56, 104);
     var nameEnd = nameBytes.indexOf(0);
     if (nameEnd < 0) nameEnd = nameBytes.length;
-    final connectorBytes =
-        bytes.sublist(136, 136 + recordingConnectorIdLength);
+    final connectorBytes = bytes.sublist(136, 136 + recordingConnectorIdLength);
     var connectorEnd = connectorBytes.indexOf(0);
     if (connectorEnd < 0) connectorEnd = connectorBytes.length;
     return RecordingHeader(
@@ -270,13 +277,17 @@ class RecordingHeader {
       launchLatitude: b.getInt32(44, Endian.big) * 1e-7,
       launchLongitude: b.getInt32(48, Endian.big) * 1e-7,
       launchMslM: b.getFloat32(52, Endian.big),
-      launchName: utf8.decode(nameBytes.sublist(0, nameEnd),
-          allowMalformed: true),
+      launchName: utf8.decode(
+        nameBytes.sublist(0, nameEnd),
+        allowMalformed: true,
+      ),
       telemetryByteLen: b.getUint64(112, Endian.big),
       commandsOffset: b.getUint64(120, Endian.big),
       commandCount: b.getUint32(128, Endian.big),
-      connectorId: utf8.decode(connectorBytes.sublist(0, connectorEnd),
-          allowMalformed: true),
+      connectorId: utf8.decode(
+        connectorBytes.sublist(0, connectorEnd),
+        allowMalformed: true,
+      ),
     );
   }
 
@@ -382,8 +393,7 @@ Future<List<SentCommand>> readRecordingCommands(String path) async {
     final length = await file.length();
     final offset = header.commandsOffset;
     if (offset < recordingHeaderLength || offset >= length) return const [];
-    final available =
-        (length - offset) ~/ SentCommand.recordLength;
+    final available = (length - offset) ~/ SentCommand.recordLength;
     final count = header.commandCount.clamp(0, available);
     if (count <= 0) return const [];
     final raf = await file.open();
@@ -392,10 +402,12 @@ Future<List<SentCommand>> readRecordingCommands(String path) async {
       final raw = await raf.read(count * SentCommand.recordLength);
       final out = <SentCommand>[];
       for (var i = 0; i < count; i++) {
-        final cmd = SentCommand.decode(raw.sublist(
-          i * SentCommand.recordLength,
-          (i + 1) * SentCommand.recordLength,
-        ));
+        final cmd = SentCommand.decode(
+          raw.sublist(
+            i * SentCommand.recordLength,
+            (i + 1) * SentCommand.recordLength,
+          ),
+        );
         if (cmd != null) out.add(cmd);
       }
       return out;
@@ -436,10 +448,12 @@ RecordingData? decodeRecordingBytes(Uint8List bytes) {
     final tsUs = chunkHeader.getInt64(0, Endian.big);
     final len = chunkHeader.getUint32(8, Endian.big);
     if (len > 4 * 1024 * 1024 || cursor + 12 + len > end) break;
-    chunks.add(RecordingChunk(
-      tsUs: tsUs,
-      payload: Uint8List.sublistView(bytes, cursor + 12, cursor + 12 + len),
-    ));
+    chunks.add(
+      RecordingChunk(
+        tsUs: tsUs,
+        payload: Uint8List.sublistView(bytes, cursor + 12, cursor + 12 + len),
+      ),
+    );
     cursor += 12 + len;
   }
   final commands = <SentCommand>[];
@@ -462,7 +476,10 @@ RecordingData? decodeRecordingBytes(Uint8List bytes) {
 
 /// Walks the chunk stream in `[pos, end)`.
 Future<List<RecordingChunk>> _readChunks(
-    RandomAccessFile raf, int pos, int end) async {
+  RandomAccessFile raf,
+  int pos,
+  int end,
+) async {
   final out = <RecordingChunk>[];
   var cursor = pos;
   await raf.setPosition(cursor);
@@ -499,7 +516,9 @@ Uint8List encodeTelemetryBody(List<RecordingChunk> chunks) {
 /// Note: body-only files have no header and are rejected by every reader;
 /// tests use this to assert exactly that.
 Future<void> writeRecordingChunks(
-    String path, List<RecordingChunk> chunks) async {
+  String path,
+  List<RecordingChunk> chunks,
+) async {
   final file = File(path);
   await file.parent.create(recursive: true);
   final raf = await file.open(mode: FileMode.write);
@@ -551,14 +570,16 @@ Future<void> writeRecordingFile(
 /// [commands] preserves the already-filed command section (re-finalizing
 /// never drops commands by accident); pass an explicit list — possibly
 /// empty — to replace it. [connectorId] stamps the recording's connector
-/// (stats are computed with that connector's parser). Failures (empty
-/// body, unknown connector, I/O errors) leave the file untouched and yield
-/// `null`.
+/// (stats are computed with that connector's parser). Empty bodies and unknown
+/// connectors yield `null`. Bodies without valid packets retain their bytes
+/// and commands with `hasStats` false. I/O errors yield `null` unless
+/// [throwOnError] is enabled by the recorder to report finalization failures.
 Future<RecordingHeader?> finalizeRecordingFile(
   String path, {
   required LaunchRef launch,
   required String connectorId,
   List<SentCommand>? commands,
+  bool throwOnError = false,
 }) async {
   try {
     final connector = connectorById(connectorId);
@@ -570,8 +591,7 @@ Future<RecordingHeader?> finalizeRecordingFile(
     // Headered files re-finalize from their telemetry body; anything else
     // is not a recording and yields null below.
     if (header == null) return null;
-    final keptCommands =
-        commands ?? await readRecordingCommands(path);
+    final keptCommands = commands ?? await readRecordingCommands(path);
     final (start, end) = _telemetryRange(header, length);
     final raf = await file.open();
     List<RecordingChunk> chunks;
@@ -589,21 +609,19 @@ Future<RecordingHeader?> finalizeRecordingFile(
     var maxSpeed = 0.0;
     var maxAccel = 0.0;
     for (final chunk in chunks) {
-      for (final frame
-          in parser.feed(chunk.payload, timestampMs: chunk.tsMs)) {
+      for (final frame in parser.feed(chunk.payload, timestampMs: chunk.tsMs)) {
         packetCount++;
         if (frame.baroAltitude > maxBaro) maxBaro = frame.baroAltitude;
         if (frame.speedTotal > maxSpeed) maxSpeed = frame.speedTotal;
         if (frame.accelTotal > maxAccel) maxAccel = frame.accelTotal;
       }
     }
-    if (packetCount == 0) return null;
 
     final body = encodeTelemetryBody(chunks);
     final finalized = RecordingHeader(
       payloadLength: connector.framingPayloadLength,
       hasLaunchSite: true,
-      hasStats: true,
+      hasStats: packetCount > 0,
       startMicros: chunks.first.tsUs,
       endMicros: chunks.last.tsUs,
       packetCount: packetCount,
@@ -634,6 +652,7 @@ Future<RecordingHeader?> finalizeRecordingFile(
     await tmp.rename(path);
     return finalized;
   } catch (_) {
+    if (throwOnError) rethrow;
     return null;
   }
 }

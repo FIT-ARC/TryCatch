@@ -25,6 +25,8 @@ import 'recording_file.dart';
 /// held in memory for the session — a crash loses buffered commands but
 /// never telemetry).
 class Recorder {
+  /// Reports asynchronous write failures without terminating serial ingestion.
+  void Function(Object error)? onError;
   IOSink? _sink;
   String? _filePath;
   LaunchRef? _launch;
@@ -61,23 +63,40 @@ class Recorder {
 
     final file = File(filePath);
     await file.parent.create(recursive: true);
+    await file.create(exclusive: true);
 
-    _sink = file.openWrite();
+    final sink = _sink = file.openWrite();
+    sink.done.then(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        if (identical(_sink, sink)) onError?.call(error);
+      },
+    );
     _filePath = filePath;
     _launch = launch;
     _connectorId = connectorId;
     _bytesWritten = 0;
     _chunksWritten = 0;
     _commands.clear();
-    _sink!.add(RecordingHeader(
-      payloadLength: TelemetryFraming.payloadLength,
-      hasLaunchSite: true,
-      launchLatitude: launch.latitude,
-      launchLongitude: launch.longitude,
-      launchMslM: launch.mslM,
-      launchName: launch.name,
-      connectorId: connectorId,
-    ).encode());
+    _sink!.add(
+      RecordingHeader(
+        payloadLength: TelemetryFraming.payloadLength,
+        hasLaunchSite: true,
+        launchLatitude: launch.latitude,
+        launchLongitude: launch.longitude,
+        launchMslM: launch.mslM,
+        launchName: launch.name,
+        connectorId: connectorId,
+      ).encode(),
+    );
+    try {
+      await sink.flush();
+    } catch (_) {
+      try {
+        await stop();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   /// Stops the active recording session, flushes all buffered bytes to disk,
@@ -97,19 +116,27 @@ class Recorder {
       _connectorId = 'mock';
       _chunksWritten = 0;
       _commands.clear();
-      await sink?.flush();
-      await sink?.close();
-      // Header finalize is best-effort: stats pass + rewrite. Empty
-      // sessions (no chunks) stay empty files, as before. The launch is
-      // always set — start() requires it.
+      try {
+        await sink?.flush();
+      } finally {
+        await sink?.close();
+      }
+      // Finalize telemetry stats and commands after the stream is closed.
+      // Sessions without radio chunks produce an empty file.
       if (path != null) {
         if (chunks > 0 && launch != null) {
-          await finalizeRecordingFile(path,
-              launch: launch, connectorId: connectorId, commands: commands);
+          final header = await finalizeRecordingFile(
+            path,
+            launch: launch,
+            connectorId: connectorId,
+            commands: commands,
+            throwOnError: true,
+          );
+          if (header == null) {
+            throw FileSystemException('Could not finalize recording', path);
+          }
         } else {
-          try {
-            await File(path).writeAsBytes(const []);
-          } catch (_) {}
+          await File(path).writeAsBytes(const []);
         }
       }
     }

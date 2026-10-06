@@ -231,6 +231,7 @@ class SegfaultConnectorParser extends ConnectorStreamParser {
   final bool assumeGpsFix;
 
   final _buf = <int>[];
+  int _cursor = 0;
 
   @override
   int totalBytes = 0;
@@ -257,25 +258,26 @@ class SegfaultConnectorParser extends ConnectorStreamParser {
     final frames = <TelemetryFrame>[];
     final nowMs = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
 
-    while (_buf.length >= SegfaultFraming.totalPacketLength) {
+    while (_buf.length - _cursor >= SegfaultFraming.totalPacketLength) {
       final start = _indexOfSync();
       if (start == -1) {
-        garbageBytes += _buf.length - 1;
+        garbageBytes += _buf.length - _cursor - 1;
         final last = _buf.last;
         _buf.clear();
         _buf.add(last);
+        _cursor = 0;
         break;
       }
-      if (start > 0) {
-        garbageBytes += start;
-        _buf.removeRange(0, start);
+      if (start > _cursor) {
+        garbageBytes += start - _cursor;
+        _cursor = start;
       }
-      if (_buf.length < SegfaultFraming.totalPacketLength) break;
+      if (_buf.length - _cursor < SegfaultFraming.totalPacketLength) break;
 
       final packet = Uint8List.fromList(
-        _buf.sublist(0, SegfaultFraming.totalPacketLength),
+        _buf.sublist(_cursor, _cursor + SegfaultFraming.totalPacketLength),
       );
-      _buf.removeRange(0, SegfaultFraming.totalPacketLength);
+      _cursor += SegfaultFraming.totalPacketLength;
 
       final frame = SegfaultPacketCodec.decode(
         packet,
@@ -292,15 +294,22 @@ class SegfaultConnectorParser extends ConnectorStreamParser {
       matchedBytes += SegfaultFraming.totalPacketLength;
       frames.add(frame);
     }
+    if (_cursor > 0) {
+      _buf.removeRange(0, _cursor);
+      _cursor = 0;
+    }
     return frames;
   }
 
   @override
-  void reset() => _buf.clear();
+  void reset() {
+    _buf.clear();
+    _cursor = 0;
+  }
 
   @override
   void resetStats() {
-    _buf.clear();
+    reset();
     totalBytes = 0;
     matchedPackets = 0;
     matchedBytes = 0;
@@ -311,7 +320,7 @@ class SegfaultConnectorParser extends ConnectorStreamParser {
 
   int _indexOfSync() {
     final limit = _buf.length - 1;
-    for (var i = 0; i < limit; i++) {
+    for (var i = _cursor; i < limit; i++) {
       if (_buf[i] == SegfaultFraming.startByte0 &&
           _buf[i + 1] == SegfaultFraming.startByte1) {
         return i;
@@ -475,16 +484,16 @@ class SegfaultConnector extends TelemetryConnector {
 
   @override
   List<ConnectorEventDef> get events => const [
-        ConnectorEventDef(label: 'Launch', fromStateId: 1, toStateId: 2),
-        ConnectorEventDef(
-          label: 'Apogee',
-          fromStateId: 2,
-          toStateId: 3,
-          // Firmware without an apogee state jumps straight here.
-          additionalTransitions: [ConnectorTransition(2, 4)],
-        ),
-        ConnectorEventDef(label: 'Parachute', fromStateId: 3, toStateId: 4),
-      ];
+    ConnectorEventDef(label: 'Launch', fromStateId: 1, toStateId: 2),
+    ConnectorEventDef(
+      label: 'Apogee',
+      fromStateId: 2,
+      toStateId: 3,
+      // Firmware without an apogee state jumps straight here.
+      additionalTransitions: [ConnectorTransition(2, 4)],
+    ),
+    ConnectorEventDef(label: 'Parachute', fromStateId: 3, toStateId: 4),
+  ];
 
   @override
   FieldCapabilities get capabilities => const FieldCapabilities({

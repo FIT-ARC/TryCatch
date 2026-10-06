@@ -27,6 +27,7 @@ class PacketParser {
       TelemetryFraming.startWordLength + payloadLength;
 
   final _buf = <int>[];
+  int _cursor = 0;
 
   /// Every raw byte ever fed (including garbage and corrupt frames).
   int totalBytes = 0;
@@ -60,38 +61,39 @@ class PacketParser {
     _buf.addAll(chunk);
     final packets = <TelemetryPacket>[];
 
-    while (_buf.length >= _totalPacketLength) {
+    while (_buf.length - _cursor >= _totalPacketLength) {
       final start = _indexOfStartWord();
 
       if (start == -1) {
         // Retain only the last byte in case the start word was split across chunks.
         // Everything else is unknown traffic on this frequency.
-        garbageBytes += _buf.length - 1;
+        garbageBytes += _buf.length - _cursor - 1;
         final last = _buf.last;
         _buf.clear();
         _buf.add(last);
+        _cursor = 0;
         break;
       }
 
-      if (start > 0) {
+      if (start > _cursor) {
         // Discard preceding garbage bytes.
-        garbageBytes += start;
-        _buf.removeRange(0, start);
+        garbageBytes += start - _cursor;
+        _cursor = start;
       }
 
       // Check if we have enough bytes for the complete packet.
-      if (_buf.length < _totalPacketLength) break;
+      if (_buf.length - _cursor < _totalPacketLength) break;
 
       // Extract payload bytes.
       final payload = Uint8List.fromList(
         _buf.sublist(
-          TelemetryFraming.startWordLength,
-          _totalPacketLength,
+          _cursor + TelemetryFraming.startWordLength,
+          _cursor + _totalPacketLength,
         ),
       );
 
       // Advance buffer past this packet.
-      _buf.removeRange(0, _totalPacketLength);
+      _cursor += _totalPacketLength;
 
       // Drop frames with a bad CRC.
       if (!FrameCodec.verifyCrc(payload)) {
@@ -111,15 +113,22 @@ class PacketParser {
       );
     }
 
+    if (_cursor > 0) {
+      _buf.removeRange(0, _cursor);
+      _cursor = 0;
+    }
     return packets;
   }
 
   /// Clears the accumulation buffer.
-  void reset() => _buf.clear();
+  void reset() {
+    _buf.clear();
+    _cursor = 0;
+  }
 
   /// Clears the accumulation buffer and all cumulative byte counters.
   void resetStats() {
-    _buf.clear();
+    reset();
     totalBytes = 0;
     matchedPackets = 0;
     matchedBytes = 0;
@@ -131,7 +140,7 @@ class PacketParser {
   int _indexOfStartWord() {
     final limit = _buf.length - 1;
 
-    for (var i = 0; i < limit; i++) {
+    for (var i = _cursor; i < limit; i++) {
       if (_buf[i] == TelemetryFraming.startByte0 &&
           _buf[i + 1] == TelemetryFraming.startByte1) {
         return i;
