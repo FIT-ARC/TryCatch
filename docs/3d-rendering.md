@@ -69,14 +69,18 @@ ground-clamped lines remain visible over the terrain surface.
 
 Terrain processing runs off the UI thread and is cached per launch site:
 
-* Imagery/DEM fetches are memory-cached per site in `satellite_ground.dart`.
+* Imagery/DEM fetches have bounded caches per site in `satellite_ground.dart`.
+  Incomplete coverage is retried with backoff, and changing sites clears the
+  displayed DEM/imagery before resolving the scene.
 * Retained `TerrainMeshSet` instances build on a background isolate via
   `cachedTerrainMeshes` (`compute(buildTerrainMeshesSpec, spec)`). While a job
   runs, tiles show the ground grid with a "Loading imagery…" overlay.
 * The GPU drape (combined tier mesh + single atlas `Texture2D`) is cached per
   `SatelliteTerrain` in `flight_gpu_view.dart`. Atlas rasterization runs on the
-  engine's raster thread and uploads without a mip chain to eliminate UI
-  thread pauses.
+  engine's raster thread. GPU vertex conversion runs through `compute`;
+  atlases are capped at 2 megapixels / 4096 pixels per dimension, and uploads
+  run one at a time without a mip chain. Native engine upload latency still
+  requires on-device profiling.
 * In replay mode, scene extents (`maxAlt`/`maxHoriz`) and camera framing
   follow the played flight history, while `gridMaxAlt`/`gridMaxHoriz` hold the
   full recording's bounds so the ground grid maintains its complete size from
@@ -108,7 +112,8 @@ Terrain processing runs off the UI thread and is cached per launch site:
   boundary.
 * Tiers share the ground DEM elevation without vertical offsets.
 * Terrain material uses `UnlitMaterial` with `AlphaMode.blend`.
-* Hillshade is baked per vertex from fixed sun direction `terrainSunDir`.
+* Hillshade is baked per vertex from the fixed sun direction in
+  `terrainAtlasInBackground`. Temporary image codecs and pictures are disposed.
 
 ## Build requirements
 

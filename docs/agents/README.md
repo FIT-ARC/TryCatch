@@ -14,8 +14,7 @@
 * CopyWith: sentinel `_absent` for nullable-clear fields
   (see `LaunchSiteState`). Plain `??` must not be used where null
   means "clear".
-* Forbidden: `reset()` / `stop()` synonyms on new code (legacy aliases
-  remain only for migration), barrel re-exports across state files,
+* Forbidden: `reset()` / `stop()` synonyms on new code (legacy aliases must be removed when their consumers migrate), barrel re-exports across state files,
   `ref.listen` outside `build()`, per-widget private trackers.
 
 ## 2. Flight clear: one entry
@@ -80,12 +79,12 @@
 * Watch narrowly: `select(positionMs/isActive)` for ticker fields
   (see `map_tile.dart`, `events_tile.dart`). No full
   `watch(telemetryStoreProvider)` in new tiles.
-* Charts: use `TimeSeriesChart` config. Channel tile still owns a
-  custom `fl_chart` fork — do not extend it; migrate it when touched.
+* Charts: use `TimeSeriesChart` for telemetry. Channel-profile rendering
+  uses bins and shares axis/touch helpers; rates use `RateSeriesView`.
 * Dialogs: one `AlertDialog` shape — title, body, `TextButton` Cancel +
   `FilledButton` confirm (destructive confirms use `AppColors.destructive`).
-* Two-click confirm (`control_panel`, `fsm`): each implements arm→confirm
-  locally; extract a shared widget when next touched (see backlog).
+* Two-click confirm (`control_panel`, `fsm`): use `TwoClickButton` and its
+  group controller; dispose the controller with its owner.
 * Theme: `AppColors`/`AppText` only. `Colors.*` outside `theme/`
   fails review.
 
@@ -95,7 +94,7 @@
   before the file in one go. Never the edit history: no "previously X",
   "used to Y", "now Z", "fixed so ... works", first-person notes, or
   per-iteration change summaries. Rationale longer than 2 lines goes in
-  `HANDOFF.md`/docs, not inline.
+  `docs/architecture.md`, not inline.
 * After an edit, re-read the touched comments: any sentence the change
   made false or historical gets rewritten or deleted in the same edit.
   No orphan references to deleted code paths.
@@ -128,32 +127,21 @@
   goes through the GPU builders. Geometry/stream conversion helpers stay
   engine-free so they remain unit-testable, and world-space annotations ride a
   thin 2D overlay that reuses the shared camera (never re-derive the camera).
-* `core/packet_rate_tracker.dart` + `core/channel_health.dart`
-  `ChannelHealthTracker` stay for their unit tests; no widget may use
-  them — widgets read `channelHealthProvider.series`.
-* `core/channel_health.dart` also keeps a legacy `ChannelVerdict` +
-  `verdictFor`/`formatBps` alongside `RateSeries`'s `RateVerdict` copies.
-  New code uses `foundation/time/rate_series.dart`.
-* `TimeSeriesChart.decimateExtremes` keeps its local bucket loop until
-  the `ListTimeSeries` adapter lands; new code uses
-  `foundation/time/decimate.dart`.
+* Windows' global ExcludeSemantics is intentional; see `docs/architecture.md`.
+* Public serial package APIs (`FileParser`, `recordingBodyOffsetOf`) retain
+  test coverage even when the app's repository uses lower-level readers.
 * `ToastStore` ids are per-launch ints (ephemeral, dismiss identity);
   persisted entity ids use `Ids.next(prefix)`.
-* `snackBarTheme` in `app_theme.dart` is dead config (no ScaffoldMessenger
-  uses remain); remove it with the next theme pass.
 
-## 11. Backlog (ordered)
+## 11. Runtime boundaries
 
-1. Retire the legacy channel-health vocabulary (`ChannelSample`,
-   `ChannelHealthTracker`, duplicate `verdictFor`/`formatBps`) once its
-   tests move onto `RateSeries`.
-2. Trail/map/thumbnail decimation onto `decimate(mode: strideStable)`.
-3. `WorkspaceStore.promoteToDefaults` codegen out of prod store into
-   `tool/` (debug-only, `dart:io` search does not belong in state).
-4. `Colors.*` sweep outside `theme/` (map/satellite attribution,
-   `workspace_grid` overlays, QR white) + drop `snackBarTheme`.
-5. Two-click confirm (`control_panel`, `fsm`) into one `TwoClickButton`.
-6. Narrow `select()` watches for chart/3D/FSM tiles (map tile is the model).
-7. `HANDOFF.md` consolidation — its Part 4 tree and dead-reckoning
-   sections describe deleted files; fold the live parts into
-   `docs/architecture.md`.
+* Select a launch site before any connection, recording or command action.
+  Disconnect/stop remain available for recovery.
+* `TelemetryState.history` and channel series are read-only live views;
+  mutation stays in their SessionStore. Preserve revision changes on writes.
+* `RecordingRepository` runs at most two bulk decodes off the UI isolate.
+* Terrain mesh and GPU-stream conversion use isolates; textures stay on the
+  engine, with a bounded atlas and serialized upload. See `docs/3d-rendering.md`.
+* Workspace defaults generation lives in `tool/workspace_codegen.dart`;
+  the debug UI invokes validated tooling from the repository root.
+* Architecture and lifecycle ownership are documented in `docs/architecture.md`.

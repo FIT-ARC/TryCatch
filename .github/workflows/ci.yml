@@ -1,9 +1,8 @@
 name: CI
 
-# Manual only: tests no longer run on every push - they gate releases instead
-# (see the `test` job in release.yml). Run this by hand from the Actions tab
-# when you want a check outside a release.
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +11,7 @@ concurrency:
 
 env:
   # 3.47.5 ships a matched engine/impellerc pair (shader bundle format v2),
-# verified on-device for the flutter_scene GPU path.
+  # verified on-device for the flutter_scene GPU path.
   FLUTTER_VERSION: "3.47.5"
 
 jobs:
