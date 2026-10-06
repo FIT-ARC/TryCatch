@@ -1,10 +1,102 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' show Offset;
+import 'dart:ui' show Offset, Rect;
 
 import 'package:vector_math/vector_math.dart' as vm;
 
 import '../satellite_ground.dart';
+import '../../../../core/app_config.dart';
+
+/// Pixel rectangles shared by atlas rasterization and GPU UV conversion.
+class TerrainAtlasLayout {
+  final int width;
+  final int height;
+  final List<Rect> bands;
+
+  const TerrainAtlasLayout(this.width, this.height, this.bands);
+}
+
+/// Preserves pad pixels beside a smaller column of distant imagery.
+TerrainAtlasLayout terrainAtlasLayout(
+  List<({int width, int height})> images, {
+  required bool hasPad,
+}) {
+  if (images.isEmpty || images.any((i) => i.width < 1 || i.height < 1)) {
+    throw ArgumentError('Atlas images must have positive dimensions.');
+  }
+  final context = hasPad ? images.sublist(0, images.length - 1) : images;
+  final contextWidth = context.fold(0, (w, i) => math.max(w, i.width));
+  final contextHeight = context.fold(0, (h, i) => h + i.height);
+  if (hasPad && context.isNotEmpty) {
+    final pad = images.last;
+    final padSize = boundedTerrainAtlasSize(
+      pad.width,
+      pad.height,
+      AppConfig.terrainDetailAtlasMaxPixels - AppConfig.terrainAtlasMaxPixels,
+    );
+    final widthLimit = math.min(
+      4096 - padSize.width,
+      AppConfig.terrainDetailAtlasMaxPixels ~/ padSize.height - padSize.width,
+    );
+    if (widthLimit > 0) {
+      final scale = math.min(
+        1.0,
+        math.min(
+          math.sqrt(
+            AppConfig.terrainAtlasMaxPixels / (contextWidth * contextHeight),
+          ),
+          math.min(widthLimit / contextWidth, padSize.height / contextHeight),
+        ),
+      );
+      final bands = <Rect>[];
+      var y = 0;
+      var width = 0;
+      for (final image in context) {
+        final w = math.max(1, (image.width * scale).floor());
+        final h = math.max(1, (image.height * scale).floor());
+        bands.add(Rect.fromLTWH(0, y.toDouble(), w.toDouble(), h.toDouble()));
+        width = math.max(width, w);
+        y += h;
+      }
+      bands.add(
+        Rect.fromLTWH(
+          width.toDouble(),
+          0,
+          padSize.width.toDouble(),
+          padSize.height.toDouble(),
+        ),
+      );
+      return TerrainAtlasLayout(
+        width + padSize.width,
+        math.max(y, padSize.height),
+        bands,
+      );
+    }
+  }
+  final width = images.map((i) => i.width).reduce(math.max);
+  final height = images.fold(0, (h, i) => h + i.height);
+  final output = boundedTerrainAtlasSize(
+    width,
+    height,
+    hasPad
+        ? AppConfig.terrainDetailAtlasMaxPixels
+        : AppConfig.terrainAtlasMaxPixels,
+  );
+  var y = 0;
+  final bands = <Rect>[];
+  for (final image in images) {
+    bands.add(
+      Rect.fromLTWH(
+        0,
+        y * output.height / height,
+        image.width * output.width / width,
+        image.height * output.height / height,
+      ),
+    );
+    y += image.height;
+  }
+  return TerrainAtlasLayout(output.width, output.height, bands);
+}
 
 /// Bounds texture upload area and the largest engine texture dimension.
 ({int width, int height}) boundedTerrainAtlasSize(
@@ -33,6 +125,10 @@ TerrainAtlasGpuData terrainAtlasInBackground(List<TerrainAtlasTier> tiers) =>
     buildTerrainAtlasGpuData(
       tiers: tiers,
       sunDir: vm.Vector3(0.45, 0.78, 0.30).normalized(),
+      layout: terrainAtlasLayout([
+        for (final tier in tiers)
+          (width: tier.imageWidth, height: tier.imageHeight),
+      ], hasPad: tiers.last.isPad),
     );
 
 /// Pure CPU conversion of one retained [TerrainMesh] tier into GPU-ready
@@ -143,18 +239,19 @@ class TerrainAtlasTier {
   final int imageWidth;
   final int imageHeight;
   final double yOffset;
+  final bool isPad;
 
   const TerrainAtlasTier({
     required this.mesh,
     required this.imageWidth,
     required this.imageHeight,
     required this.yOffset,
+    this.isPad = false,
   });
 }
 
-/// Combined GPU vertex streams for several drape tiers sharing one atlas
-/// texture ([atlasWidth] x [atlasHeight] pixels, tiers stacked vertically in
-/// list order).
+/// Combined GPU vertex streams for drape tiers sharing one atlas texture
+/// ([atlasWidth] x [atlasHeight] pixels).
 class TerrainAtlasGpuData {
   final Float32List positions;
   final Float32List normals;
@@ -178,7 +275,7 @@ class TerrainAtlasGpuData {
 }
 
 /// Builds one combined mesh over [tiers], each tier's UVs remapped into its
-/// vertical band of the atlas and its indices shifted past the tiers before
+/// atlas rectangle and its indices shifted past the tiers before
 /// it. The engine blends translucent surfaces per draw call, so one mesh
 /// makes the layered blend order the list order — outer context first, sharp
 /// pad last — deterministically, instead of leaving it to the engine's
@@ -187,14 +284,26 @@ class TerrainAtlasGpuData {
 TerrainAtlasGpuData buildTerrainAtlasGpuData({
   required List<TerrainAtlasTier> tiers,
   required vm.Vector3 sunDir,
+  TerrainAtlasLayout? layout,
 }) {
   assert(tiers.isNotEmpty);
-  final atlasWidth = tiers.map((t) => t.imageWidth).reduce(math.max);
-  final atlasHeight = tiers.fold(0, (sum, t) => sum + t.imageHeight);
+  final atlasWidth =
+      layout?.width ?? tiers.map((t) => t.imageWidth).reduce(math.max);
+  final atlasHeight =
+      layout?.height ?? tiers.fold<int>(0, (sum, t) => sum + t.imageHeight);
 
   final parts = <TerrainGpuData>[];
   var bandY = 0;
-  for (final tier in tiers) {
+  for (var i = 0; i < tiers.length; i++) {
+    final tier = tiers[i];
+    final band =
+        layout?.bands[i] ??
+        Rect.fromLTWH(
+          0,
+          bandY.toDouble(),
+          tier.imageWidth.toDouble(),
+          tier.imageHeight.toDouble(),
+        );
     parts.add(
       buildTerrainGpuData(
         mesh: tier.mesh,
@@ -202,11 +311,8 @@ TerrainAtlasGpuData buildTerrainAtlasGpuData({
         imageHeight: tier.imageHeight,
         sunDir: sunDir,
         yOffset: tier.yOffset,
-        uvScale: Offset(
-          tier.imageWidth / atlasWidth,
-          tier.imageHeight / atlasHeight,
-        ),
-        uvOffset: Offset(0, bandY / atlasHeight),
+        uvScale: Offset(band.width / atlasWidth, band.height / atlasHeight),
+        uvOffset: Offset(band.left / atlasWidth, band.top / atlasHeight),
       ),
     );
     bandY += tier.imageHeight;

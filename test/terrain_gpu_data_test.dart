@@ -11,6 +11,35 @@ import 'package:vector_math/vector_math.dart' as vm;
 /// Locks the retained-mesh → GPU-stream conversion: normalized imagery UVs,
 /// baked hillshade RGB, per-vertex feather alpha, and the tier Y lift.
 void main() {
+  test(
+    'pad keeps native detail while atlas area and distant tiers stay bounded',
+    () {
+      for (final padPixels in [768, 1280, 1792, 2304]) {
+        final images = [
+          (width: 2304, height: 2304),
+          (width: 1792, height: 1792),
+          (width: padPixels, height: padPixels),
+        ];
+        final layout = terrainAtlasLayout(images, hasPad: true);
+        final pad = layout.bands.last;
+        expect(pad.width, padPixels);
+        expect(pad.height, padPixels);
+        expect(
+          layout.width * layout.height,
+          lessThanOrEqualTo(8 * 1024 * 1024),
+        );
+        expect(layout.width, lessThanOrEqualTo(4096));
+        expect(layout.height, lessThanOrEqualTo(4096));
+        final contextArea = layout.bands
+            .take(2)
+            .fold(0.0, (area, b) => area + b.width * b.height);
+        expect(contextArea, lessThanOrEqualTo(2 * 1024 * 1024));
+        for (final band in layout.bands.take(2)) {
+          expect(band.overlaps(pad), isFalse);
+        }
+      }
+    },
+  );
   test('atlas uploads stay within area and dimension budgets', () {
     for (final (width, height) in [(2304, 6400), (8000, 100), (256, 256)]) {
       final output = boundedTerrainAtlasSize(width, height, 2 * 1024 * 1024);
@@ -141,6 +170,45 @@ void main() {
   });
 
   group('buildTerrainAtlasGpuData', () {
+    test(
+      'pad UVs match the native-resolution rectangle beside distant imagery',
+      () {
+        final tiers = [
+          for (var i = 0; i < 3; i++)
+            TerrainAtlasTier(
+              mesh: mesh(),
+              imageWidth: 256,
+              imageHeight: 256,
+              yOffset: 0,
+              isPad: i == 2,
+            ),
+        ];
+        final layout = terrainAtlasLayout([
+          for (final tier in tiers)
+            (width: tier.imageWidth, height: tier.imageHeight),
+        ], hasPad: true);
+        final atlas = buildTerrainAtlasGpuData(
+          tiers: tiers,
+          sunDir: vm.Vector3(0, 1, 0),
+          layout: layout,
+        );
+        final firstPad = 8;
+        final lastPad = 11;
+        expect(
+          atlas.texCoords[firstPad * 2],
+          closeTo(layout.bands.last.left / layout.width, 1e-6),
+        );
+        expect(atlas.texCoords[firstPad * 2 + 1], 0);
+        expect(
+          atlas.texCoords[lastPad * 2],
+          closeTo(layout.bands.last.right / layout.width, 1e-6),
+        );
+        expect(
+          atlas.texCoords[lastPad * 2 + 1],
+          closeTo(layout.bands.last.bottom / layout.height, 1e-6),
+        );
+      },
+    );
     test('stacks tiers into atlas bands with shifted indices', () {
       final atlas = buildTerrainAtlasGpuData(
         tiers: [

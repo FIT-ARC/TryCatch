@@ -78,8 +78,10 @@ Terrain processing runs off the UI thread and is cached per launch site:
 * The GPU drape (combined tier mesh + single atlas `Texture2D`) is cached per
   `SatelliteTerrain` in `flight_gpu_view.dart`. Atlas rasterization runs on the
   engine's raster thread. GPU vertex conversion runs through `compute`;
-  atlases are capped at 2 megapixels / 4096 pixels per dimension, and uploads
-  run one at a time without a mip chain. Native engine upload latency still
+  context-only atlases are capped at 2 megapixels. Detailed atlases preserve
+  native pad imagery beside a downsampled column of outer/mid imagery, capped
+  at 8 megapixels / 4096 pixels per dimension. Uploads run one at a time
+  without a mip chain. Native engine upload latency still
   requires on-device profiling.
 * In replay mode, scene extents (`maxAlt`/`maxHoriz`) and camera framing
   follow the played flight history, while `gridMaxAlt`/`gridMaxHoriz` hold the
@@ -104,8 +106,10 @@ Terrain processing runs off the UI thread and is cached per launch site:
 ## Terrain details
 
 * Tiers: outer 20×20 km, mid 10×10 km, pad 2.5×2.5 km. The GPU drape combines
-  retained `TerrainMesh` tiers into a single mesh sampling a vertically-stacked
-  atlas texture (`buildTerrainAtlasGpuData`). Tier draw order is sequential
+  retained `TerrainMesh` tiers into a single mesh sampling a compact atlas
+  texture (`buildTerrainAtlasGpuData`). Rasterization and GPU UV conversion
+  share `terrainAtlasLayout`; pad pixels retain native resolution while distant
+  imagery uses the smaller context budget. Tier draw order is sequential
   (outer, mid, pad).
 * Per-vertex alpha applies a radial feather (`satRimAlpha`), opaque inside
   `satFeatherStart` of the tier radius and fading to zero at the imagery's

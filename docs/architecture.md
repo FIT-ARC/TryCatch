@@ -59,8 +59,12 @@ entry, and renderer colors live in AppColors.
 3D rendering is GPU-only; see [3d-rendering.md](3d-rendering.md). Terrain meshes
 and GPU vertex conversion run in isolates. Image decoding and native texture
 upload require the Flutter engine, so imagery jobs are limited to two and atlas
-uploads are serialized. Atlases are capped at 2 megapixels and 4096 pixels per
-dimension, with mip generation disabled. GPU resources are shared between views.
+uploads are serialized. Context-only atlases are capped at 2 megapixels; detailed
+atlases pack native pad imagery beside a smaller outer/mid column, with an
+8-megapixel total cap and 4096 pixels per dimension. This preserves nearby ground
+detail without restoring a large, mostly empty vertical atlas. Rasterization and
+UV conversion share the same layout; tier blend order stays in one mesh.
+Mip generation is disabled. GPU resources are shared between views.
 Imagery, DEM and retained terrain caches have bounded entry counts. Eviction
 drops cache references; active views retain their patches, and Flutter releases
 native image handles when their Dart references are collected. Shared images

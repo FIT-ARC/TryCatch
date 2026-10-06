@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show compute;
 
-import '../../../../core/app_config.dart';
 import '../../../../foundation/async_gate.dart';
 
 import 'package:flutter/material.dart';
@@ -479,6 +478,7 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
           imageWidth: terrain.pad!.image.width,
           imageHeight: terrain.pad!.image.height,
           yOffset: padTierLift,
+          isPad: true,
         ),
     ];
     try {
@@ -525,39 +525,31 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
         });
   }
 
-  /// Rasterizes the tier images into one vertical atlas and uploads it.
+  /// Rasterizes tier images into a compact atlas and uploads it.
   Future<fs.Texture2D> _renderAtlasTexture(SatelliteTerrain terrain) async {
     final images = [
       terrain.outer.image,
       if (terrain.mid != null) terrain.mid!.image,
       if (terrain.pad != null) terrain.pad!.image,
     ];
-    final width = images.map((i) => i.width).reduce((a, b) => a > b ? a : b);
-    final height = images.fold(0, (sum, i) => sum + i.height);
-    final output = boundedTerrainAtlasSize(
-      width,
-      height,
-      AppConfig.terrainAtlasMaxPixels,
-    );
-    final outputWidth = output.width;
-    final outputHeight = output.height;
+    final layout = terrainAtlasLayout([
+      for (final image in images) (width: image.width, height: image.height),
+    ], hasPad: terrain.pad != null);
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
-    canvas.scale(outputWidth / width, outputHeight / height);
-    var y = 0.0;
-    for (final image in images) {
+    for (var i = 0; i < images.length; i++) {
+      final image = images[i];
       canvas.drawImageRect(
         image,
         ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
-        ui.Rect.fromLTWH(0, y, image.width.toDouble(), image.height.toDouble()),
-        ui.Paint()..filterQuality = ui.FilterQuality.none,
+        layout.bands[i],
+        ui.Paint()..filterQuality = ui.FilterQuality.low,
       );
-      y += image.height;
     }
     final picture = recorder.endRecording();
     final ui.Image atlas;
     try {
-      atlas = await picture.toImage(outputWidth, outputHeight);
+      atlas = await picture.toImage(layout.width, layout.height);
     } finally {
       picture.dispose();
     }

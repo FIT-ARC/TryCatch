@@ -35,7 +35,12 @@ abstract final class AppConfig {
   /// HTTP response timeout for tile fetches.
   static const Duration tileResponseTimeout = Duration(seconds: 10);
   static const int tileMaxResponseBytes = 4 * 1024 * 1024;
+
+  /// Pixel budget for distant imagery in terrain atlases.
   static const int terrainAtlasMaxPixels = 2 * 1024 * 1024;
+
+  /// Total atlas budget including native-resolution launch-pad imagery.
+  static const int terrainDetailAtlasMaxPixels = 8 * 1024 * 1024;
 
   /// How long fetched tiles are kept in the flutter_map disk cache.
   static const Duration tileCacheTtl = Duration(days: 30);
