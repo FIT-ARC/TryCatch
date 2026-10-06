@@ -1,8 +1,9 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
-import '../../state/telemetry_provider.dart';
 import '../../theme/app_colors.dart';
 import '../components/connector_gate.dart';
 import './shared/time_series_chart.dart';
@@ -20,8 +21,9 @@ class AccelerationChartTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connector = ref.watch(activeConnectorProvider);
-    final unsupported =
-        connector.unsupportedPlaceholder(TelemetryField.acceleration);
+    final unsupported = connector.unsupportedPlaceholder(
+      TelemetryField.acceleration,
+    );
     if (unsupported != null) return unsupported;
     final hasTotal = connector.capabilities.hasFullAcceleration;
     return TimeSeriesChart(

@@ -1,3 +1,5 @@
+import '../../state/connector_provider.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -49,7 +51,11 @@ class _CommandsTileState extends ConsumerState<CommandsTile> {
 
   @override
   Widget build(BuildContext context) {
-    final store = ref.watch(telemetryStoreProvider);
+    final store = ref.watch(
+      telemetryStoreProvider.select(
+        (s) => (replaying: s.replaying, empty: s.history.isEmpty),
+      ),
+    );
     final replayActive = ref.watch(replayProvider.select((s) => s.isActive));
     final replaying = store.replaying && replayActive;
 
@@ -83,13 +89,11 @@ class _CommandsTileState extends ConsumerState<CommandsTile> {
     }
 
     final commands = ref.watch(commandLogProvider);
-    if (store.history.isEmpty && commands.isEmpty) {
+    if (store.empty && commands.isEmpty) {
       return const Center(child: WaitingForData());
     }
     if (commands.isEmpty) {
-      return Center(
-        child: Text('No commands yet', style: AppText.microLabel),
-      );
+      return Center(child: Text('No commands yet', style: AppText.microLabel));
     }
 
     // Live auto-scrolls to the bottom when new commands arrive.
@@ -338,15 +342,15 @@ bool _bytesEqual(List<int> a, List<int> b) {
 /// Display labels for the log subtitle line.
 extension CommandLogLabels on CommandSource {
   String get label => switch (this) {
-        CommandSource.controlPanel => 'Control panel',
-        CommandSource.fsm => 'FSM',
-        CommandSource.unknown => 'Unknown',
-      };
+    CommandSource.controlPanel => 'Control panel',
+    CommandSource.fsm => 'FSM',
+    CommandSource.unknown => 'Unknown',
+  };
 }
 
 extension CommandStatusLabels on CommandStatus {
   String get label => switch (this) {
-        CommandStatus.sent => 'Sent',
-        CommandStatus.failed => 'Failed',
-      };
+    CommandStatus.sent => 'Sent',
+    CommandStatus.failed => 'Failed',
+  };
 }

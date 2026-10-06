@@ -1,6 +1,6 @@
 import 'dart:math' as math;
+
 import 'package:dead_reckoning/dead_reckoning.dart' show metresPerDegreeLat;
-import 'package:vector_math/vector_math_64.dart';
 
 /// Pure slippy-map math and 3D terrain projection geometry.
 ///
@@ -18,10 +18,9 @@ int satTileX(double lon, int zoom) {
 int satTileY(double lat, int zoom) {
   final n = 1 << zoom;
   final rad = lat * math.pi / 180;
-  final y = ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) /
-          2 *
-          n)
-      .floor();
+  final y =
+      ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * n)
+          .floor();
   return y.clamp(0, n - 1);
 }
 
@@ -51,12 +50,15 @@ int satZoomForHalfMeters(
   double lat, {
   int targetPixels = 4096,
 }) {
-  var zoom = (math.log(156543.03392 *
-              math.cos(lat * math.pi / 180) *
-              targetPixels /
-              (halfMeters * 2)) /
-          math.ln2)
-      .round();
+  var zoom =
+      (math.log(
+                156543.03392 *
+                    math.cos(lat * math.pi / 180) *
+                    targetPixels /
+                    (halfMeters * 2),
+              ) /
+              math.ln2)
+          .round();
   return zoom.clamp(10, 19);
 }
 
@@ -76,8 +78,7 @@ int satZoomForHalfMeters(
   final lon = lon0 + eastM / (metresPerDegreeLat * cosLat0);
   final lat = lat0 - southM / metresPerDegreeLat;
   final u = (lon - westLon) / (eastLon - westLon).clamp(1e-12, 360);
-  final v =
-      (northLat - lat) / (northLat - southLat).clamp(1e-12, 180);
+  final v = (northLat - lat) / (northLat - southLat).clamp(1e-12, 180);
   return (u: u, v: v);
 }
 
@@ -107,166 +108,10 @@ const int satPadTileRadius = 3;
 /// Rim-feather start fraction for drape tiers.
 const double satFeatherStart = 0.7;
 
-// ── Perspective Mapping & Clipping ───────────────────────────────────────────
-
-/// Solves the 2D projective transform mapping [src] onto [dst] from 4
-/// corner correspondences.
-List<double>? solveHomography(
-  List<({double x, double y})> src,
-  List<({double x, double y})> dst,
-) {
-  assert(src.length == 4 && dst.length == 4);
-  final a = List.generate(8, (_) => List.filled(9, 0.0));
-  for (var i = 0; i < 4; i++) {
-    final u = src[i].x, v = src[i].y;
-    final x = dst[i].x, y = dst[i].y;
-    a[2 * i] = [-u, -v, -1, 0, 0, 0, x * u, x * v, -x];
-    a[2 * i + 1] = [0, 0, 0, -u, -v, -1, y * u, y * v, -y];
-  }
-  for (var col = 0; col < 8; col++) {
-    var pivot = col;
-    var best = a[pivot][col].abs();
-    for (var row = col + 1; row < 8; row++) {
-      final v = a[row][col].abs();
-      if (v > best) {
-        best = v;
-        pivot = row;
-      }
-    }
-    if (best < 1e-12) return null;
-    if (pivot != col) {
-      final tmp = a[pivot];
-      a[pivot] = a[col];
-      a[col] = tmp;
-    }
-    final inv = 1 / a[col][col];
-    for (var j = col; j < 9; j++) {
-      a[col][j] *= inv;
-    }
-    for (var row = 0; row < 8; row++) {
-      if (row == col) continue;
-      final f = a[row][col];
-      if (f == 0) continue;
-      for (var j = col; j < 9; j++) {
-        a[row][j] -= f * a[col][j];
-      }
-    }
-  }
-  return [for (var i = 0; i < 8; i++) a[i][8]];
-}
-
-/// Embeds 2D homography coefficients into a 4x4 column-major matrix.
-List<double> homographyMatrix(List<double> h) {
-  assert(h.length == 8);
-  final h00 = h[0], h01 = h[1], h02 = h[2];
-  final h10 = h[3], h11 = h[4], h12 = h[5];
-  final h20 = h[6], h21 = h[7];
-  return [
-    h00, h10, 0, h20,
-    h01, h11, 0, h21,
-    0, 0, 1, 0,
-    h02, h12, 0, 1,
-  ];
-}
-
 /// Rim-feather alpha for a drape node [distM] from the anchor inside a tier.
 double satRimAlpha(double distM, double coverageHalfMeters) {
-  final ft = ((distM / coverageHalfMeters - satFeatherStart) /
-          (1 - satFeatherStart))
-      .clamp(0.0, 1.0);
+  final ft =
+      ((distM / coverageHalfMeters - satFeatherStart) / (1 - satFeatherStart))
+          .clamp(0.0, 1.0);
   return 1 - ft * ft * (3 - 2 * ft);
-}
-
-/// One clip-space vertex of a drape triangle.
-typedef ClipVert = ({
-  Vector4 c,
-  double u,
-  double v,
-  double shade,
-  double alpha
-});
-
-/// Near-plane slop for drape clipping (clip-space units around the plane).
-const double drapeClipEps = 1e-6;
-
-/// Near-lens fade band (clip-space w ≈ metres of depth): relief passing
-/// within centimetres of the lens (buried/clamped cameras inside coarse
-/// relief) projects to frame-spanning minified smears — geometrically
-/// "correct" (a wall touching your eye fills half the view) but
-/// unreadable. Fading to 0 below [lensFadeEnd] dissolves those degenerate
-/// triangles instead of smearing them; real foreground lives metres out
-/// (chase standoff 7 m, eye clamp +2 m) and never notices. Pure.
-const double lensFadeStart = 0.15;
-const double lensFadeEnd = 0.6;
-
-/// 0 at/below [lensFadeStart], 1 at/above [lensFadeEnd], smoothstep between
-/// (no popping while panning through the band). Pure — unit-tested.
-double lensFade(double w) {
-  final t =
-      ((w - lensFadeStart) / (lensFadeEnd - lensFadeStart)).clamp(0.0, 1.0);
-  return t * t * (3 - 2 * t);
-}
-
-/// Sutherland–Hodgman clip of triangle ([a], [b], [c]) against the true
-/// near plane (plus the lens plane): first against `w = [eps]`, then
-/// against `z + w = [eps]` (`vector_math` uses an OpenGL-style matrix, so
-/// near is `z = -w`, not a fixed `w` cutoff). Two passes because a
-/// grazing edge can pierce the planes in either order; a single pass with
-/// a combined predicate would keep behind-the-lens segments.
-List<ClipVert> clipTriangleNear(
-  ClipVert a,
-  ClipVert b,
-  ClipVert c, [
-  double eps = drapeClipEps,
-]) {
-  ClipVert lerp(ClipVert out, ClipVert inn, double t) => (
-        c: out.c * (1 - t) + inn.c * t,
-        u: out.u + (inn.u - out.u) * t,
-        v: out.v + (inn.v - out.v) * t,
-        shade: out.shade + (inn.shade - out.shade) * t,
-        alpha: out.alpha + (inn.alpha - out.alpha) * t,
-      );
-
-  List<ClipVert> clipPlane(
-    List<ClipVert> poly,
-    double Function(ClipVert v) dist,
-  ) {
-    if (poly.isEmpty) return poly;
-    final out = <ClipVert>[];
-    for (var i = 0; i < poly.length; i++) {
-      final cur = poly[i];
-      final prev = poly[(i + poly.length - 1) % poly.length];
-      final dCur = dist(cur);
-      final dPrev = dist(prev);
-      final curIn = dCur > eps;
-      final prevIn = dPrev > eps;
-      ClipVert cross(ClipVert o, ClipVert n, double dO, double dN) {
-        final denom = dN - dO;
-        if (denom.abs() < 1e-12) return n;
-        return lerp(o, n, ((eps - dO) / denom).clamp(0.0, 1.0));
-      }
-
-      if (curIn) {
-        if (!prevIn) out.add(cross(prev, cur, dPrev, dCur));
-        out.add(cur);
-      } else if (prevIn) {
-        out.add(cross(cur, prev, dCur, dPrev));
-      }
-    }
-    return out;
-  }
-
-  final vs = [a, b, c];
-  return clipPlane(
-      clipPlane(vs, (v) => v.c.w), (v) => v.c.z + v.c.w);
-}
-
-/// Edge fade for raw (unclamped) patch UVs [u]/[v].
-double satEdgeFade(double u, double v) {
-  final ou = u < 0 ? -u : (u > 1 ? u - 1 : 0.0);
-  final ov = v < 0 ? -v : (v > 1 ? v - 1 : 0.0);
-  final over = math.max(ou, ov) / 0.03;
-  if (over >= 1) return 0;
-  final t = over.clamp(0.0, 1.0);
-  return 1 - t * t * (3 - 2 * t);
 }

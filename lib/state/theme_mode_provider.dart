@@ -1,23 +1,39 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/app_colors.dart';
+import '../foundation/store.dart';
+import '../services/prefs_keys.dart';
 
-/// Riverpod view of the theme switch (layer 1).
-///
-/// `AppThemeMode.instance` remains the storage owner for now (layer 3
-/// singleton below the provider scope); this provider mirrors it so UI
-/// rebuilds via `watch` instead of `ValueListenableBuilder`, and so future
-/// work can move persistence fully into Riverpod.
-final themeModeProvider = NotifierProvider<ThemeModeStore, bool>(
+/// Persisted theme selection; AppThemeMode adapts it to renderer palette access.
+final themeModeProvider = AsyncNotifierProvider<ThemeModeStore, bool>(
   ThemeModeStore.new,
 );
 
-class ThemeModeStore extends Notifier<bool> {
+class ThemeModeStore extends PersistedStore<bool> {
   @override
-  bool build() => AppThemeMode.instance.value;
+  String get prefsKey => PrefsKeys.darkMode;
+  @override
+  bool get defaults => false;
+  @override
+  String encode(bool state) => state.toString();
+  @override
+  bool decode(String raw) => switch (raw) {
+    'true' => true,
+    'false' => false,
+    _ => throw const FormatException('Invalid theme mode.'),
+  };
+  @override
+  Future<bool> build() async {
+    final dark = await loadPersisted();
+    AppThemeMode.instance.value = dark;
+    return dark;
+  }
 
   Future<void> setDark(bool dark) async {
-    state = dark;
-    await AppThemeMode.instance.setDark(dark);
+    AppThemeMode.instance.value = dark;
+    await save(dark);
   }
+
+  @override
+  Future<void> resetToDefaults() => setDark(defaults);
 }

@@ -1,9 +1,10 @@
+import '../../foundation/time/rate_series.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/channel_health.dart';
 import '../../state/channel_health_provider.dart';
 import '../../core/app_config.dart';
 import '../../theme/app_colors.dart';
@@ -35,9 +36,9 @@ Color linkStateColor({
   if (!hasData) return AppColors.mutedForeground;
   if (!packetsLive) return AppColors.destructive;
   return switch (verdictFor(unmatchedBps)) {
-    ChannelVerdict.clear => AppColors.success,
-    ChannelVerdict.activity => AppColors.warning,
-    ChannelVerdict.interference => AppColors.destructive,
+    RateVerdict.clear => AppColors.success,
+    RateVerdict.activity => AppColors.warning,
+    RateVerdict.interference => AppColors.destructive,
   };
 }
 
@@ -68,16 +69,14 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
     final unmatched = latest?.unmatchedBps ?? 0.0;
     final hasData = latest != null;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final packetsLive =
-        latest != null && nowMs - latest.timestampMs <= 2000;
+    final packetsLive = latest != null && nowMs - latest.timestampMs <= 2000;
     final Color stateColor = linkStateColor(
       unmatchedBps: unmatched,
       packetsLive: packetsLive,
       hasData: hasData,
     );
     final ratePart = hasData ? series.label(nowMs: nowMs) : 'no data';
-    final channelPart =
-        latest == null ? '··· B/s' : formatBps(unmatched);
+    final channelPart = latest == null ? '··· B/s' : formatBps(unmatched);
     const tip =
         'Packet rate and unknown traffic on this frequency (ours vs unknown) '
         '— live even while disconnected. Open Channel health.';
@@ -94,7 +93,7 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
           message: tip,
           mouseCursor: SystemMouseCursors.click,
           child: Material(
-            color: Colors.transparent,
+            color: AppColors.fixedTransparent,
             borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
             child: InkWell(
               borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
@@ -124,9 +123,7 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
                           color: textColor,
-                          fontFeatures: const [
-                            FontFeature.tabularFigures(),
-                          ],
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),
@@ -148,9 +145,7 @@ class _LinkStatsButtonState extends ConsumerState<LinkStatsButton> {
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
                           color: textColor,
-                          fontFeatures: const [
-                            FontFeature.tabularFigures(),
-                          ],
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ),

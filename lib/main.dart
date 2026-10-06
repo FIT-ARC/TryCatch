@@ -14,6 +14,7 @@ import './core/app_config.dart';
 import './foundation/app_log.dart';
 import './ui/screens/app_shell.dart';
 import './state/telemetry_provider.dart';
+import './state/theme_mode_provider.dart';
 import './theme/app_colors.dart';
 import './theme/app_theme.dart';
 
@@ -22,11 +23,14 @@ import 'package:serial/serial.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await windowManager.ensureInitialized();
-  await AppThemeMode.instance.load();
 
   // Spawn the background serial worker isolate before the UI starts.
   // The worker begins scanning for ports immediately.
   final worker = await SerialWorker.spawn();
+  final container = ProviderContainer(
+    overrides: [serialWorkerProvider.overrideWithValue(worker)],
+  );
+  await container.read(themeModeProvider.future);
 
   // Heartbeat lease: child isolates survive a hot restart, so a worker
   // whose main dies must release its link instead of squatting on the
@@ -67,13 +71,10 @@ void main() async {
   });
 
   runApp(
-    ProviderScope(
-      overrides: [
-        // Inject the live worker handle into the provider graph.
-        // All providers that depend on serialWorkerProvider will use this instance.
-        serialWorkerProvider.overrideWithValue(worker),
-      ],
+    UncontrolledProviderScope(
+      container: container,
       child: AppLifecycleWrapper(
+        worker: worker,
         // Rebuilds MaterialApp on a dark-mode flip; every AppColors getter
         // resolves the active palette, so the whole tree follows.
         child: ValueListenableBuilder<bool>(
@@ -99,7 +100,8 @@ void main() async {
 
 class AppLifecycleWrapper extends StatefulWidget {
   final Widget child;
-  const AppLifecycleWrapper({super.key, required this.child});
+  final SerialWorker? worker;
+  const AppLifecycleWrapper({super.key, required this.child, this.worker});
 
   @override
   State<AppLifecycleWrapper> createState() => _AppLifecycleWrapperState();
@@ -107,6 +109,18 @@ class AppLifecycleWrapper extends StatefulWidget {
 
 class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
     with WindowListener {
+  Future<void>? _quitting;
+
+  Future<void> _quit() => _quitting ??= () async {
+    try {
+      await widget.worker?.shutdown();
+    } catch (e) {
+      AppLog.warn('Shutdown: $e');
+    }
+    _disposeTray();
+    await windowManager.destroy();
+  }();
+
   /// Held for the app lifetime: garbage collection would release the
   /// native handle and remove the icon. Same for the attached menu.
   tray.TrayIcon? _trayIcon;
@@ -148,15 +162,9 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
   }
 
   Future<void> _initDesktopLifecycle() async {
-    // Dev builds skip the whole hide-to-tray dance: no tray icon is ever
-    // created, and native close quits the process outright (ports freed, no
-    // orphans, no ghosts). Release keeps hide-on-close with a lazily
-    // created icon (see onWindowClose).
-    if (kDebugMode) return;
-    // Intercept native close button clicks so the OS does not kill the
-    // process. The tray icon itself is created lazily on the first hide
-    // (see onWindowClose), never at startup.
     await windowManager.setPreventClose(true);
+    // Every close passes through onWindowClose so debug quit can flush
+    // recordings and release ports. Release close hides to a lazy tray.
   }
 
   /// Ensures the tray icon exists, creating it on first use.
@@ -264,7 +272,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
         quitItem.addListener((event) async {
           if (event is tray.MenuItemClickedEvent) {
             // Destroy bypasses preventClose and exits completely.
-            await windowManager.destroy();
+            await _quit();
           }
         });
         menu.addItem(quitItem);
@@ -315,6 +323,10 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
   // Called whenever the user clicks the window close (X) button
   @override
   void onWindowClose() async {
+    if (kDebugMode) {
+      await _quit();
+      return;
+    }
     // Hide to tray instead of exiting — but only behind a live tray icon
     // that can bring the window back. Hiding with no icon would leave the
     // app running with no visible UI at all, so quit outright instead.
@@ -322,7 +334,7 @@ class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
       if (await _ensureTrayIcon()) {
         await windowManager.hide();
       } else {
-        await windowManager.destroy();
+        await _quit();
       }
     }
   }

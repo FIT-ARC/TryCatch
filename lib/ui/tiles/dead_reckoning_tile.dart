@@ -1,3 +1,5 @@
+import '../../state/connector_provider.dart';
+
 import 'package:dead_reckoning/dead_reckoning.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +7,6 @@ import 'package:serial/serial.dart' show TelemetryField, TelemetryFrame;
 
 import '../../core/format.dart';
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../components/connector_gate.dart';
 import '../../theme/app_colors.dart';
@@ -41,7 +42,7 @@ class DeadReckoningTile extends ConsumerWidget {
     // Dead reckoning is a live-only gap filler — replays show the recorded
     // GPS track as-is (no synthetic estimates). Guard covers custom layouts
     // that still contain this tile; the Replay workspace omits it entirely.
-    if (ref.watch(replayProvider).isActive) {
+    if (ref.watch(replayProvider.select((s) => s.isActive))) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -50,8 +51,7 @@ class DeadReckoningTile extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               'Disabled during replay',
-              style:
-                  TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+              style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
               textAlign: TextAlign.center,
             ),
           ],
@@ -75,8 +75,8 @@ class DeadReckoningTile extends ConsumerWidget {
     }
 
     // Packet loss = the link itself is silent, not just the GPS fix.
-    final linkStale = DateTime.now().millisecondsSinceEpoch -
-            latest.receivedAtMs >
+    final linkStale =
+        DateTime.now().millisecondsSinceEpoch - latest.receivedAtMs >
         TelemetryStore.deadReckoningStaleMs;
 
     if (!linkStale) {
@@ -84,8 +84,11 @@ class DeadReckoningTile extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.satellite_alt_outlined,
-                size: 22, color: AppColors.success),
+            Icon(
+              Icons.satellite_alt_outlined,
+              size: 22,
+              color: AppColors.success,
+            ),
             const SizedBox(height: 8),
             Text(
               'LINK HEALTHY',
@@ -99,8 +102,7 @@ class DeadReckoningTile extends ConsumerWidget {
             const SizedBox(height: 3),
             Text(
               'No packet loss — estimate hidden',
-              style:
-                  TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+              style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
               textAlign: TextAlign.center,
             ),
           ],
@@ -119,14 +121,18 @@ class DeadReckoningTile extends ConsumerWidget {
 
     final drift = site == null
         ? null
-        : haversineDistanceM(site.latitude, site.longitude,
-            deadReckoning.latitude, deadReckoning.longitude);
+        : haversineDistanceM(
+            site.latitude,
+            site.longitude,
+            deadReckoning.latitude,
+            deadReckoning.longitude,
+          );
 
     // Last known GPS position: the newest frame in history carrying a fix
     // (the latest frame itself usually has none — that is why the estimate
     // is showing). The 3D distance from it is what recovery walks.
     TelemetryFrame? lastFix;
-    for (final frame in state.history.newestFirst()) {
+    for (final frame in state.history.toChronological().reversed) {
       if (frame.gpsHasFix) {
         lastFix = frame;
         break;
@@ -145,16 +151,15 @@ class DeadReckoningTile extends ConsumerWidget {
 
     return PositionReadout(
       coords: formatLatLon(deadReckoning.latitude, deadReckoning.longitude),
-      copyText:
-          formatLatLonPlain(deadReckoning.latitude, deadReckoning.longitude),
+      copyText: formatLatLonPlain(
+        deadReckoning.latitude,
+        deadReckoning.longitude,
+      ),
       qrLatitude: deadReckoning.latitude,
       qrLongitude: deadReckoning.longitude,
       qrTitle: 'Dead reckoning',
       details: [
-        (
-          text: 'Altitude ${formatAltitudeM(deadReckoningAlt)}',
-          tooltip: null
-        ),
+        (text: 'Altitude ${formatAltitudeM(deadReckoningAlt)}', tooltip: null),
         if (drift != null)
           (
             text: 'Drift ${formatDistanceM(drift)}',
@@ -164,10 +169,8 @@ class DeadReckoningTile extends ConsumerWidget {
       footer: travelled == null
           ? null
           : (
-              text:
-                  '${formatDistanceM(travelled)} from last known position',
-              tooltip:
-                  '3D distance from the last GPS fix, altitude included',
+              text: '${formatDistanceM(travelled)} from last known position',
+              tooltip: '3D distance from the last GPS fix, altitude included',
             ),
     );
   }

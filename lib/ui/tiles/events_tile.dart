@@ -1,3 +1,5 @@
+import '../../state/connector_provider.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -8,7 +10,6 @@ import 'package:serial/serial.dart' show TelemetryField;
 import '../../core/flight_events.dart';
 import '../../core/format.dart';
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/connector_gate.dart';
@@ -60,8 +61,7 @@ class _EventsTileState extends ConsumerState<EventsTile> {
     // Events derive from FSM transitions — a connector without flight
     // states has no milestones to show.
     final connector = ref.watch(activeConnectorProvider);
-    final unsupported =
-        connector.unsupportedPlaceholder(TelemetryField.fsm);
+    final unsupported = connector.unsupportedPlaceholder(TelemetryField.fsm);
     if (unsupported != null) return unsupported;
 
     if (!replaying && store.history.isEmpty) {

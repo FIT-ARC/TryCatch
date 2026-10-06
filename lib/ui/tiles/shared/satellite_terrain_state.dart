@@ -1,7 +1,8 @@
+import '../../../state/connector_provider.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../state/replay_controller.dart';
-import '../../../state/telemetry_provider.dart';
 import '../../../state/telemetry_store.dart';
 import './flight_scene_builder.dart';
 import './satellite_ground.dart';
@@ -17,7 +18,7 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
     on ConsumerState<T> {
   SatelliteTerrain? _terrain;
 
-  /// Key + progressive stage of [_terrain] (1 outer, 2 +mid, 3 full).
+  /// Key and progressive quality stage of the displayed terrain.
   String? _terrainKey;
   int _terrainStage = 0;
 
@@ -31,9 +32,10 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
   SatelliteTerrain? _meshTerrain;
   String? _meshAnchorKey;
 
-  /// Last imagery attempt (wall clock ms). While imageless, failed attempts
+  /// Last imagery attempt (wall clock ms). Incomplete and failed attempts
   /// back off so a dead network doesn't refire the tile burst every frame.
   int _lastPatchAttemptMs = 0;
+  String? _siteKey;
 
   /// Current terrain, or null while imageless (plain-ground fallback).
   SatelliteTerrain? get terrain => _terrain;
@@ -51,12 +53,18 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
   /// size is already showing (never downgrade warm-cache arrivals, never
   /// show a stale size over a current one — callers check [_requestedKey]).
   void _applyTerrain(String key, SatelliteTerrain terrain, int stage) {
+    if (key == _terrainKey && terrain.quality < (_terrain?.quality ?? 0)) {
+      return;
+    }
     if (!shouldApplyTerrainStage(
-      currentKey: _terrainKey,
-      currentStage: _terrainStage,
-      key: key,
-      stage: stage,
-    )) {
+          currentKey: _terrainKey,
+          currentStage: _terrainStage,
+          key: key,
+          stage: stage,
+        ) &&
+        !(key == _terrainKey &&
+            stage == _terrainStage &&
+            terrain.quality > (_terrain?.quality ?? 0))) {
       return;
     }
     setState(() {
@@ -75,7 +83,7 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
     final now = DateTime.now().millisecondsSinceEpoch;
     // While imageless, back off after a failed attempt instead of refiring
     // the tile burst on every telemetry tick.
-    if (_terrain == null && now - _lastPatchAttemptMs < 15000) return;
+    if (now - _lastPatchAttemptMs < 15000) return;
     _requestedKey = key;
     _lastPatchAttemptMs = now;
     // Progressive: the outer context patch paints first (one stitch), then
@@ -112,7 +120,15 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
         _requestedKey = null;
         return;
       }
-      _applyTerrain(key, terrain, 3);
+      _applyTerrain(
+        key,
+        terrain,
+        3 +
+            (terrain.mid != null ? 1 : 0) +
+            (terrain.pad != null ? 1 : 0) +
+            (terrain.dem != null ? 1 : 0),
+      );
+      if (!terrain.isComplete) _requestedKey = null;
     });
   }
 
@@ -127,9 +143,23 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
   }) {
     final state = ref.watch(telemetryStoreProvider);
     final site = ref.watch(effectiveLaunchSiteProvider);
-    final replay = ref.watch(replayProvider);
+    final replay = ref.watch(replayRenderStateProvider);
     final connector = ref.watch(activeConnectorProvider);
     if (state.latest == null) return null;
+    final siteKey = site == null
+        ? null
+        : '${site.latitude},${site.longitude},${site.altitudeMsl}';
+    if (_siteKey != siteKey) {
+      _siteKey = siteKey;
+      _terrain = null;
+      _terrainKey = null;
+      _terrainStage = 0;
+      _requestedKey = null;
+      _lastPatchAttemptMs = 0;
+      _meshes = null;
+      _meshTerrain = null;
+      _meshAnchorKey = null;
+    }
     // Ground the scene on the terrain height at the pad once elevation is
     // in (same datum the drape uses, so furniture never floats); the
     // configured site before that.
@@ -160,20 +190,22 @@ mixin SatelliteTerrainState<T extends ConsumerStatefulWidget>
       final terrain = _terrain;
       if (terrain != null) {
         cachedTerrainMeshes(
-          terrain,
-          lat0: anchor.lat,
-          lon0: anchor.lon,
-          cosLat0: anchor.cosLat,
-        ).then((meshes) {
-          if (!mounted ||
-              _meshAnchorKey != anchorKey ||
-              !identical(_terrain, terrain)) {
-            return;
-          }
-          setState(() => _meshes = meshes);
-        }).catchError((Object _) {
-          // Keep the plain-ground fallback; a later stage retries.
-        });
+              terrain,
+              lat0: anchor.lat,
+              lon0: anchor.lon,
+              cosLat0: anchor.cosLat,
+            )
+            .then((meshes) {
+              if (!mounted ||
+                  _meshAnchorKey != anchorKey ||
+                  !identical(_terrain, terrain)) {
+                return;
+              }
+              setState(() => _meshes = meshes);
+            })
+            .catchError((Object _) {
+              // Keep the plain-ground fallback; a later stage retries.
+            });
       }
     }
     return (scene: scene, anchor: anchor);

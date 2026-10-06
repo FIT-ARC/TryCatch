@@ -1,8 +1,9 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/connector_gate.dart';
@@ -71,13 +72,13 @@ class BatteryChartTile extends ConsumerWidget {
   double? _dischargeRateMvPerMin(TelemetryState state) {
     final history = state.history;
     if (history.isEmpty) return null;
-    final newest = history[0];
+    final newest = history.newest(0);
     final windowStartMs = newest.receivedAtMs - 60000;
 
     // Newest-first walk: the last frame inside the window is its oldest end.
     TelemetryFrame? oldest;
     for (var i = 0; i < history.length; i++) {
-      final frame = history[i];
+      final frame = history.newest(i);
       if (frame.receivedAtMs < windowStartMs) break;
       oldest = frame;
     }

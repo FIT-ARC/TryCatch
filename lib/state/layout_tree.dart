@@ -10,7 +10,6 @@ library;
 import 'dart:math' as math;
 import 'dart:ui' show Size;
 
-import '../foundation/app_log.dart';
 import '../foundation/ids.dart';
 
 /// Per-tile-type minimum size in logical pixels (from `TileRegistry`).
@@ -33,19 +32,21 @@ sealed class LayoutNode {
     final type = json['type'] as String;
     return switch (type) {
       'split' => SplitNode(
-          id: json['id'] as String?,
-          vertical: json['vertical'] as bool? ?? false,
-          ratio: (json['ratio'] as num?)?.toDouble() ?? 0.5,
-          a: LayoutNode.fromJson(json['a'] as Map<String, dynamic>),
-          b: LayoutNode.fromJson(json['b'] as Map<String, dynamic>),
-        ),
+        id: json['id'] as String?,
+        vertical: json['vertical'] as bool? ?? false,
+        ratio: (json['ratio'] as num?)?.toDouble() ?? 0.5,
+        a: LayoutNode.fromJson(json['a'] as Map<String, dynamic>),
+        b: LayoutNode.fromJson(json['b'] as Map<String, dynamic>),
+      ),
       'leaf' => LeafNode(
-          tileId: json['tileId'] as String,
-          tileType: json['tileType'] as String,
-          settings: (json['settings'] as Map?)
-                  ?.map((k, v) => MapEntry(k.toString(), v.toString())) ??
-              const {},
-        ),
+        tileId: json['tileId'] as String,
+        tileType: json['tileType'] as String,
+        settings:
+            (json['settings'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), v.toString()),
+            ) ??
+            const {},
+      ),
       _ => throw FormatException('Unknown layout node type: $type'),
     };
   }
@@ -74,31 +75,21 @@ class SplitNode extends LayoutNode {
   }) : id = id ?? _nextSplitId();
 
   /// Rebuilds this node with a new ratio (divider drag).
-  SplitNode withRatio(double newRatio) => SplitNode(
-        id: id,
-        vertical: vertical,
-        ratio: newRatio,
-        a: a,
-        b: b,
-      );
+  SplitNode withRatio(double newRatio) =>
+      SplitNode(id: id, vertical: vertical, ratio: newRatio, a: a, b: b);
 
   SplitNode withChildren({LayoutNode? a, LayoutNode? b}) => SplitNode(
-        id: id,
-        vertical: vertical,
-        ratio: ratio,
-        a: a ?? this.a,
-        b: b ?? this.b,
-      );
+    id: id,
+    vertical: vertical,
+    ratio: ratio,
+    a: a ?? this.a,
+    b: b ?? this.b,
+  );
 
   /// Rebuilds this node with the split running along the other axis. The
   /// ratio carries over (it is a fraction of the new extent).
-  SplitNode flipOrientation() => SplitNode(
-        id: id,
-        vertical: !vertical,
-        ratio: ratio,
-        a: a,
-        b: b,
-      );
+  SplitNode flipOrientation() =>
+      SplitNode(id: id, vertical: !vertical, ratio: ratio, a: a, b: b);
 
   @override
   List<LeafNode> get leaves => [...a.leaves, ...b.leaves];
@@ -109,20 +100,24 @@ class SplitNode extends LayoutNode {
     final sb = b.minSize(minOf);
     return vertical
         ? Size(
-            math.max(sa.width, sb.width), sa.height + sb.height + dividerWidth)
+            math.max(sa.width, sb.width),
+            sa.height + sb.height + dividerWidth,
+          )
         : Size(
-            sa.width + sb.width + dividerWidth, math.max(sa.height, sb.height));
+            sa.width + sb.width + dividerWidth,
+            math.max(sa.height, sb.height),
+          );
   }
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': 'split',
-        'id': id,
-        'vertical': vertical,
-        'ratio': ratio,
-        'a': a.toJson(),
-        'b': b.toJson(),
-      };
+    'type': 'split',
+    'id': id,
+    'vertical': vertical,
+    'ratio': ratio,
+    'a': a.toJson(),
+    'b': b.toJson(),
+  };
 }
 
 /// Unique split ids from the shared [Ids] generator.
@@ -145,11 +140,8 @@ class LeafNode extends LayoutNode {
   }) : settings = Map.unmodifiable(settings);
 
   /// Copy with a replaced settings bag.
-  LeafNode withSettings(Map<String, String> settings) => LeafNode(
-        tileId: tileId,
-        tileType: tileType,
-        settings: settings,
-      );
+  LeafNode withSettings(Map<String, String> settings) =>
+      LeafNode(tileId: tileId, tileType: tileType, settings: settings);
 
   @override
   List<LeafNode> get leaves => [this];
@@ -159,11 +151,11 @@ class LeafNode extends LayoutNode {
 
   @override
   Map<String, dynamic> toJson() => {
-        'type': 'leaf',
-        'tileId': tileId,
-        'tileType': tileType,
-        'settings': settings,
-      };
+    'type': 'leaf',
+    'tileId': tileId,
+    'tileType': tileType,
+    'settings': settings,
+  };
 }
 
 /// Visual thickness of the divider between split children.
@@ -212,11 +204,7 @@ class DividerHandle {
 
 /// Lays out the tree inside [bounds], clamping ratios so both sides of every
 /// split keep their minimum sizes.
-LayoutResult layoutTree(
-  LayoutNode root,
-  Rect2 bounds,
-  MinSizeLookup minOf,
-) {
+LayoutResult layoutTree(LayoutNode root, Rect2 bounds, MinSizeLookup minOf) {
   final leafRects = <String, Rect2>{};
   final dividers = <DividerHandle>[];
   _layoutNode(root, bounds, minOf, leafRects, dividers);
@@ -251,30 +239,63 @@ void _layoutNode(
 
   final dividerHit = node.vertical
       ? Rect2(bounds.left, bounds.top + firstExtent, bounds.width, dividerWidth)
-      : Rect2(bounds.left + firstExtent, bounds.top, dividerWidth, bounds.height);
+      : Rect2(
+          bounds.left + firstExtent,
+          bounds.top,
+          dividerWidth,
+          bounds.height,
+        );
 
-  dividers.add(DividerHandle(
-    nodeId: node.id,
-    hitArea: dividerHit,
-    vertical: node.vertical,
-    extent: usable,
-    ratio: ratio,
-  ));
+  dividers.add(
+    DividerHandle(
+      nodeId: node.id,
+      hitArea: dividerHit,
+      vertical: node.vertical,
+      extent: usable,
+      ratio: ratio,
+    ),
+  );
 
   if (node.vertical) {
-    _layoutNode(node.a,
-        Rect2(bounds.left, bounds.top, bounds.width, firstExtent), minOf,
-        leafRects, dividers);
-    _layoutNode(node.b,
-        Rect2(bounds.left, bounds.top + firstExtent + dividerWidth, bounds.width, secondExtent),
-        minOf, leafRects, dividers);
+    _layoutNode(
+      node.a,
+      Rect2(bounds.left, bounds.top, bounds.width, firstExtent),
+      minOf,
+      leafRects,
+      dividers,
+    );
+    _layoutNode(
+      node.b,
+      Rect2(
+        bounds.left,
+        bounds.top + firstExtent + dividerWidth,
+        bounds.width,
+        secondExtent,
+      ),
+      minOf,
+      leafRects,
+      dividers,
+    );
   } else {
-    _layoutNode(node.a,
-        Rect2(bounds.left, bounds.top, firstExtent, bounds.height), minOf,
-        leafRects, dividers);
-    _layoutNode(node.b,
-        Rect2(bounds.left + firstExtent + dividerWidth, bounds.top, secondExtent, bounds.height),
-        minOf, leafRects, dividers);
+    _layoutNode(
+      node.a,
+      Rect2(bounds.left, bounds.top, firstExtent, bounds.height),
+      minOf,
+      leafRects,
+      dividers,
+    );
+    _layoutNode(
+      node.b,
+      Rect2(
+        bounds.left + firstExtent + dividerWidth,
+        bounds.top,
+        secondExtent,
+        bounds.height,
+      ),
+      minOf,
+      leafRects,
+      dividers,
+    );
   }
 }
 
@@ -371,8 +392,10 @@ LayoutNode? flipSplitOrientation(LayoutNode? node, String nodeId) {
     }
   }
   if (best < snapPx) {
-    final ratio =
-        ((rawPos + bestSigned - origin) / pxPerRatio).clamp(0.02, 0.98);
+    final ratio = ((rawPos + bestSigned - origin) / pxPerRatio).clamp(
+      0.02,
+      0.98,
+    );
     return (ratio: ratio, label: 'Aligned');
   }
 
@@ -414,7 +437,10 @@ LayoutNode? flipSplitOrientation(LayoutNode? node, String nodeId) {
   MinSizeLookup minOf,
 ) {
   if (root == null) {
-    return (root: LeafNode(tileId: newTileId, tileType: tileType), tileId: newTileId);
+    return (
+      root: LeafNode(tileId: newTileId, tileType: tileType),
+      tileId: newTileId,
+    );
   }
 
   // Find the largest-area leaf and its parent path.
@@ -442,10 +468,7 @@ LayoutNode? flipSplitOrientation(LayoutNode? node, String nodeId) {
   if (root == null) return null;
   if (!root.leaves.any((l) => l.tileId == tileId)) return null;
   final newLeaf = LeafNode(tileId: newTileId, tileType: tileType);
-  return (
-    root: _splitLeaf(root, tileId, newLeaf, minOf),
-    tileId: newTileId,
-  );
+  return (root: _splitLeaf(root, tileId, newLeaf, minOf), tileId: newTileId);
 }
 
 /// Rough reference bounds used only to rank leaves by area.
@@ -478,11 +501,41 @@ void _collectAreas(
   final secondExtent = usable - firstExtent;
 
   if (node.vertical) {
-    _collectAreas(node.a, Rect2(bounds.left, bounds.top, bounds.width, firstExtent), minOf, out);
-    _collectAreas(node.b, Rect2(bounds.left, bounds.top + firstExtent + dividerWidth, bounds.width, secondExtent), minOf, out);
+    _collectAreas(
+      node.a,
+      Rect2(bounds.left, bounds.top, bounds.width, firstExtent),
+      minOf,
+      out,
+    );
+    _collectAreas(
+      node.b,
+      Rect2(
+        bounds.left,
+        bounds.top + firstExtent + dividerWidth,
+        bounds.width,
+        secondExtent,
+      ),
+      minOf,
+      out,
+    );
   } else {
-    _collectAreas(node.a, Rect2(bounds.left, bounds.top, firstExtent, bounds.height), minOf, out);
-    _collectAreas(node.b, Rect2(bounds.left + firstExtent + dividerWidth, bounds.top, secondExtent, bounds.height), minOf, out);
+    _collectAreas(
+      node.a,
+      Rect2(bounds.left, bounds.top, firstExtent, bounds.height),
+      minOf,
+      out,
+    );
+    _collectAreas(
+      node.b,
+      Rect2(
+        bounds.left + firstExtent + dividerWidth,
+        bounds.top,
+        secondExtent,
+        bounds.height,
+      ),
+      minOf,
+      out,
+    );
   }
 }
 
@@ -562,7 +615,10 @@ LayoutNode? retileLeaf(LayoutNode? root, String tileId, String newType) {
 /// Replaces the settings bag of the leaf with [tileId], keeping its id,
 /// type and position stable.
 LayoutNode? setLeafSettings(
-    LayoutNode? root, String tileId, Map<String, String> settings) {
+  LayoutNode? root,
+  String tileId,
+  Map<String, String> settings,
+) {
   if (root == null) return null;
   if (root is LeafNode) {
     return root.tileId == tileId ? root.withSettings(settings) : root;
@@ -601,15 +657,17 @@ LayoutNode? swapLeaves(LayoutNode? root, String tileId, String otherId) {
     if (node is LeafNode) {
       if (node.tileId == tileId) {
         return LeafNode(
-            tileId: source.tileId,
-            tileType: source.tileType,
-            settings: source.settings);
+          tileId: source.tileId,
+          tileType: source.tileType,
+          settings: source.settings,
+        );
       }
       if (node.tileId == otherId) {
         return LeafNode(
-            tileId: target.tileId,
-            tileType: target.tileType,
-            settings: target.settings);
+          tileId: target.tileId,
+          tileType: target.tileType,
+          settings: target.settings,
+        );
       }
       return node;
     }
@@ -680,8 +738,11 @@ LayoutNode insertBesideLeaf(
 }) {
   if (root is LeafNode) {
     if (root.tileId != targetId) return root;
-    final newLeaf =
-        LeafNode(tileId: newId, tileType: tileType, settings: settings);
+    final newLeaf = LeafNode(
+      tileId: newId,
+      tileType: tileType,
+      settings: settings,
+    );
     final vertical =
         direction == SplitDirection.top || direction == SplitDirection.bottom;
     final newFirst =
@@ -694,11 +755,23 @@ LayoutNode insertBesideLeaf(
     );
   }
   if (root is SplitNode) {
-    final newA = insertBesideLeaf(root.a, targetId, direction, tileType, newId,
-        settings: settings);
+    final newA = insertBesideLeaf(
+      root.a,
+      targetId,
+      direction,
+      tileType,
+      newId,
+      settings: settings,
+    );
     if (!identical(newA, root.a)) return root.withChildren(a: newA);
-    final newB = insertBesideLeaf(root.b, targetId, direction, tileType, newId,
-        settings: settings);
+    final newB = insertBesideLeaf(
+      root.b,
+      targetId,
+      direction,
+      tileType,
+      newId,
+      settings: settings,
+    );
     if (!identical(newB, root.b)) return root.withChildren(b: newB);
   }
   return root;
@@ -724,36 +797,19 @@ LayoutNode moveLeafBeside(
       findSource(n.b);
     }
   }
+
   findSource(root);
   if (source == null) return root;
   final afterRemove = removeLeaf(root, sourceId);
-  if (afterRemove == null) return root; // sole leaf — can't leave the tree empty
+  if (afterRemove == null) {
+    return root; // sole leaf — can't leave the tree empty
+  }
   return insertBesideLeaf(
-    afterRemove, targetId, direction, source!.tileType, source!.tileId,
+    afterRemove,
+    targetId,
+    direction,
+    source!.tileType,
+    source!.tileId,
     settings: source!.settings,
   );
-}
-
-// ── Factory ──────────────────────────────────────────────────────────────────
-
-/// Builds a balanced alternating tree from an ordered tile list — used as
-/// the factory default layout.
-LayoutNode treeFromOrder(List<LeafNode> leaves) {
-  LayoutNode build(List<LeafNode> list, int depth) {
-    if (list.length == 1) return list.single;
-    final mid = (list.length / 2).ceil();
-    // Alternate: even depth → side-by-side, odd depth → stacked.
-    final vertical = depth.isOdd;
-    return SplitNode(
-      vertical: vertical,
-      ratio: 0.5,
-      a: build(list.sublist(0, mid), depth + 1),
-      b: build(list.sublist(mid), depth + 1),
-    );
-  }
-
-  if (leaves.isEmpty) {
-    AppLog.warn('layout_tree: building tree from empty list');
-  }
-  return build(leaves, 0);
 }

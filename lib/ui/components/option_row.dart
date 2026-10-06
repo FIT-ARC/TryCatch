@@ -44,13 +44,12 @@ class OptionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: AppColors.fixedTransparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
         onTap: onTap,
         child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
             border: Border.all(
@@ -61,7 +60,7 @@ class OptionRow extends StatelessWidget {
             ),
             color: selected
                 ? AppColors.primary.withValues(alpha: 0.06)
-                : Colors.transparent,
+                : AppColors.fixedTransparent,
           ),
           child: Row(
             children: [
@@ -72,16 +71,18 @@ class OptionRow extends StatelessWidget {
                   child: Radio<String>(
                     value: radioValue!,
                     visualDensity: VisualDensity.compact,
-                    materialTapTargetSize:
-                        MaterialTapTargetSize.shrinkWrap,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 )
               else
                 SizedBox(
                   width: 24,
                   height: 24,
-                  child: Icon(Icons.flag_outlined,
-                      size: 16, color: AppColors.mutedForeground),
+                  child: Icon(
+                    Icons.flag_outlined,
+                    size: 16,
+                    color: AppColors.mutedForeground,
+                  ),
                 ),
               const SizedBox(width: 4),
               Expanded(
@@ -102,10 +103,12 @@ class OptionRow extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: subtitleStyle ??
+                      style:
+                          subtitleStyle ??
                           TextStyle(
-                              fontSize: 12,
-                              color: AppColors.mutedForeground),
+                            fontSize: 12,
+                            color: AppColors.mutedForeground,
+                          ),
                     ),
                   ],
                 ),
@@ -114,11 +117,7 @@ class OptionRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 Opacity(
                   opacity: selected ? 1.0 : 0.0,
-                  child: Icon(
-                    Icons.check,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
+                  child: Icon(Icons.check, size: 16, color: AppColors.primary),
                 ),
               ],
               ...actions,

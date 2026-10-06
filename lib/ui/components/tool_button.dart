@@ -28,7 +28,8 @@ class ToolFab extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
           side: BorderSide(
-              color: active ? Colors.transparent : AppColors.border),
+            color: active ? AppColors.fixedTransparent : AppColors.border,
+          ),
         ),
         child: InkWell(
           onTap: onTap,
@@ -41,8 +42,9 @@ class ToolFab extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 16,
-                color:
-                    active ? AppColors.primaryForeground : AppColors.foreground,
+                color: active
+                    ? AppColors.primaryForeground
+                    : AppColors.foreground,
               ),
             ),
           ),

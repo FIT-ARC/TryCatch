@@ -78,8 +78,7 @@ class TopBar extends ConsumerWidget {
           if (replaying)
             Expanded(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: PlaybackBar(),
               ),
             )
@@ -119,10 +118,7 @@ class TopBar extends ConsumerWidget {
                     ? _CloseReplayButton()
                     : Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _LiveShareStatus(),
-                          _QuickNav(),
-                        ],
+                        children: [_LiveShareStatus(), _QuickNav()],
                       ),
               ),
             ),
@@ -144,7 +140,7 @@ class _LiveShareStatus extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final enabled =
         ref.watch(bridgeConfigProvider.select((a) => a.value?.enabled)) ??
-            false;
+        false;
     final status = ref.watch(bridgeStatusProvider);
 
     final bool isError = status.error != null;
@@ -163,17 +159,8 @@ class _LiveShareStatus extends ConsumerWidget {
             Stack(
               alignment: Alignment.center,
               children: [
-                Icon(
-                  Icons.satellite_alt_outlined,
-                  size: 15,
-                  color: color,
-                ),
-                if (!isOn)
-                  Icon(
-                    Icons.close,
-                    size: 10,
-                    color: color,
-                  ),
+                Icon(Icons.satellite_alt_outlined, size: 15, color: color),
+                if (!isOn) Icon(Icons.close, size: 10, color: color),
               ],
             ),
             if (isOn || isError) ...[
@@ -211,7 +198,7 @@ class _CloseReplayButton extends ConsumerWidget {
       onPressed: isLoading
           ? null
           : () {
-              ref.read(replayProvider.notifier).stop();
+              ref.read(replayProvider.notifier).clear();
               ref.read(appRouterProvider.notifier).go(AppScreen.flights);
             },
       icon: const Icon(Icons.close),
@@ -260,19 +247,13 @@ class _QuickNav extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (var i = 0; i < _screens.length; i++) ...[
-            if (i > 0)
-              Container(
-                width: 1,
-                height: 18,
-                color: AppColors.border,
-              ),
+            if (i > 0) Container(width: 1, height: 18, color: AppColors.border),
             _NavSegment(
               screen: _screens[i],
               selected: _screens[i] == current,
               first: i == 0,
               last: i == _screens.length - 1,
-              onTap: () =>
-                  ref.read(appRouterProvider.notifier).go(_screens[i]),
+              onTap: () => ref.read(appRouterProvider.notifier).go(_screens[i]),
             ),
           ],
         ],
@@ -315,7 +296,7 @@ class _NavSegment extends StatelessWidget {
                 borderRadius: _segmentRadius(),
                 color: selected
                     ? AppColors.pinkSoft
-                    : Colors.transparent,
+                    : AppColors.fixedTransparent,
               ),
               child: Icon(
                 screen.icon,

@@ -40,8 +40,11 @@ class QrCodeButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-            child: Icon(Icons.qr_code_2,
-                size: 13, color: AppColors.mutedForeground),
+            child: Icon(
+              Icons.qr_code_2,
+              size: 13,
+              color: AppColors.mutedForeground,
+            ),
           ),
         ),
       ),
@@ -73,7 +76,7 @@ Future<void> showCoordinatesQr({
           // refuses — the box answers intrinsics without consulting it.
           // White margin is just the scan-required quiet zone.
           Container(
-            color: Colors.white,
+            color: AppColors.fixedWhite,
             padding: const EdgeInsets.all(4),
             child: SizedBox(
               width: 200,
@@ -83,7 +86,7 @@ Future<void> showCoordinatesQr({
                 version: QrVersions.auto,
                 size: 200,
                 padding: const EdgeInsets.all(4),
-                backgroundColor: Colors.white,
+                backgroundColor: AppColors.fixedWhite,
               ),
             ),
           ),

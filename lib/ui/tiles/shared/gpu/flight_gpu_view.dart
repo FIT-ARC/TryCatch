@@ -2,6 +2,11 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show compute;
+
+import '../../../../core/app_config.dart';
+import '../../../../foundation/async_gate.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_scene/scene.dart' as fs;
 import 'package:vector_math/vector_math.dart' as vm;
@@ -18,41 +23,37 @@ import './terrain_gpu_data.dart';
 
 /// Bottom-right imagery credit for the satellite-ground flight views.
 Widget satelliteAttributionOverlay() => Positioned(
-      right: 4,
-      bottom: 2,
-      child: Text(
-        satelliteAttribution,
-        style: TextStyle(
-          fontSize: 9,
-          color: Colors.black.withValues(alpha: 0.45),
-        ),
-      ),
-    );
+  right: 4,
+  bottom: 2,
+  child: Text(
+    satelliteAttribution,
+    style: TextStyle(
+      fontSize: 9,
+      color: AppColors.fixedBlack.withValues(alpha: 0.45),
+    ),
+  ),
+);
 
 /// Bottom-left hint shown while imagery is fetching or the retained drape
 /// meshes are still building (the tile falls back to the plain grid).
 Widget satelliteLoadingOverlay() => Positioned(
-      left: 8,
-      bottom: 4,
-      child: Text(
-        'Loading imagery…',
-        style: TextStyle(
-          fontSize: 10,
-          letterSpacing: 0.5,
-          color: AppColors.mutedForeground,
-        ),
-      ),
-    );
+  left: 8,
+  bottom: 4,
+  child: Text(
+    'Loading imagery…',
+    style: TextStyle(
+      fontSize: 10,
+      letterSpacing: 0.5,
+      color: AppColors.mutedForeground,
+    ),
+  ),
+);
 
 /// Converts a `vector_math_64` scene vector to the engine's `vector_math`.
 vm.Vector3 toEngineVec(vm64.Vector3 v) => vm.Vector3(v.x, v.y, v.z);
 
 /// Converts a UI color to an engine RGBA vector.
 vm.Vector4 toEngineColor(Color c) => vm.Vector4(c.r, c.g, c.b, c.a);
-
-/// Sun direction used to bake the terrain hillshade (fixed so the drape is
-/// camera-independent).
-final vm.Vector3 terrainSunDir = vm.Vector3(0.45, 0.78, 0.30).normalized();
 
 /// GPU-rendered 3D flight view (Flutter GPU via `flutter_scene`).
 ///
@@ -144,6 +145,7 @@ class _TerrainDrape {
   fs.MeshGeometry? drape;
   Future<fs.Texture2D>? textureFuture;
   fs.Texture2D? texture;
+  Future<void>? meshFuture;
 }
 
 /// GPU terrain resources shared by every flight view. Building the drape
@@ -157,11 +159,12 @@ final Map<SatelliteTerrain, _TerrainDrape> _sharedTerrainDrapes = {};
 /// rebuild the [SatelliteTerrain] around the same patch images, and without
 /// this registry each stage would re-upload the atlas.
 final Map<SatelliteTerrain, Future<fs.Texture2D>> _sharedTextureFutures = {};
+final _textureUploads = AsyncGate(1);
 
 /// Mirror through the world x=0 plane (the launch-site meridian), paired
 /// with the mirrored engine camera in `_engineCamera`.
-final vm.Matrix4 _mirrorTransform =
-    vm.Matrix4.identity()..scaleByDouble(-1.0, 1.0, 1.0, 1.0);
+final vm.Matrix4 _mirrorTransform = vm.Matrix4.identity()
+  ..scaleByDouble(-1.0, 1.0, 1.0, 1.0);
 
 class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
   static const double _rocketScale = 0.8 / 2.15;
@@ -216,8 +219,10 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
     ..alphaMode = fs.AlphaMode.opaque
     ..doubleSided = true
     ..depthBias = 0.1;
-  late final fs.Geometry _shadowDisk =
-      fs.DiscGeometry(radius: 1.2, segments: 32);
+  late final fs.Geometry _shadowDisk = fs.DiscGeometry(
+    radius: 1.2,
+    segments: 32,
+  );
 
   @override
   void initState() {
@@ -227,8 +232,7 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
     // Sun matching the terrain hillshade direction, mirrored into the
     // engine's frame like the camera (see `_engineCamera`).
     _engineScene.directionalLight = fs.DirectionalLight(
-      direction:
-          vm.Vector3(flightSunDir.x, -flightSunDir.y, -flightSunDir.z),
+      direction: vm.Vector3(flightSunDir.x, -flightSunDir.y, -flightSunDir.z),
       intensity: 1.8,
     );
   }
@@ -255,8 +259,12 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
   ({double half, double step}) _gridExtents(FlightScene scene) {
     final gridHalf = math.min(
       10000.0,
-      _niceCeil(math.max(60.0,
-          math.max(scene.gridMaxHoriz * 1.3, scene.gridMaxAlt * 0.6))),
+      _niceCeil(
+        math.max(
+          60.0,
+          math.max(scene.gridMaxHoriz * 1.3, scene.gridMaxAlt * 0.6),
+        ),
+      ),
     );
     final step = _niceCeil(gridHalf / 8);
     final n = (gridHalf / step).ceil();
@@ -265,8 +273,9 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
 
   static double _niceCeil(double v) {
     if (v <= 0) return 1;
-    final mag =
-        math.pow(10, (math.log(v) / math.ln10).floorToDouble()).toDouble();
+    final mag = math
+        .pow(10, (math.log(v) / math.ln10).floorToDouble())
+        .toDouble();
     for (final m in const [1.0, 2.0, 5.0, 10.0]) {
       if (v <= m * mag) return m * mag;
     }
@@ -277,11 +286,13 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
   /// at [dist] metres (camera-facing ribbons are world-space width).
   /// Quantized to powers of 1.5 so zooming rebuilds line geometry rarely.
   double _lineWidthBucket(double dist, {required double px}) {
-    final distBucket =
-        math.pow(1.5, (math.log(dist) / math.log(1.5)).roundToDouble())
-            .toDouble();
-    return (px * 2 * math.tan(flightFovY / 2) * distBucket / 500)
-        .clamp(0.02, 50.0);
+    final distBucket = math
+        .pow(1.5, (math.log(dist) / math.log(1.5)).roundToDouble())
+        .toDouble();
+    return (px * 2 * math.tan(flightFovY / 2) * distBucket / 500).clamp(
+      0.02,
+      50.0,
+    );
   }
 
   /// Rebuilds the grid when the extents or the line-width bucket change. The
@@ -297,11 +308,7 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
         _gridKey!.width == width) {
       return;
     }
-    _gridKey = (
-      half: extents.half,
-      step: extents.step,
-      width: width,
-    );
+    _gridKey = (half: extents.half, step: extents.step, width: width);
     final half = extents.half;
     final step = extents.step;
     final n = (half / step).ceil();
@@ -377,10 +384,12 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
       return;
     }
     _dropLine = fs.LineSegmentsGeometry(
-      fs.LineSegmentData(positions: Float32List.fromList([
-        -anchor.x, anchor.y, anchor.z, //
-        -anchor.x, groundY, anchor.z, //
-      ])),
+      fs.LineSegmentData(
+        positions: Float32List.fromList([
+          -anchor.x, anchor.y, anchor.z, //
+          -anchor.x, groundY, anchor.z, //
+        ]),
+      ),
       width: _lineWidthBucket(camDist, px: 1.2),
     );
   }
@@ -420,6 +429,10 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
       // A failed or interrupted atlas upload leaves the drape untextured;
       // retry on every build until the texture lands.
       final drape = _activeDrape;
+      if (drape != null && drape.source == null && drape.meshFuture == null) {
+        drape.source = meshes;
+        drape.meshFuture = _rebuildDrapeMesh(drape, terrain, meshes);
+      }
       if (drape != null && drape.texture == null) {
         _ensureAtlasTexture(drape, terrain);
       }
@@ -427,26 +440,25 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
     }
     _builtTerrain = terrain;
     _builtMeshSource = meshes;
-    final drape =
-        _sharedTerrainDrapes.putIfAbsent(terrain, _TerrainDrape.new);
+    final drape = _sharedTerrainDrapes.putIfAbsent(terrain, _TerrainDrape.new);
     while (_sharedTerrainDrapes.length > 2) {
       _sharedTerrainDrapes.remove(_sharedTerrainDrapes.keys.first);
     }
     _activeDrape = drape;
     if (!identical(drape.source, meshes)) {
       drape.source = meshes;
-      _rebuildDrapeMesh(drape, terrain, meshes);
+      drape.meshFuture = _rebuildDrapeMesh(drape, terrain, meshes);
     }
     _ensureAtlasTexture(drape, terrain);
   }
 
   /// Builds the combined tier mesh: outer context first, sharp pad last —
   /// the blend order the layered drape needs, baked into the index list.
-  void _rebuildDrapeMesh(
+  Future<void> _rebuildDrapeMesh(
     _TerrainDrape drape,
     SatelliteTerrain terrain,
     TerrainMeshSet meshes,
-  ) {
+  ) async {
     final tiers = <TerrainAtlasTier>[
       TerrainAtlasTier(
         mesh: meshes.outer,
@@ -469,36 +481,48 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
           yOffset: padTierLift,
         ),
     ];
-    final data = buildTerrainAtlasGpuData(tiers: tiers, sunDir: terrainSunDir);
-    drape.drape = fs.MeshGeometry.fromArrays(
-      positions: data.positions,
-      normals: data.normals,
-      texCoords: data.texCoords,
-      colors: data.colors,
-      indices: data.indices,
-    );
+    try {
+      final data = await compute(terrainAtlasInBackground, tiers);
+      await Future<void>.delayed(Duration.zero);
+      if (!identical(drape.source, meshes)) return;
+      drape.drape = fs.MeshGeometry.fromArrays(
+        positions: data.positions,
+        normals: data.normals,
+        texCoords: data.texCoords,
+        colors: data.colors,
+        indices: data.indices,
+      );
+      if (mounted) setState(() {});
+    } catch (_) {
+      drape.source = null;
+      _builtMeshSource = null;
+    } finally {
+      drape.meshFuture = null;
+    }
   }
 
   void _ensureAtlasTexture(_TerrainDrape drape, SatelliteTerrain terrain) {
     if (drape.textureFuture != null || drape.texture != null) return;
     final future = _sharedTextureFutures.putIfAbsent(
       terrain,
-      () => _renderAtlasTexture(terrain),
+      () => _textureUploads.run(() => _renderAtlasTexture(terrain)),
     );
     while (_sharedTextureFutures.length > 4) {
       _sharedTextureFutures.remove(_sharedTextureFutures.keys.first);
     }
     drape.textureFuture = future;
-    future.then((texture) {
-      // Set on the shared drape regardless of this view's mount state, so
-      // views mounting later see the texture.
-      drape.texture = texture;
-      if (mounted) setState(() {});
-    }).catchError((Object _) {
-      // Drop the failed upload so a later build can retry it.
-      _sharedTextureFutures.remove(terrain);
-      drape.textureFuture = null;
-    });
+    future
+        .then((texture) {
+          // Set on the shared drape regardless of this view's mount state, so
+          // views mounting later see the texture.
+          drape.texture = texture;
+          if (mounted) setState(() {});
+        })
+        .catchError((Object _) {
+          // Drop the failed upload so a later build can retry it.
+          _sharedTextureFutures.remove(terrain);
+          drape.textureFuture = null;
+        });
   }
 
   /// Rasterizes the tier images into one vertical atlas and uploads it.
@@ -508,29 +532,38 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
       if (terrain.mid != null) terrain.mid!.image,
       if (terrain.pad != null) terrain.pad!.image,
     ];
-    final width =
-        images.map((i) => i.width).reduce((a, b) => a > b ? a : b);
+    final width = images.map((i) => i.width).reduce((a, b) => a > b ? a : b);
     final height = images.fold(0, (sum, i) => sum + i.height);
+    final output = boundedTerrainAtlasSize(
+      width,
+      height,
+      AppConfig.terrainAtlasMaxPixels,
+    );
+    final outputWidth = output.width;
+    final outputHeight = output.height;
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
+    canvas.scale(outputWidth / width, outputHeight / height);
     var y = 0.0;
     for (final image in images) {
       canvas.drawImageRect(
         image,
-        ui.Rect.fromLTWH(
-            0, 0, image.width.toDouble(), image.height.toDouble()),
+        ui.Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
         ui.Rect.fromLTWH(0, y, image.width.toDouble(), image.height.toDouble()),
         ui.Paint()..filterQuality = ui.FilterQuality.none,
       );
       y += image.height;
     }
     final picture = recorder.endRecording();
-    final atlas = await picture.toImage(width, height);
-    picture.dispose();
+    final ui.Image atlas;
     try {
-      // No mip chain: Texture2D builds it synchronously on the UI isolate,
-      // which stalled the app for seconds on the ~11-megapixel atlas, and
-      // the engine exposes no async upload path.
+      atlas = await picture.toImage(outputWidth, outputHeight);
+    } finally {
+      picture.dispose();
+    }
+    await Future<void>.delayed(Duration.zero);
+    try {
+      // Bound the native upload and avoid synchronous mip generation.
       return await fs.Texture2D.fromImage(
         atlas,
         sampling: const fs.TextureSampling(mipmaps: false),
@@ -543,23 +576,27 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
   /// The scene with the rocket and trail clamped onto the DEM surface, plus
   /// the terrain height under the rocket.
   ({FlightScene display, double surfaceY, double under}) _displayScene(
-      FlightScene scene, FlightAnchor? anchor, ElevationGrid? dem) {
+    FlightScene scene,
+    FlightAnchor? anchor,
+    ElevationGrid? dem,
+  ) {
     if (dem == null || anchor == null) {
       return (display: scene, surfaceY: 0, under: 0);
     }
     double surfaceAt(vm64.Vector3 p) => terrainSurfaceY(
-          dem,
-          eastM: p.x,
-          southM: p.z,
-          lat0: anchor.lat,
-          lon0: anchor.lon,
-          cosLat0: anchor.cosLat,
-        );
+      dem,
+      eastM: p.x,
+      southM: p.z,
+      lat0: anchor.lat,
+      lon0: anchor.lon,
+      cosLat0: anchor.cosLat,
+    );
     final reported = scene.rocketPos;
     final surfaceY = surfaceAt(reported);
     final under = surfaceY - reported.y;
-    final clampedPos =
-        under > 0 ? vm64.Vector3(reported.x, surfaceY, reported.z) : reported;
+    final clampedPos = under > 0
+        ? vm64.Vector3(reported.x, surfaceY, reported.z)
+        : reported;
     final clampedTrail = <vm64.Vector3>[];
     for (final p in scene.trail) {
       final s = surfaceAt(p);
@@ -604,12 +641,12 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
 
   /// CG-anchored rocket position (the painter's `cgAnchorPos`).
   vm64.Vector3 _cgAnchor(FlightScene scene, double groundY) => cgAnchorPos(
-        rocketPos: scene.rocketPos,
-        pitchDeg: scene.pitchDeg,
-        yawDeg: scene.yawDeg,
-        scale: _rocketScale,
-        groundY: groundY,
-      );
+    rocketPos: scene.rocketPos,
+    pitchDeg: scene.pitchDeg,
+    yawDeg: scene.yawDeg,
+    scale: _rocketScale,
+    groundY: groundY,
+  );
 
   vm.Matrix4 _rocketTransform(FlightScene scene, vm64.Vector3 anchor) {
     final m = RocketMesh.orientationMatrix(
@@ -618,7 +655,8 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
       rollDeg: scene.rollDeg,
       scale: _rocketScale,
     );
-    final pivot = vm64.Matrix4.translation(anchor) *
+    final pivot =
+        vm64.Matrix4.translation(anchor) *
         vm64.Matrix4.fromList(m.storage) *
         vm64.Matrix4.translation(vm64.Vector3(0, -RocketMesh.cgY, 0));
     return vm.Matrix4.fromList(pivot.storage);
@@ -679,8 +717,9 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
         // ground point under the target for the grid (the rocket can ride
         // far above it), the target distance for the flight lines.
         final meshAnchor = _cgAnchor(scene, display.surfaceY);
-        final gridDist = clamped.eye
-            .distanceTo(vm64.Vector3(clamped.target.x, 0, clamped.target.z));
+        final gridDist = clamped.eye.distanceTo(
+          vm64.Vector3(clamped.target.x, 0, clamped.target.z),
+        );
         final camDist = clamped.eye.distanceTo(clamped.target);
         if (!hasTerrain) _ensureGrid(scene, gridDist);
         _ensureTrailLines(scene, camDist);
@@ -709,14 +748,15 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
             ),
           if (showShadow)
             fs.SceneNode(
-              transform: vm.Matrix4.translation(vm.Vector3(
-                scene.rocketPos.x,
-                display.surfaceY + 0.05,
-                scene.rocketPos.z,
-              )),
+              transform: vm.Matrix4.translation(
+                vm.Vector3(
+                  scene.rocketPos.x,
+                  display.surfaceY + 0.05,
+                  scene.rocketPos.z,
+                ),
+              ),
               children: [
-                fs.SceneMesh(
-                    geometry: _shadowDisk, material: _shadowMaterial),
+                fs.SceneMesh(geometry: _shadowDisk, material: _shadowMaterial),
               ],
             ),
           if (widget.showAirframe && _airframe != null)
@@ -777,9 +817,8 @@ class _EngineFlightGpuViewState extends State<_EngineFlightGpuView> {
   }
 
   fs.Material _drapeMaterial(_TerrainDrape drape) {
-    final material = fs.UnlitMaterial(
-      colorTexture: drape.texture,
-    )..alphaMode = fs.AlphaMode.blend;
+    final material = fs.UnlitMaterial(colorTexture: drape.texture)
+      ..alphaMode = fs.AlphaMode.blend;
     return material;
   }
 }
@@ -809,13 +848,7 @@ class _MarkerOverlayPainter extends CustomPainter {
     // every mark inside the view bounds.
     canvas.clipRect(Offset.zero & size);
     paintLaunchSite(canvas, scene, cam.vp, size);
-    paintDeadReckoning(
-      canvas,
-      scene,
-      cam.vp,
-      size,
-      anchorOverride: anchor,
-    );
+    paintDeadReckoning(canvas, scene, cam.vp, size, anchorOverride: anchor);
     if (under > 0.05) {
       paintUnderGroundLabel(
         canvas,

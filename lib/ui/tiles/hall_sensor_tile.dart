@@ -1,8 +1,9 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/connector_gate.dart';
@@ -22,7 +23,7 @@ class HallSensorTile extends ConsumerWidget {
         .watch(activeConnectorProvider)
         .unsupportedPlaceholder(TelemetryField.hall);
     if (unsupported != null) return unsupported;
-    final latest = ref.watch(telemetryStoreProvider).latest;
+    final latest = ref.watch(telemetryStoreProvider.select((s) => s.latest));
 
     final raw = latest?.hallRaw ?? 0;
     final triggered = raw >= triggeredThreshold;

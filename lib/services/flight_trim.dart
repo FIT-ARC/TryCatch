@@ -64,15 +64,20 @@ Future<int> trimRecording({
     await writeRecordingFile(
       dstPath,
       RecordingHeader(
-        payloadLength: connectorById(srcConnectorId)?.framingPayloadLength ??
+        payloadLength:
+            connectorById(srcConnectorId)?.framingPayloadLength ??
             TelemetryFraming.payloadLength,
         connectorId: srcConnectorId,
       ),
       kept,
       commands: commands,
     );
-    await finalizeRecordingFile(dstPath,
-        launch: srcLaunch, connectorId: srcConnectorId, commands: commands);
+    await finalizeRecordingFile(
+      dstPath,
+      launch: srcLaunch,
+      connectorId: srcConnectorId,
+      commands: commands,
+    );
   } catch (_) {
     try {
       await File(dstPath).delete();
@@ -107,8 +112,7 @@ class DecodedFlight {
 /// empty flight — callers keep whatever preview they already have.
 Future<DecodedFlight> decodeRecordingFrames(String path) async {
   final header = await tryReadRecordingHeader(path);
-  final connector =
-      header == null ? null : connectorById(header.connectorId);
+  final connector = header == null ? null : connectorById(header.connectorId);
   if (connector == null) {
     return const DecodedFlight([]);
   }
@@ -118,16 +122,16 @@ Future<DecodedFlight> decodeRecordingFrames(String path) async {
   for (final chunk in chunks) {
     frames.addAll(parser.feed(chunk.payload, timestampMs: chunk.tsMs));
   }
-  return frames.isNotEmpty
-      ? DecodedFlight(frames)
-      : const DecodedFlight([]);
+  return frames.isNotEmpty ? DecodedFlight(frames) : const DecodedFlight([]);
 }
 
 /// [decodeRecordingFrames] for a recording held in memory (bundled asset):
 /// same connector-driven reassembly, no file on disk.
 Future<DecodedFlight> decodeRecordingFramesFromBytes(Uint8List bytes) async {
   final data = decodeRecordingBytes(bytes);
-  final connector = data == null ? null : connectorById(data.header.connectorId);
+  final connector = data == null
+      ? null
+      : connectorById(data.header.connectorId);
   if (data == null || connector == null) {
     return const DecodedFlight([]);
   }
@@ -136,9 +140,7 @@ Future<DecodedFlight> decodeRecordingFramesFromBytes(Uint8List bytes) async {
   for (final chunk in data.chunks) {
     frames.addAll(parser.feed(chunk.payload, timestampMs: chunk.tsMs));
   }
-  return frames.isNotEmpty
-      ? DecodedFlight(frames)
-      : const DecodedFlight([]);
+  return frames.isNotEmpty ? DecodedFlight(frames) : const DecodedFlight([]);
 }
 
 /// One decimated altitude sample: barometric altitude at [timeMs], a
@@ -169,9 +171,9 @@ List<AltitudePoint> buildAltProfile(List<TelemetryFrame> frames) {
   if (frames.isEmpty) return const [];
   final t0 = frames.first.receivedAtMs;
   List<AltitudePoint> tagged(Iterable<TelemetryFrame> source) => [
-        for (final frame in source)
-          AltitudePoint(frame.receivedAtMs - t0, frame.baroAltitude),
-      ];
+    for (final frame in source)
+      AltitudePoint(frame.receivedAtMs - t0, frame.baroAltitude),
+  ];
   if (frames.length <= maxAltProfilePoints) return tagged(frames);
   final spanMs = frames.last.receivedAtMs - t0;
   final bucketMs = math.max(1, spanMs ~/ (maxAltProfilePoints ~/ 2));
@@ -192,11 +194,10 @@ List<AltitudePoint> buildAltProfile(List<TelemetryFrame> frames) {
 List<TrackPoint> buildTrackProfile(List<TelemetryFrame> frames) {
   final fixes = [
     for (final f in frames)
-      if (f.gpsHasFix) TrackPoint(lat: f.latitude, lon: f.longitude, alt: f.baroAltitude),
+      if (f.gpsHasFix)
+        TrackPoint(lat: f.latitude, lon: f.longitude, alt: f.baroAltitude),
   ];
-  if (fixes.length > 160) {
-    final step = fixes.length / 160;
-    return [for (var i = 0; i < 160; i++) fixes[(i * step).floor()]];
-  }
-  return fixes;
+  return [
+    for (final index in strideStableIndices(fixes.length, 160)) fixes[index],
+  ];
 }

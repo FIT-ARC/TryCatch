@@ -1,8 +1,9 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
@@ -34,7 +35,7 @@ class _Flight3dWidgetState extends ConsumerState<Flight3dTile>
   Widget build(BuildContext context) {
     final state = ref.watch(telemetryStoreProvider);
     final site = ref.watch(effectiveLaunchSiteProvider);
-    final replay = ref.watch(replayProvider);
+    final replay = ref.watch(replayRenderStateProvider);
     final latest = state.latest;
     final camera = ref.watch(orbitCameraProvider);
 

@@ -1,3 +1,5 @@
+import 'connector_provider.dart';
+
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,18 +31,23 @@ abstract final class RecordingService {
         '${_twoDigits(now.hour)}-${_twoDigits(now.minute)}-${_twoDigits(now.second)}';
 
     final dirPath = await getRecordingsDirectory();
-    final filePath = '$dirPath${Platform.pathSeparator}telemetry_$timestamp.bin';
+    final filePath =
+        '$dirPath${Platform.pathSeparator}telemetry_${timestamp}_${now.microsecondsSinceEpoch}.bin';
 
-    ref.read(serialWorkerProvider).send(StartRecordingCommand(
-          filePath: filePath,
-          launch: LaunchRef(
-            latitude: site.latitude,
-            longitude: site.longitude,
-            mslM: site.altitudeMsl,
-            name: site.name,
+    ref
+        .read(serialWorkerProvider)
+        .send(
+          StartRecordingCommand(
+            filePath: filePath,
+            launch: LaunchRef(
+              latitude: site.latitude,
+              longitude: site.longitude,
+              mslM: site.altitudeMsl,
+              name: site.name,
+            ),
+            connectorId: connectorId,
           ),
-          connectorId: connectorId,
-        ));
+        );
   }
 
   /// Stops the active recording session.

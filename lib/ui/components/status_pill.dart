@@ -33,7 +33,9 @@ class StatusPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       alignment: height == null ? null : Alignment.center,
       decoration: BoxDecoration(
-        color: outlined ? Colors.transparent : color.withValues(alpha: 0.1),
+        color: outlined
+            ? AppColors.fixedTransparent
+            : color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: outlined

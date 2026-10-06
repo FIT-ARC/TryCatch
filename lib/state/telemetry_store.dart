@@ -1,3 +1,6 @@
+import 'connector_provider.dart';
+import '../core/flight_peaks.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +9,7 @@ import 'package:serial/serial.dart';
 import 'package:dead_reckoning/dead_reckoning.dart';
 
 import '../foundation/store.dart';
+import '../foundation/time/time_series.dart';
 import '../core/app_config.dart';
 import '../core/dead_reckoning_adapter.dart';
 import '../core/flight_stats.dart' as stats;
@@ -18,6 +22,16 @@ import './telemetry_provider.dart';
 /// ring buffers — they always reflect the newest data without any copying,
 /// so tiles can iterate them freely on every build.
 class TelemetryState {
+  final FlightPeaks? sessionPeaks;
+  FlightPeaks get peaks => sessionPeaks ?? FlightPeaks.scan(history);
+  final double? sessionMaxAltitude;
+  final double? sessionMaxSpeed;
+  final double? sessionMaxAccel;
+  final int? sessionStartMs;
+
+  /// Changes whenever either retained history is updated or cleared.
+  final int revision;
+
   /// Most recently decoded frame, or `null` before the first packet.
   final TelemetryFrame? latest;
 
@@ -25,18 +39,14 @@ class TelemetryState {
   final DeadReckoningPosition? deadReckoning;
 
   /// Dead reckoning history (chronological, bounded).
-  final RingBuffer<DeadReckoningPosition> deadReckoningHistory;
+  final TimeSeries<DeadReckoningPosition> deadReckoningHistory;
 
   /// Capped flight history (chronological, bounded).
-  final RingBuffer<TelemetryFrame> history;
+  final TimeSeries<TelemetryFrame> history;
 
   /// Total frames ingested this session (pre-decoded by the connector;
   /// corrupt wire frames never reach the store).
   final int packetCount;
-
-  /// Reserved: decode failures counted here before connectors owned parsing
-  /// (kept so persisted/test-constructed states keep compiling).
-  final int errorCount;
 
   /// Human-readable data source ('COM3', 'MOCK', recording file name...).
   final String sourceName;
@@ -45,29 +55,40 @@ class TelemetryState {
   final bool replaying;
 
   TelemetryState({
-    required this.history,
-    required this.deadReckoningHistory,
+    required Iterable<TelemetryFrame> history,
+    required Iterable<DeadReckoningPosition> deadReckoningHistory,
     this.latest,
     this.deadReckoning,
     this.packetCount = 0,
-    this.errorCount = 0,
     this.sourceName = '',
     this.replaying = false,
-  });
+    this.sessionMaxAltitude,
+    this.sessionMaxSpeed,
+    this.sessionMaxAccel,
+    this.sessionStartMs,
+    this.revision = 0,
+    this.sessionPeaks,
+  }) : history = TimeSeriesView(history, (frame) => frame.receivedAtMs),
+       deadReckoningHistory = TimeSeriesView(
+         deadReckoningHistory,
+         (position) => position.atMs,
+       );
 
   /// Maximum barometric altitude reached so far (m AGL).
   double get maxAltitude =>
+      sessionMaxAltitude ??
       stats.maxBaroAltitude(history, latest?.baroAltitude ?? 0.0);
 
   /// Maximum total speed reached so far (m/s).
-  double get maxSpeed => stats.maxTotalSpeed(history);
+  double get maxSpeed => sessionMaxSpeed ?? stats.maxTotalSpeed(history);
 
   /// Maximum total acceleration reached so far (m/s²).
-  double get maxAccel => stats.maxTotalAccel(history);
+  double get maxAccel => sessionMaxAccel ?? stats.maxTotalAccel(history);
 
   /// `receivedAtMs` of the first frame in history, or `null` when empty.
   int? get firstPacketMs =>
-      history.isEmpty ? null : history.getChronological(0).receivedAtMs;
+      sessionStartMs ??
+      (history.isEmpty ? null : history.oldest(0).receivedAtMs);
 
   /// Elapsed session time (ms) since the first packet.
   int? get elapsedMs => firstPacketMs == null || latest == null
@@ -81,8 +102,9 @@ class TelemetryState {
 ///
 /// Tiles watch [telemetryStoreProvider]; replay code calls [ingest]
 /// directly. Live streaming starts automatically via the stream subscription.
-final telemetryStoreProvider =
-    NotifierProvider<TelemetryStore, TelemetryState>(TelemetryStore.new);
+final telemetryStoreProvider = NotifierProvider<TelemetryStore, TelemetryState>(
+  TelemetryStore.new,
+);
 
 class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   static const int _historyCapacity = AppConfig.telemetryHistoryCapacity;
@@ -111,15 +133,24 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
 
   /// Frame time of the last point pushed to the dead reckoning history.
   int _lastDeadReckoningMs = 0;
+  double _maxAltitude = 0;
+  double _maxSpeed = 0;
+  double _maxAccel = 0;
+  int? _startMs;
+  int _revision = 0;
+  FlightPeaks _peaks = FlightPeaks.empty;
+
+  void _trackSession(TelemetryFrame frame) {
+    _peaks = _peaks.add(frame);
+    _startMs ??= frame.receivedAtMs;
+    if (frame.baroAltitude > _maxAltitude) _maxAltitude = frame.baroAltitude;
+    if (frame.speedTotal > _maxSpeed) _maxSpeed = frame.speedTotal;
+    if (frame.accelTotal > _maxAccel) _maxAccel = frame.accelTotal;
+    _revision++;
+  }
 
   /// Ground-side extrapolation timer while the link itself is silent.
   Timer? _deadReckoningTicker;
-
-  /// Throttle: rebuild the exposed state at most this often (history-heavy
-  /// tiles otherwise rebuild on every one of the 10 Hz packets).
-  static const int _minNotifyIntervalMs = AppConfig.minNotifyIntervalMs;
-  int _lastNotifyMs = 0;
-  bool _pendingNotify = false;
 
   @override
   TelemetryState build() {
@@ -147,7 +178,7 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
       if (state.replaying) return;
       final prevId = previous?.value ?? defaultConnectorId;
       final nextId = next.value ?? defaultConnectorId;
-      if (prevId != nextId) reset();
+      if (prevId != nextId) clear();
     });
 
     // Clear the flight when the connection drops or the port changes.
@@ -158,7 +189,7 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
             name.isNotEmpty &&
             name != state.sourceName &&
             !state.replaying) {
-          reset(sourceName: name);
+          clear(sourceName: name);
         }
       });
     });
@@ -177,13 +208,13 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   /// Ingests one internal frame (live or replay). Frames arrive pre-decoded
   /// by the active connector.
   void ingest(TelemetryFrame frame, {String? sourceName}) {
+    _trackSession(frame);
     _history.push(frame);
     // Dead reckoning is a live-only gap filler — replays show the recorded
     // GPS track as-is (no synthetic estimates).
     DeadReckoningPosition? deadReckoning;
     if (!state.replaying) {
-      final packet = _lastPacket =
-          deadReckoningSampleFromFrame(frame);
+      final packet = _lastPacket = deadReckoningSampleFromFrame(frame);
       if (frame.gpsHasFix) _lastFixMs = frame.receivedAtMs;
       deadReckoning = projectDeadReckoning(last: packet, elapsedS: 0);
       if (_shouldPushDeadReckoning(frame.receivedAtMs)) {
@@ -228,6 +259,7 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     }
     TelemetryFrame? last;
     for (final frame in frames) {
+      _trackSession(frame);
       _history.push(frame);
       last = frame;
     }
@@ -256,9 +288,11 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
   void _ensureDeadReckoningTicker() {
     if (_deadReckoningTicker != null) return;
     _deadReckoningTicker = Timer.periodic(
-        Duration(milliseconds: deadReckoningUpdateIntervalMs), (_) {
-      _extrapolateDeadReckoning();
-    });
+      Duration(milliseconds: deadReckoningUpdateIntervalMs),
+      (_) {
+        _extrapolateDeadReckoning();
+      },
+    );
   }
 
   void _extrapolateDeadReckoning() {
@@ -279,17 +313,20 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
       return;
     }
     _deadReckoningHistory.push(deadReckoning);
+    _revision++;
     _lastDeadReckoningMs = deadReckoning.atMs;
     _rebuildState();
   }
 
   /// Clears the flight (new connection, new replay...). Drops history, the
   /// last packet, DR history and ticker; keeps the replaying flag.
-  /// Disk untouched. Use [reset] only during migration.
+  /// Disk untouched.
   @override
-  void clear() => reset();
-
-  void reset({String? sourceName}) {
+  void clear({String? sourceName}) {
+    _peaks = FlightPeaks.empty;
+    _maxAltitude = _maxSpeed = _maxAccel = 0;
+    _startMs = null;
+    _revision++;
     _history.clear();
     _deadReckoningHistory.clear();
     _lastPacket = null;
@@ -297,43 +334,20 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     _lastDeadReckoningMs = 0;
     _deadReckoningTicker?.cancel();
     _deadReckoningTicker = null;
-    _lastNotifyMs = 0;
     state = TelemetryState(
       history: _history,
       deadReckoningHistory: _deadReckoningHistory,
       sourceName: sourceName ?? '',
       replaying: state.replaying,
+      revision: _revision,
     );
   }
 
   /// Marks whether the current data is a replay.
   void setReplaying(bool replaying) {
     if (state.replaying == replaying) return;
-    reset(sourceName: replaying ? state.sourceName : '');
+    clear(sourceName: replaying ? state.sourceName : '');
     state = _copyWithCurrent(replaying: replaying);
-  }
-
-  /// Schedules a throttled state rebuild for high-frequency update paths.
-  ///
-  /// Used by replay clocks that push hundreds of frames per second: state is
-  /// exposed to the UI at most every [_minNotifyIntervalMs] but the internal
-  /// history is always up to date.
-  void notifyThrottled() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastNotifyMs >= _minNotifyIntervalMs) {
-      _lastNotifyMs = now;
-      _pendingNotify = false;
-      _rebuildState();
-      return;
-    }
-    if (_pendingNotify) return;
-    _pendingNotify = true;
-    Future.delayed(Duration(milliseconds: _minNotifyIntervalMs), () {
-      if (!_pendingNotify) return;
-      _pendingNotify = false;
-      _lastNotifyMs = DateTime.now().millisecondsSinceEpoch;
-      _rebuildState();
-    });
   }
 
   /// Rebuilds the state object so tiles watching the provider repaint from
@@ -351,7 +365,7 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
               last: last,
               elapsedS:
                   (DateTime.now().millisecondsSinceEpoch - last.receivedAtMs) /
-                      1000,
+                  1000,
             ),
     );
   }
@@ -362,7 +376,6 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
     DeadReckoningPosition? deadReckoning,
     bool clearDeadReckoning = false,
     int? packetCount,
-    int? errorCount,
     String? sourceName,
     bool? replaying,
   }) {
@@ -370,12 +383,18 @@ class TelemetryStore extends SessionStore<TelemetryState> with StoreTicker {
       history: _history,
       deadReckoningHistory: _deadReckoningHistory,
       latest: latest ?? state.latest,
-      deadReckoning:
-          clearDeadReckoning ? null : (deadReckoning ?? state.deadReckoning),
+      deadReckoning: clearDeadReckoning
+          ? null
+          : (deadReckoning ?? state.deadReckoning),
       packetCount: packetCount ?? state.packetCount,
-      errorCount: errorCount ?? state.errorCount,
       sourceName: sourceName ?? state.sourceName,
       replaying: replaying ?? state.replaying,
+      sessionPeaks: _peaks,
+      sessionMaxAltitude: _maxAltitude,
+      sessionMaxSpeed: _maxSpeed,
+      sessionMaxAccel: _maxAccel,
+      sessionStartMs: _startMs,
+      revision: _revision,
     );
   }
 }

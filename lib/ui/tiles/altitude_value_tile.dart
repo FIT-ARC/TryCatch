@@ -1,9 +1,10 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../core/format.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/centered_stat.dart';
@@ -20,7 +21,7 @@ class AltitudeValueTile extends ConsumerWidget {
         .watch(activeConnectorProvider)
         .unsupportedPlaceholder(TelemetryField.baroAltitude);
     if (unsupported != null) return unsupported;
-    final latest = ref.watch(telemetryStoreProvider).latest;
+    final latest = ref.watch(telemetryStoreProvider.select((s) => s.latest));
     if (latest == null) {
       return const Center(child: WaitingForData(compact: true));
     }

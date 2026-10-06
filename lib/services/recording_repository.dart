@@ -1,10 +1,12 @@
 import 'dart:typed_data';
+import 'dart:isolate';
 
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:serial/serial.dart';
 
 import '../core/channel_health.dart';
 import './flight_trim.dart';
+import '../foundation/async_gate.dart';
 
 /// Single owner of recording file I/O + decode (layer 3 service).
 ///
@@ -17,6 +19,8 @@ import './flight_trim.dart';
 /// and read-only bundled assets under `assets/recordings/`. Assets are
 /// decoded from bytes in memory and never copied to disk.
 abstract final class RecordingRepository {
+  static final _decodes = AsyncGate(2);
+
   /// Loads a recording in a single pass: header + chunks are read once,
   /// then frames/profile are derived in memory. The trailing
   /// command log is loaded alongside (empty for command-free files).
@@ -24,7 +28,10 @@ abstract final class RecordingRepository {
   /// The header's [RecordingHeader.connectorId] selects the connector that
   /// decodes the chunk stream; unknown connector ids yield `null` (the
   /// recording needs a connector this build doesn't ship).
-  static Future<LoadedRecording?> loadReplay(String path) async {
+  static Future<LoadedRecording?> loadReplay(String path) =>
+      _decodes.run(() => Isolate.run(() => _loadReplay(path)));
+
+  static Future<LoadedRecording?> _loadReplay(String path) async {
     final header = await tryReadRecordingHeader(path);
     if (header == null) return null;
     final connector = connectorById(header.connectorId);
@@ -38,7 +45,12 @@ abstract final class RecordingRepository {
 
   /// [loadReplay] for a bundled asset (bytes in memory, never on disk).
   static Future<LoadedRecording?> loadReplayFromAsset(String assetKey) async {
-    final data = decodeRecordingBytes(await readAssetBytes(assetKey));
+    final bytes = await readAssetBytes(assetKey);
+    return _decodes.run(() => Isolate.run(() => _decodeAsset(bytes)));
+  }
+
+  static LoadedRecording? _decodeAsset(Uint8List bytes) {
+    final data = decodeRecordingBytes(bytes);
     if (data == null) return null;
     final connector = connectorById(data.header.connectorId);
     if (connector == null || data.header.launchRef == null) return null;
@@ -47,11 +59,15 @@ abstract final class RecordingRepository {
 
   /// Preview decode for cards/dialogs/lab (reuses `flight_trim` logic).
   static Future<DecodedFlight> decodePreview(String path) =>
-      decodeRecordingFrames(path);
+      _decodes.run(() => Isolate.run(() => decodeRecordingFrames(path)));
 
   /// [decodePreview] for a bundled asset (bytes in memory, never on disk).
-  static Future<DecodedFlight> decodePreviewFromAsset(String assetKey) async =>
-      decodeRecordingFramesFromBytes(await readAssetBytes(assetKey));
+  static Future<DecodedFlight> decodePreviewFromAsset(String assetKey) async {
+    final bytes = await readAssetBytes(assetKey);
+    return _decodes.run(
+      () => Isolate.run(() => decodeRecordingFramesFromBytes(bytes)),
+    );
+  }
 
   /// Raw bytes of a bundled recording asset.
   static Future<Uint8List> readAssetBytes(String assetKey) async {
@@ -66,7 +82,9 @@ abstract final class RecordingRepository {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
       return manifest
           .listAssets()
-          .where((a) => a.startsWith('assets/recordings/') && a.endsWith('.bin'))
+          .where(
+            (a) => a.startsWith('assets/recordings/') && a.endsWith('.bin'),
+          )
           .toList()
         ..sort();
     } catch (_) {
@@ -81,17 +99,18 @@ abstract final class RecordingRepository {
     List<SentCommand> commands,
   ) {
     if (chunks.isEmpty) return null;
-    final parser = connector.createParser();
     final frames = <TelemetryFrame>[];
-    for (final chunk in chunks) {
-      frames.addAll(parser.feed(chunk.payload, timestampMs: chunk.tsMs));
-    }
+    final profile = buildChannelProfile(
+      chunks,
+      connector: connector,
+      onFrames: frames.addAll,
+    );
     if (frames.isEmpty) return null;
     return LoadedRecording(
       header: header,
       connector: connector,
       frames: frames,
-      channelProfile: buildChannelProfile(chunks, connector: connector),
+      channelProfile: profile,
       commands: commands,
     );
   }

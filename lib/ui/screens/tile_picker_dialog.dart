@@ -60,9 +60,11 @@ class _TilePickerDialogState extends ConsumerState<_TilePickerDialog> {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return TileRegistry.all;
     return TileRegistry.all
-        .where((t) =>
-            t.title.toLowerCase().contains(q) ||
-            t.description.toLowerCase().contains(q))
+        .where(
+          (t) =>
+              t.title.toLowerCase().contains(q) ||
+              t.description.toLowerCase().contains(q),
+        )
         .toList();
   }
 
@@ -117,10 +119,7 @@ class _TilePickerDialogState extends ConsumerState<_TilePickerDialog> {
         ),
         serialStatusProvider.overrideWith(
           (ref) => Stream.value(
-            const SerialWorkerStatus(
-              isConnected: true,
-              connectedPort: 'DEMO',
-            ),
+            const SerialWorkerStatus(isConnected: true, connectedPort: 'DEMO'),
           ),
         ),
       ],
@@ -130,99 +129,104 @@ class _TilePickerDialogState extends ConsumerState<_TilePickerDialog> {
           borderRadius: BorderRadius.circular(AppDimens.radius),
         ),
         child: ConstrainedBox(
-          constraints:
-              BoxConstraints(maxWidth: dialogWidth, maxHeight: dialogHeight),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // ── Header ──────────────────────────────────────────────────────
-                  Row(
-                    children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: AppColors.pink,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _title.toUpperCase(),
-                          style: AppText.microLabel,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        iconSize: 18,
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon:
-                            Icon(Icons.close, color: AppColors.mutedForeground),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  // ── Search ──────────────────────────────────────────────────────
-                  TextField(
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Search tiles…',
-                      prefixIcon: Icon(
-                        Icons.search,
-                        size: 18,
-                        color: AppColors.mutedForeground,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      isDense: true,
-                      filled: true,
-                      fillColor: AppColors.muted,
-                      border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppDimens.radiusSmall),
-                        borderSide: BorderSide(color: AppColors.border),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppDimens.radiusSmall),
-                        borderSide: BorderSide(color: AppColors.border),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(AppDimens.radiusSmall),
-                        borderSide: BorderSide(color: AppColors.primary),
+          constraints: BoxConstraints(
+            maxWidth: dialogWidth,
+            maxHeight: dialogHeight,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Header ──────────────────────────────────────────────────────
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: AppColors.pink,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    onChanged: (v) => setState(() => _query = v),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _title.toUpperCase(),
+                        style: AppText.microLabel,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      iconSize: 18,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close, color: AppColors.mutedForeground),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // ── Search ──────────────────────────────────────────────────────
+                TextField(
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Search tiles…',
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: 18,
+                      color: AppColors.mutedForeground,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    isDense: true,
+                    filled: true,
+                    fillColor: AppColors.muted,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppDimens.radiusSmall,
+                      ),
+                      borderSide: BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppDimens.radiusSmall,
+                      ),
+                      borderSide: BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppDimens.radiusSmall,
+                      ),
+                      borderSide: BorderSide(color: AppColors.primary),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  // ── Tile grid with actual components ────────────────────────────
-                  Flexible(
-                    child: tiles.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(
-                                'No tiles match',
-                                style:
-                                    TextStyle(color: AppColors.mutedForeground),
+                  onChanged: (v) => setState(() => _query = v),
+                ),
+                const SizedBox(height: 12),
+                // ── Tile grid with actual components ────────────────────────────
+                Flexible(
+                  child: tiles.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'No tiles match',
+                              style: TextStyle(
+                                color: AppColors.mutedForeground,
                               ),
                             ),
-                          )
-                        : GridView.builder(
-                            shrinkWrap: true,
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 340,
-                              mainAxisExtent: 205,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                            ),
-                            itemCount: tiles.length,
+                          ),
+                        )
+                      : GridView.builder(
+                          shrinkWrap: true,
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 340,
+                                mainAxisExtent: 205,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                              ),
+                          itemCount: tiles.length,
                           itemBuilder: (context, index) => _TilePickCard(
                             descriptor: tiles[index],
                             onTap: () => _pick(tiles[index]),
@@ -308,9 +312,7 @@ class _TilePickCard extends StatelessWidget {
                       ),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: AbsorbPointer(
-                      child: descriptor.builder(context),
-                    ),
+                    child: AbsorbPointer(child: descriptor.builder(context)),
                   ),
                 ),
               ],
@@ -371,12 +373,14 @@ class _DummyTelemetryStore extends TelemetryStore {
       );
       history.push(frame);
 
-      deadReckoningHistory.push(DeadReckoningPosition(
-        atMs: frameTime,
-        latitude: lat,
-        longitude: lon,
-        altitude: 450.0 + alt,
-      ));
+      deadReckoningHistory.push(
+        DeadReckoningPosition(
+          atMs: frameTime,
+          latitude: lat,
+          longitude: lon,
+          altitude: 450.0 + alt,
+        ),
+      );
     }
 
     return TelemetryState(
@@ -385,7 +389,6 @@ class _DummyTelemetryStore extends TelemetryStore {
       latest: history.last,
       deadReckoning: deadReckoningHistory.last,
       packetCount: 250,
-      errorCount: 0,
       sourceName: 'DEMO',
       replaying: false,
     );

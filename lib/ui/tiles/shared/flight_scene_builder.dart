@@ -1,10 +1,15 @@
 /// Pure scene data types and builder functions shared by the 3D flight views.
 ///
 /// Camera, rendering and widget code lives in [flight_3d_common.dart];
-/// this file has no Flutter dependency beyond [debugPrint].
+/// geometry stays independent of the GPU engine.
 library;
 
+import '../../../core/flight_camera_mode.dart';
+export '../../../core/flight_camera_mode.dart';
+
 import 'dart:math' as math;
+
+import '../../../foundation/time/decimation.dart';
 
 import 'package:dead_reckoning/dead_reckoning.dart' show metresPerDegreeLat;
 import 'package:flutter/material.dart' show IconData, Icons;
@@ -14,33 +19,19 @@ import 'package:serial/serial.dart';
 import '../../../state/launch_site_store.dart';
 import '../../../state/replay_controller.dart';
 import '../../../state/telemetry_store.dart';
+
 /// World frame (right-handed, so the standard view matrix never mirrors):
 /// X east, Y up (AGL), Z **south** — because E×U=S. (A previous revision used
 /// +Z north, a left-handed frame that rendered east/west flipped.)
 ///
 /// The compass language is shared too: E amber, U green, N blue.
 
-/// User-selectable camera behaviour of the 3D flight views. The onboard
-/// strap-down lens is its own tile, not a mode here.
-enum FlightCameraMode {
-  chase('Chase rocket', Icons.center_focus_strong),
-  orbit('Orbit field', Icons.threesixty),
-  free('Free orbit', Icons.control_camera);
-
-  final String label;
-  final IconData icon;
-
-  const FlightCameraMode(this.label, this.icon);
-}
-
-/// Parses a persisted camera-mode name ([FlightCameraMode.name]); `null`
-/// for missing or unknown names so callers can fall back to their default.
-FlightCameraMode? tryParseFlightCameraMode(String? name) {
-  if (name == null) return null;
-  for (final mode in FlightCameraMode.values) {
-    if (mode.name == name) return mode;
-  }
-  return null;
+extension FlightCameraIcon on FlightCameraMode {
+  IconData get icon => switch (this) {
+    FlightCameraMode.chase => Icons.center_focus_strong,
+    FlightCameraMode.orbit => Icons.threesixty,
+    FlightCameraMode.free => Icons.control_camera,
+  };
 }
 
 /// Everything a flight painter needs, rebuilt on every telemetry tick.
@@ -84,8 +75,8 @@ class FlightScene {
     required this.showNoseCone,
     required this.showParachute,
     required this.siteName,
-  })  : gridMaxAlt = gridMaxAlt ?? maxAlt,
-        gridMaxHoriz = gridMaxHoriz ?? maxHoriz;
+  }) : gridMaxAlt = gridMaxAlt ?? maxAlt,
+       gridMaxHoriz = gridMaxHoriz ?? maxHoriz;
 
   /// Copy with a replaced display attitude (the onboard lens eases the
   /// attitude each tick; trail and extents pass through untouched).
@@ -93,22 +84,21 @@ class FlightScene {
     required double pitchDeg,
     required double yawDeg,
     required double rollDeg,
-  }) =>
-      FlightScene(
-        trail: trail,
-        rocketPos: rocketPos,
-        rocketIsDeadReckoning: rocketIsDeadReckoning,
-        maxAlt: maxAlt,
-        maxHoriz: maxHoriz,
-        gridMaxAlt: gridMaxAlt,
-        gridMaxHoriz: gridMaxHoriz,
-        pitchDeg: pitchDeg,
-        yawDeg: yawDeg,
-        rollDeg: rollDeg,
-        showNoseCone: showNoseCone,
-        showParachute: showParachute,
-        siteName: siteName,
-      );
+  }) => FlightScene(
+    trail: trail,
+    rocketPos: rocketPos,
+    rocketIsDeadReckoning: rocketIsDeadReckoning,
+    maxAlt: maxAlt,
+    maxHoriz: maxHoriz,
+    gridMaxAlt: gridMaxAlt,
+    gridMaxHoriz: gridMaxHoriz,
+    pitchDeg: pitchDeg,
+    yawDeg: yawDeg,
+    rollDeg: rollDeg,
+    showNoseCone: showNoseCone,
+    showParachute: showParachute,
+    siteName: siteName,
+  );
 }
 
 /// Pure lat/lon → world mapping (east/up/south metres around [lat0]/[lon0]).
@@ -121,12 +111,11 @@ Vector3 worldFromLatLon(
   double lat0,
   double lon0,
   double cosLat0,
-) =>
-    Vector3(
-      (lon - lon0) * metresPerDegreeLat * cosLat0,
-      math.max(0.0, agl),
-      -(lat - lat0) * metresPerDegreeLat,
-    );
+) => Vector3(
+  (lon - lon0) * metresPerDegreeLat * cosLat0,
+  math.max(0.0, agl),
+  -(lat - lat0) * metresPerDegreeLat,
+);
 
 /// Position anchor of a scene (world origin + ground level).
 class FlightAnchor {
@@ -136,7 +125,7 @@ class FlightAnchor {
   final double cosLat;
 
   FlightAnchor({required this.lat, required this.lon, required this.groundMsl})
-      : cosLat = math.cos(radians(lat));
+    : cosLat = math.cos(radians(lat));
 }
 
 /// World origin for [state]: the configured launch site, else the first GPS
@@ -152,13 +141,9 @@ FlightAnchor? flightAnchor(TelemetryState state, LaunchSite? site) {
   }
   final history = state.history;
   for (var i = 0; i < history.length; i++) {
-    final f = history.getChronological(i);
+    final f = history.oldest(i);
     if (f.gpsHasFix) {
-      return FlightAnchor(
-        lat: f.latitude,
-        lon: f.longitude,
-        groundMsl: 0,
-      );
+      return FlightAnchor(lat: f.latitude, lon: f.longitude, groundMsl: 0);
     }
   }
   return null;
@@ -187,12 +172,10 @@ bool hasFiniteFix(TelemetryFrame f) =>
 /// (closer than [eps2] squared, 3D): zero-length spans carry no shape but
 /// force arbitrary fallback tangents in joined strips, spiking where
 /// independent quads rendered them invisibly. Pure.
-List<int> collapseDuplicateRuns(List<Vector3> points,
-    [double eps2 = 1e-6]) {
+List<int> collapseDuplicateRuns(List<Vector3> points, [double eps2 = 1e-6]) {
   final keep = <int>[];
   for (var k = 0; k < points.length; k++) {
-    if (keep.isEmpty ||
-        (points[k] - points[keep.last]).length2 > eps2) {
+    if (keep.isEmpty || (points[k] - points[keep.last]).length2 > eps2) {
       keep.add(k);
     }
   }
@@ -209,21 +192,14 @@ List<int> collapseDuplicateRuns(List<Vector3> points,
 /// flight grew.) Doubling the stride — never +1 — means a stride change only
 /// thins the kept set to a strict subset (plus the new tip), so even the
 /// widely-spaced stride milestones don't shift surviving points.
-List<Vector3> capTrailPoints(List<Vector3> points,
-    {int maxPoints = flightTrailMaxPoints}) {
+List<Vector3> capTrailPoints(
+  List<Vector3> points, {
+  int maxPoints = flightTrailMaxPoints,
+}) {
   if (points.length <= maxPoints) return points;
-  final budget = math.max(2, maxPoints);
-  var stride = 1;
-  // Kept count is 2 (start + tip) plus every [stride]-th interior point.
-  while (2 + (points.length - 2) ~/ stride > budget) {
-    stride *= 2;
-  }
-  final out = <Vector3>[points[0]];
-  for (var i = stride; i < points.length - 1; i += stride) {
-    out.add(points[i]);
-  }
-  out.add(points.last);
-  return out;
+  return [
+    for (final i in strideStableIndices(points.length, maxPoints)) points[i],
+  ];
 }
 
 /// Builds the metric scene from the flight history: GPS trail, rocket
@@ -261,15 +237,16 @@ FlightScene? buildFlightScene(
   var lastGpsBucket = -1;
 
   for (var i = 0; i < history.length; i++) {
-    final f = history.getChronological(i);
+    final f = history.oldest(i);
     if (!hasFiniteFix(f)) continue;
     final bucket = f.receivedAtMs ~/ flightTrailBucketMs;
     if (bucket == lastGpsBucket) continue;
     all.add(enu(f.latitude, f.longitude, f.baroAltitude));
     lastGpsBucket = bucket;
   }
-  final trail =
-      capTrailPoints([for (final k in collapseDuplicateRuns(all)) all[k]]);
+  final trail = capTrailPoints([
+    for (final k in collapseDuplicateRuns(all)) all[k],
+  ]);
 
   // Current rocket position: GPS when available, dead reckoning otherwise.
   // Before the first fix (pad wait) the rocket sits on the pad — show it
@@ -279,7 +256,8 @@ FlightScene? buildFlightScene(
   // fix, so staleness is judged against the wall clock, exactly like the
   // store's extrapolator.
   final deadReckoningNow = state.replaying ? null : state.deadReckoning;
-  final linkStale = deadReckoningNow != null &&
+  final linkStale =
+      deadReckoningNow != null &&
       !state.replaying &&
       DateTime.now().millisecondsSinceEpoch - latest.receivedAtMs >
           TelemetryStore.deadReckoningStaleMs;
@@ -287,8 +265,11 @@ FlightScene? buildFlightScene(
       deadReckoningNow != null && (!latest.gpsHasFix || linkStale);
   Vector3 rocketPos;
   if (showDeadReckoning) {
-    rocketPos = enu(deadReckoningNow.latitude, deadReckoningNow.longitude,
-        deadReckoningNow.altitude);
+    rocketPos = enu(
+      deadReckoningNow.latitude,
+      deadReckoningNow.longitude,
+      deadReckoningNow.altitude,
+    );
   } else if (latest.gpsHasFix) {
     rocketPos = enu(latest.latitude, latest.longitude, latest.baroAltitude);
   } else if (trail.isNotEmpty) {
@@ -298,8 +279,9 @@ FlightScene? buildFlightScene(
   }
 
   var maxAlt = rocketPos.y;
-  var maxHoriz =
-      math.sqrt(rocketPos.x * rocketPos.x + rocketPos.z * rocketPos.z);
+  var maxHoriz = math.sqrt(
+    rocketPos.x * rocketPos.x + rocketPos.z * rocketPos.z,
+  );
   for (final p in trail) {
     if (p.y > maxAlt) maxAlt = p.y;
     final h = math.sqrt(p.x * p.x + p.z * p.z);
@@ -377,13 +359,13 @@ FlightScene? buildReplayScene({
   final cosLat0 = math.cos(radians(lat0));
 
   Vector3 worldOf(TelemetryFrame f) => worldFromLatLon(
-        f.latitude,
-        f.longitude,
-        f.baroAltitude,
-        lat0,
-        lon0,
-        cosLat0,
-      );
+    f.latitude,
+    f.longitude,
+    f.baroAltitude,
+    lat0,
+    lon0,
+    cosLat0,
+  );
 
   // Fix subsequence + world positions from the per-recording cache (one
   // O(n) build per recording, then O(log n) binary searches per display
@@ -412,7 +394,13 @@ FlightScene? buildReplayScene({
   if (tip < 0) {
     // No fix yet: the rocket waits on the pad like in the live builder.
     final pad = worldFromLatLon(
-        lat0, lon0, tipFrame.baroAltitude, lat0, lon0, cosLat0);
+      lat0,
+      lon0,
+      tipFrame.baroAltitude,
+      lat0,
+      lon0,
+      cosLat0,
+    );
     final padAttitude = replayAttitude(
       frames: frames,
       positionMs: positionMs,
@@ -459,8 +447,7 @@ FlightScene? buildReplayScene({
   // Camera framing follows the played flight; the grid holds the whole
   // recording's extents (see FlightScene.gridMax*).
   var maxAlt = tipPoint.y;
-  var maxHoriz = math.sqrt(
-      tipPoint.x * tipPoint.x + tipPoint.z * tipPoint.z);
+  var maxHoriz = math.sqrt(tipPoint.x * tipPoint.x + tipPoint.z * tipPoint.z);
   for (final p in trail) {
     if (p.y > maxAlt) maxAlt = p.y;
     final h = math.sqrt(p.x * p.x + p.z * p.z);
@@ -560,9 +547,7 @@ FlightScene? resolveFlightScene({
   required ReplayState replay,
   int? positionMsOverride,
 }) {
-  if (replay.isActive &&
-      replay.frames.isNotEmpty &&
-      replay.smoothingEnabled) {
+  if (replay.isActive && replay.frames.isNotEmpty && replay.smoothingEnabled) {
     return replayAttitude(
       frames: replay.frames,
       positionMs: positionMsOverride ?? replay.positionMs,
@@ -632,8 +617,16 @@ _ReplayPosCache _replayPositions(
     final f = frames[i];
     if (!hasFiniteFix(f)) continue;
     rawRelMs.add(f.receivedAtMs - t0);
-    rawWorld.add(worldFromLatLon(
-        f.latitude, f.longitude, f.baroAltitude, lat0, lon0, cosLat0));
+    rawWorld.add(
+      worldFromLatLon(
+        f.latitude,
+        f.longitude,
+        f.baroAltitude,
+        lat0,
+        lon0,
+        cosLat0,
+      ),
+    );
   }
   // Collapse consecutive near-identical fixes alongside, keeping the three
   // lists aligned (see [collapseDuplicateRuns]).
@@ -684,11 +677,7 @@ _ReplayPosCache _replayPositions(
       sumZ += medZ[b];
     }
     final count = b - a + 1;
-    smoothWorld[k] = Vector3(
-      sumX / count,
-      rawWorld[k].y,
-      sumZ / count,
-    );
+    smoothWorld[k] = Vector3(sumX / count, rawWorld[k].y, sumZ / count);
   }
   final out = _ReplayPosCache(
     lat0: lat0,
@@ -707,21 +696,12 @@ _ReplayPosCache _replayPositions(
 /// `capTrailPoints(full.sublist(0, count))` without copying the full prefix:
 /// start-kept, tip-exact, start-anchored power-of-two stride. Returns a new
 /// list; [full] is never mutated.
-List<Vector3> _cappedPrefix(List<Vector3> full, int count,
-    {int maxPoints = flightTrailMaxPoints}) {
-  if (count <= 0) return const [];
-  if (count <= maxPoints) return List<Vector3>.of(full.sublist(0, count));
-  final budget = math.max(2, maxPoints);
-  var stride = 1;
-  while (2 + (count - 2) ~/ stride > budget) {
-    stride *= 2;
-  }
-  final out = <Vector3>[full[0]];
-  for (var i = stride; i < count - 1; i += stride) {
-    out.add(full[i]);
-  }
-  out.add(full[count - 1]);
-  return out;
+List<Vector3> _cappedPrefix(
+  List<Vector3> full,
+  int count, {
+  int maxPoints = flightTrailMaxPoints,
+}) {
+  return [for (final i in strideStableIndices(count, maxPoints)) full[i]];
 }
 
 /// Time-parameterized Catmull-Rom sample of one scalar channel through
@@ -807,7 +787,8 @@ Vector3 _splineTip(_ReplayPosCache pos, int tip, int positionMs) {
     t,
   );
   final f = ((t - t1) / (t2 - t1)).clamp(0.0, 1.0);
-  final y = pos.smoothWorld[tip].y +
+  final y =
+      pos.smoothWorld[tip].y +
       (pos.smoothWorld[tip + 1].y - pos.smoothWorld[tip].y) * f;
   return Vector3(x, y, z);
 }
@@ -856,7 +837,9 @@ Vector3 _splineTip(_ReplayPosCache pos, int tip, int positionMs) {
   /// a plain mean over the small in-window run). Yaw/roll channels pass
   /// through circularly via sin/cos accumulation.
   ({double lin, double sinSum, double cosSum, int n}) channelAt(
-      int at, double Function(TelemetryFrame) read) {
+    int at,
+    double Function(TelemetryFrame) read,
+  ) {
     final center = frames[at].receivedAtMs;
     var loB = 0;
     var hiB = frames.length;
@@ -918,7 +901,12 @@ Vector3 _splineTip(_ReplayPosCache pos, int tip, int positionMs) {
       rollDeg: circAt(idx, (f) => f.roll),
     );
   }
-  final controls = [math.max(0, idx - 1), idx, idx + 1, math.min(last, idx + 2)];
+  final controls = [
+    math.max(0, idx - 1),
+    idx,
+    idx + 1,
+    math.min(last, idx + 2),
+  ];
   List<double> times() => [for (final i in controls) rel(i)];
   final ts = times();
 
@@ -933,21 +921,25 @@ Vector3 _splineTip(_ReplayPosCache pos, int tip, int positionMs) {
     ts[3],
     t,
   );
-  final yawChain = _unwrapAngles(
-      [for (final i in controls) circAt(i, (f) => f.yaw)]);
-  final yaw = _crSample(
-    yawChain[0],
-    yawChain[1],
-    yawChain[2],
-    yawChain[3],
-    ts[0],
-    ts[1],
-    ts[2],
-    ts[3],
-    t,
-  ) % 360;
-  final rollChain = _unwrapAngles(
-      [for (final i in controls) circAt(i, (f) => f.roll)]);
+  final yawChain = _unwrapAngles([
+    for (final i in controls) circAt(i, (f) => f.yaw),
+  ]);
+  final yaw =
+      _crSample(
+        yawChain[0],
+        yawChain[1],
+        yawChain[2],
+        yawChain[3],
+        ts[0],
+        ts[1],
+        ts[2],
+        ts[3],
+        t,
+      ) %
+      360;
+  final rollChain = _unwrapAngles([
+    for (final i in controls) circAt(i, (f) => f.roll),
+  ]);
   final roll = _crSample(
     rollChain[0],
     rollChain[1],

@@ -32,7 +32,12 @@ abstract class PersistedStore<S> extends AsyncNotifier<S> {
   Future<S> loadPersisted() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(prefsKey);
+      final stored = prefs.get(prefsKey);
+      final raw = stored is String
+          ? stored
+          : stored is bool
+          ? stored.toString()
+          : null;
       if (raw == null) return defaults;
       return decode(raw);
     } catch (_) {
@@ -55,15 +60,6 @@ abstract class PersistedStore<S> extends AsyncNotifier<S> {
   void stage(S next) => state = AsyncData(next);
 
   /// Raw disk helpers for stores with memory/disk split views (mock filter).
-  Future<String?> readRaw() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(prefsKey);
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<void> writeRaw(String raw) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -102,8 +98,6 @@ abstract class JsonPersistedStore<S> extends PersistedStore<S> {
 /// [clear] implementations must call [stopTicker] first.
 mixin StoreTicker {
   Timer? _ticker;
-
-  bool get tickerActive => _ticker?.isActive ?? false;
 
   void startTicker(Duration interval, void Function() onTick) {
     stopTicker();

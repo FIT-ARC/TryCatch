@@ -6,6 +6,35 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 import '../satellite_ground.dart';
 
+/// Bounds texture upload area and the largest engine texture dimension.
+({int width, int height}) boundedTerrainAtlasSize(
+  int width,
+  int height,
+  int maxPixels,
+) {
+  if (width < 1 || height < 1 || maxPixels < 1) {
+    throw ArgumentError('Invalid atlas bounds.');
+  }
+  final scale = math.min(
+    1.0,
+    math.min(
+      math.sqrt(maxPixels / (width * height)),
+      4096 / math.max(width, height),
+    ),
+  );
+  return (
+    width: math.max(1, (width * scale).floor()),
+    height: math.max(1, (height * scale).floor()),
+  );
+}
+
+/// Isolate entry point; inputs contain geometry and dimensions, never images.
+TerrainAtlasGpuData terrainAtlasInBackground(List<TerrainAtlasTier> tiers) =>
+    buildTerrainAtlasGpuData(
+      tiers: tiers,
+      sunDir: vm.Vector3(0.45, 0.78, 0.30).normalized(),
+    );
+
 /// Pure CPU conversion of one retained [TerrainMesh] tier into GPU-ready
 /// vertex streams for the satellite drape.
 ///
@@ -166,18 +195,20 @@ TerrainAtlasGpuData buildTerrainAtlasGpuData({
   final parts = <TerrainGpuData>[];
   var bandY = 0;
   for (final tier in tiers) {
-    parts.add(buildTerrainGpuData(
-      mesh: tier.mesh,
-      imageWidth: tier.imageWidth,
-      imageHeight: tier.imageHeight,
-      sunDir: sunDir,
-      yOffset: tier.yOffset,
-      uvScale: Offset(
-        tier.imageWidth / atlasWidth,
-        tier.imageHeight / atlasHeight,
+    parts.add(
+      buildTerrainGpuData(
+        mesh: tier.mesh,
+        imageWidth: tier.imageWidth,
+        imageHeight: tier.imageHeight,
+        sunDir: sunDir,
+        yOffset: tier.yOffset,
+        uvScale: Offset(
+          tier.imageWidth / atlasWidth,
+          tier.imageHeight / atlasHeight,
+        ),
+        uvOffset: Offset(0, bandY / atlasHeight),
       ),
-      uvOffset: Offset(0, bandY / atlasHeight),
-    ));
+    );
     bandY += tier.imageHeight;
   }
 

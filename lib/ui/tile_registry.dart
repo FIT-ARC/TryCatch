@@ -1,3 +1,5 @@
+import '../state/tile_constraints.dart';
+
 import 'package:flutter/material.dart';
 
 import './tiles/acceleration_chart_tile.dart';
@@ -35,11 +37,11 @@ enum TileCategory {
   control;
 
   String get label => switch (this) {
-        TileCategory.views => 'Views',
-        TileCategory.charts => 'Charts',
-        TileCategory.sensors => 'Sensors',
-        TileCategory.control => 'Control',
-      };
+    TileCategory.views => 'Views',
+    TileCategory.charts => 'Charts',
+    TileCategory.sensors => 'Sensors',
+    TileCategory.control => 'Control',
+  };
 }
 
 /// Data-driven description of a dashboard tile type.
@@ -85,7 +87,6 @@ class TileDescriptor {
   });
 }
 
-
 /// All dashboard tile types and the default workspace layouts.
 abstract final class TileRegistry {
   static final List<TileDescriptor> all = [
@@ -94,7 +95,7 @@ abstract final class TileRegistry {
       title: '3D Rocket',
       description: 'Live orientation',
       icon: Icons.rocket_launch_outlined,
-      minSize: const Size(150, 110),
+      minSize: TileConstraints.minSizeOf('rocket_3d'),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => Rocket3dTile(),
@@ -104,7 +105,7 @@ abstract final class TileRegistry {
       title: 'Map',
       description: 'GPS track, dead reckoning and launch site',
       icon: Icons.map_outlined,
-      minSize: const Size(150, 110),
+      minSize: TileConstraints.minSizeOf('map'),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => MapTile(),
@@ -114,7 +115,7 @@ abstract final class TileRegistry {
       title: 'Flight path',
       description: '3D flight trail with launch site and camera modes',
       icon: Icons.view_in_ar_outlined,
-      minSize: const Size(170, 120),
+      minSize: TileConstraints.minSizeOf('flight_3d'),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => Flight3dTile(),
@@ -124,7 +125,7 @@ abstract final class TileRegistry {
       title: '3D Flight',
       description: '3D flight trail over satellite imagery (needs internet)',
       icon: Icons.satellite_alt_outlined,
-      minSize: const Size(170, 120),
+      minSize: TileConstraints.minSizeOf('flight_3d_sat'),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => Flight3dSatelliteTile(),
@@ -134,7 +135,7 @@ abstract final class TileRegistry {
       title: 'Onboard camera',
       description: "Rocket's-eye view over satellite imagery (needs internet)",
       icon: Icons.videocam_outlined,
-      minSize: const Size(170, 120),
+      minSize: TileConstraints.minSizeOf('onboard_camera'),
       immersive: true,
       category: TileCategory.views,
       builder: (context) => OnboardCameraTile(),
@@ -144,7 +145,7 @@ abstract final class TileRegistry {
       title: 'GPS position',
       description: 'GPS position with copy',
       icon: Icons.place_outlined,
-      minSize: const Size(130, 80),
+      minSize: TileConstraints.minSizeOf('stats'),
       category: TileCategory.sensors,
       builder: (context) => StatsTile(),
     ),
@@ -153,7 +154,7 @@ abstract final class TileRegistry {
       title: 'Dead reckoning',
       description: 'Estimated position during packet loss (live only)',
       icon: Icons.explore_outlined,
-      minSize: const Size(130, 80),
+      minSize: TileConstraints.minSizeOf('dead_reckoning'),
       category: TileCategory.sensors,
       builder: (context) => DeadReckoningTile(),
     ),
@@ -162,7 +163,7 @@ abstract final class TileRegistry {
       title: 'Max altitude',
       description: 'Peak barometric altitude this session',
       icon: Icons.arrow_upward,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('max_alt'),
       category: TileCategory.sensors,
       builder: (context) => MaxAltitudeTile(),
     ),
@@ -171,7 +172,7 @@ abstract final class TileRegistry {
       title: 'Highlights',
       description: 'Flight extremes: ascent, descent, speed, acceleration (+ replay drift/altitude)',
       icon: Icons.emoji_events_outlined,
-      minSize: const Size(140, 80),
+      minSize: TileConstraints.minSizeOf('highlights'),
       category: TileCategory.charts,
       builder: (context) => HighlightsTile(),
     ),
@@ -180,7 +181,7 @@ abstract final class TileRegistry {
       title: 'Altitude Chart',
       description: 'Barometric altitude over time',
       icon: Icons.show_chart,
-      minSize: const Size(130, 70),
+      minSize: TileConstraints.minSizeOf('altitude_chart'),
       category: TileCategory.charts,
       builder: (context) => AltitudeChartTile(),
     ),
@@ -189,7 +190,7 @@ abstract final class TileRegistry {
       title: 'Altitude',
       description: 'Live barometric altitude',
       icon: Icons.show_chart,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('altitude_value'),
       category: TileCategory.sensors,
       builder: (context) => AltitudeValueTile(),
     ),
@@ -198,7 +199,7 @@ abstract final class TileRegistry {
       title: 'Velocity Chart',
       description: 'Horizontal, vertical and total speed',
       icon: Icons.speed_outlined,
-      minSize: const Size(130, 70),
+      minSize: TileConstraints.minSizeOf('velocity_chart'),
       category: TileCategory.charts,
       builder: (context) => VelocityChartTile(),
     ),
@@ -207,7 +208,7 @@ abstract final class TileRegistry {
       title: 'Velocity',
       description: 'Live speed',
       icon: Icons.speed_outlined,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('velocity_value'),
       category: TileCategory.sensors,
       builder: (context) => VelocityValueTile(),
     ),
@@ -216,7 +217,7 @@ abstract final class TileRegistry {
       title: 'Acceleration Chart',
       description: 'Vertical and total acceleration',
       icon: Icons.trending_up,
-      minSize: const Size(130, 70),
+      minSize: TileConstraints.minSizeOf('acceleration_chart'),
       category: TileCategory.charts,
       builder: (context) => AccelerationChartTile(),
     ),
@@ -225,7 +226,7 @@ abstract final class TileRegistry {
       title: 'Acceleration',
       description: 'Live acceleration',
       icon: Icons.trending_up,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('acceleration_value'),
       category: TileCategory.sensors,
       builder: (context) => AccelerationValueTile(),
     ),
@@ -234,7 +235,7 @@ abstract final class TileRegistry {
       title: 'Battery Chart',
       description: 'Battery voltage over time',
       icon: Icons.battery_charging_full_outlined,
-      minSize: const Size(130, 70),
+      minSize: TileConstraints.minSizeOf('battery_chart'),
       category: TileCategory.charts,
       builder: (context) => BatteryChartTile(),
     ),
@@ -243,7 +244,7 @@ abstract final class TileRegistry {
       title: 'Battery',
       description: 'Live battery voltage',
       icon: Icons.battery_charging_full_outlined,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('battery_value'),
       category: TileCategory.sensors,
       builder: (context) => BatteryValueTile(),
     ),
@@ -252,7 +253,7 @@ abstract final class TileRegistry {
       title: 'State machine',
       description: 'Flight software state and timeline',
       icon: Icons.account_tree_outlined,
-      minSize: const Size(150, 120),
+      minSize: TileConstraints.minSizeOf('fsm'),
       category: TileCategory.views,
       builder: (context) => FsmTile(),
     ),
@@ -261,7 +262,7 @@ abstract final class TileRegistry {
       title: 'Events',
       description: 'Flight milestones: launch, apogee, parachute, touchdown',
       icon: Icons.flag_outlined,
-      minSize: const Size(140, 90),
+      minSize: TileConstraints.minSizeOf('events'),
       category: TileCategory.views,
       builder: (context) => EventsTile(),
     ),
@@ -270,7 +271,7 @@ abstract final class TileRegistry {
       title: 'Commands',
       description: 'Uplink commands sent to the rocket, sent and failed',
       icon: Icons.outbox_outlined,
-      minSize: const Size(140, 90),
+      minSize: TileConstraints.minSizeOf('commands'),
       category: TileCategory.views,
       builder: (context) => CommandsTile(),
     ),
@@ -279,7 +280,7 @@ abstract final class TileRegistry {
       title: 'Nose cone',
       description: 'Nose-cone lock state',
       icon: Icons.lock_outlined,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('nosecone'),
       category: TileCategory.sensors,
       builder: (context) => NoseconeTile(),
     ),
@@ -288,7 +289,7 @@ abstract final class TileRegistry {
       title: 'Hall Sensor Chart',
       description: 'Breakaway wire sensor over time',
       icon: Icons.sensors_outlined,
-      minSize: const Size(130, 70),
+      minSize: TileConstraints.minSizeOf('hall_sensor'),
       category: TileCategory.sensors,
       builder: (context) => HallSensorTile(),
     ),
@@ -297,7 +298,7 @@ abstract final class TileRegistry {
       title: 'Hall Sensor',
       description: 'Live breakaway wire sensor readout',
       icon: Icons.sensors_outlined,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('hall_sensor_value'),
       category: TileCategory.sensors,
       builder: (context) => HallSensorValueTile(),
     ),
@@ -306,7 +307,7 @@ abstract final class TileRegistry {
       title: 'Channel Health Chart',
       description: 'Undecodable traffic on this frequency',
       icon: Icons.wifi_tethering_outlined,
-      minSize: const Size(140, 80),
+      minSize: TileConstraints.minSizeOf('channel_health'),
       category: TileCategory.sensors,
       builder: (context) => ChannelHealthTile(),
     ),
@@ -315,7 +316,7 @@ abstract final class TileRegistry {
       title: 'Channel Health',
       description: 'Live unknown traffic on this frequency',
       icon: Icons.wifi_tethering_outlined,
-      minSize: const Size(110, 64),
+      minSize: TileConstraints.minSizeOf('channel_health_value'),
       category: TileCategory.sensors,
       builder: (context) => ChannelHealthValueTile(),
     ),
@@ -324,12 +325,11 @@ abstract final class TileRegistry {
       title: 'Control panel',
       description: 'Two-click commands to the rocket',
       icon: Icons.gamepad_outlined,
-      minSize: const Size(190, 110),
+      minSize: TileConstraints.minSizeOf('control_panel'),
       category: TileCategory.control,
       builder: (context) => ControlPanelTile(),
     ),
   ];
-
 
   static TileDescriptor? byId(String id) {
     for (final d in all) {

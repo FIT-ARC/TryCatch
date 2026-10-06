@@ -24,10 +24,7 @@ class OnboardCameraTile extends ConsumerStatefulWidget {
 }
 
 class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
-    with
-        SatelliteTerrainState,
-        SingleTickerProviderStateMixin,
-        ReplayVsync {
+    with SatelliteTerrainState, SingleTickerProviderStateMixin, ReplayVsync {
   /// Spin (degrees) around the rocket's long axis from the pure side view.
   double _spinDeg = 0.0;
 
@@ -36,9 +33,10 @@ class _OnboardCameraTileState extends ConsumerState<OnboardCameraTile>
 
   @override
   Widget build(BuildContext context) {
-    final replay = ref.watch(replayProvider);
+    final replay = ref.watch(replayRenderStateProvider);
     final resolved = resolveTerrainScene(
-        positionMsOverride: replayDisplayMs(replay));
+      positionMsOverride: replayDisplayMs(replay),
+    );
     if (resolved == null) {
       return Center(child: WaitingForData());
     }

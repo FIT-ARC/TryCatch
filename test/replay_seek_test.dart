@@ -26,25 +26,29 @@ void main() {
 
     Future<void> writeRecording() async {
       final builder = BytesBuilder()
-        ..add(const RecordingHeader(
-          payloadLength: TelemetryFraming.payloadLength,
-          hasLaunchSite: true,
-          hasStats: true,
-          launchLatitude: 49.799,
-          launchLongitude: 16.693,
-          launchMslM: 403,
-          launchName: 'Pad',
-          connectorId: 'mock',
-        ).encode());
+        ..add(
+          const RecordingHeader(
+            payloadLength: TelemetryFraming.payloadLength,
+            hasLaunchSite: true,
+            hasStats: true,
+            launchLatitude: 49.799,
+            launchLongitude: 16.693,
+            launchMslM: 403,
+            launchName: 'Pad',
+            connectorId: 'mock',
+          ).encode(),
+        );
       for (var i = 0; i < packetCount; i++) {
         final packet = FrameCodec.encodePacket(
           TelemetryFrame(sequence: i, baroAltitude: i.toDouble()),
         );
-        builder.add((ByteData(12)
-              ..setInt64(0, tsUs(i), Endian.big)
-              ..setUint32(8, packet.length, Endian.big))
-            .buffer
-            .asUint8List());
+        builder.add(
+          (ByteData(12)
+                ..setInt64(0, tsUs(i), Endian.big)
+                ..setUint32(8, packet.length, Endian.big))
+              .buffer
+              .asUint8List(),
+        );
         builder.add(packet);
       }
       await File(path).writeAsBytes(builder.toBytes());
@@ -52,15 +56,18 @@ void main() {
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('trycatch_seek_test_');
-      path =
-          '${tempDir.path}${Platform.pathSeparator}seek_recording.bin';
+      path = '${tempDir.path}${Platform.pathSeparator}seek_recording.bin';
       await writeRecording();
-      container = ProviderContainer(overrides: [
-        telemetryStreamProvider
-            .overrideWith((ref) => Stream<TelemetryFrame>.empty()),
-        serialStatusProvider.overrideWith(
-            (ref) => Stream.value(const SerialWorkerStatus())),
-      ]);
+      container = ProviderContainer(
+        overrides: [
+          telemetryStreamProvider.overrideWith(
+            (ref) => Stream<TelemetryFrame>.empty(),
+          ),
+          serialStatusProvider.overrideWith(
+            (ref) => Stream.value(const SerialWorkerStatus()),
+          ),
+        ],
+      );
       addTearDown(container.dispose);
     });
 
@@ -70,8 +77,7 @@ void main() {
       }
     });
 
-    TelemetryState storeState() =>
-        container.read(telemetryStoreProvider);
+    TelemetryState storeState() => container.read(telemetryStoreProvider);
 
     Future<ReplayController> loadAndPark() async {
       final controller = container.read(replayProvider.notifier);
@@ -81,8 +87,7 @@ void main() {
       return controller;
     }
 
-    test('loads all frames and parks at zero (incl. the t=0 packet)',
-        () async {
+    test('loads all frames and parks at zero (incl. the t=0 packet)', () async {
       final controller = await loadAndPark();
       expect(container.read(replayProvider).frames.length, packetCount);
       // positionMs 0 still contains the packet stamped exactly at start.
@@ -121,8 +126,7 @@ void main() {
       expect(storeState().latest!.sequence, packetCount - 1);
     });
 
-    test('smoothing flag defaults off, toggles, and survives reload',
-        () async {
+    test('smoothing flag defaults off, toggles, and survives reload', () async {
       final controller = await loadAndPark();
       expect(container.read(replayProvider).smoothingEnabled, isFalse);
       controller.setSmoothing(true);
@@ -132,43 +136,47 @@ void main() {
       expect(container.read(replayProvider).smoothingEnabled, isTrue);
     });
 
-    test('transport toggle flips actual playback and never strands it',
-        () async {
-      final controller = await loadAndPark();
-      expect(container.read(replayProvider).playing, isFalse);
+    test(
+      'transport toggle flips actual playback and never strands it',
+      () async {
+        final controller = await loadAndPark();
+        expect(container.read(replayProvider).playing, isFalse);
 
-      controller.toggle();
-      expect(container.read(replayProvider).playing, isTrue);
+        controller.toggle();
+        expect(container.read(replayProvider).playing, isTrue);
 
-      // A second resume is idempotent, not a second ticker.
-      controller.resume();
-      expect(container.read(replayProvider).playing, isTrue);
+        // A second resume is idempotent, not a second ticker.
+        controller.resume();
+        expect(container.read(replayProvider).playing, isTrue);
 
-      controller.toggle();
-      expect(container.read(replayProvider).playing, isFalse);
+        controller.toggle();
+        expect(container.read(replayProvider).playing, isFalse);
 
-      // Pausing twice is harmless; toggle still recovers to playing.
-      controller.pause();
-      controller.toggle();
-      expect(container.read(replayProvider).playing, isTrue);
-      controller.pause();
-    });
+        // Pausing twice is harmless; toggle still recovers to playing.
+        controller.pause();
+        controller.toggle();
+        expect(container.read(replayProvider).playing, isTrue);
+        controller.pause();
+      },
+    );
 
-    test('loop flag defaults off, toggles, survives reload, resets on stop',
-        () async {
-      final controller = await loadAndPark();
-      expect(container.read(replayProvider).loopEnabled, isFalse);
-      controller.setLooping(true);
-      expect(container.read(replayProvider).loopEnabled, isTrue);
-      await controller.play(path);
-      controller.pause();
-      expect(container.read(replayProvider).loopEnabled, isTrue);
-      controller.setLooping(false);
-      expect(container.read(replayProvider).loopEnabled, isFalse);
-      controller.stop();
-      expect(container.read(replayProvider).loopEnabled, isFalse);
-      expect(container.read(replayProvider).isActive, isFalse);
-    });
+    test(
+      'loop flag defaults off, toggles, survives reload, resets on stop',
+      () async {
+        final controller = await loadAndPark();
+        expect(container.read(replayProvider).loopEnabled, isFalse);
+        controller.setLooping(true);
+        expect(container.read(replayProvider).loopEnabled, isTrue);
+        await controller.play(path);
+        controller.pause();
+        expect(container.read(replayProvider).loopEnabled, isTrue);
+        controller.setLooping(false);
+        expect(container.read(replayProvider).loopEnabled, isFalse);
+        controller.clear();
+        expect(container.read(replayProvider).loopEnabled, isFalse);
+        expect(container.read(replayProvider).isActive, isFalse);
+      },
+    );
   });
 
   group('ReplayController stepping', () {
@@ -195,28 +203,38 @@ void main() {
       return 5;
     }
 
-    Future<void> writeRecording(String filePath, int Function(int) stateOf) async {
+    Future<void> writeRecording(
+      String filePath,
+      int Function(int) stateOf,
+    ) async {
       final builder = BytesBuilder()
-        ..add(const RecordingHeader(
-          payloadLength: TelemetryFraming.payloadLength,
-          hasLaunchSite: true,
-          hasStats: true,
-          launchLatitude: 49.799,
-          launchLongitude: 16.693,
-          launchMslM: 403,
-          launchName: 'Pad',
-          connectorId: 'mock',
-        ).encode());
+        ..add(
+          const RecordingHeader(
+            payloadLength: TelemetryFraming.payloadLength,
+            hasLaunchSite: true,
+            hasStats: true,
+            launchLatitude: 49.799,
+            launchLongitude: 16.693,
+            launchMslM: 403,
+            launchName: 'Pad',
+            connectorId: 'mock',
+          ).encode(),
+        );
       for (var i = 0; i < packetCount; i++) {
         final packet = FrameCodec.encodePacket(
           TelemetryFrame(
-              sequence: i, baroAltitude: i.toDouble(), fsmStateId: stateOf(i)),
+            sequence: i,
+            baroAltitude: i.toDouble(),
+            fsmStateId: stateOf(i),
+          ),
         );
-        builder.add((ByteData(12)
-              ..setInt64(0, tsUs(i), Endian.big)
-              ..setUint32(8, packet.length, Endian.big))
-            .buffer
-            .asUint8List());
+        builder.add(
+          (ByteData(12)
+                ..setInt64(0, tsUs(i), Endian.big)
+                ..setUint32(8, packet.length, Endian.big))
+              .buffer
+              .asUint8List(),
+        );
         builder.add(packet);
       }
       await File(filePath).writeAsBytes(builder.toBytes());
@@ -224,17 +242,20 @@ void main() {
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('trycatch_step_test_');
-      stagedPath =
-          '${tempDir.path}${Platform.pathSeparator}step_staged.bin';
+      stagedPath = '${tempDir.path}${Platform.pathSeparator}step_staged.bin';
       idlePath = '${tempDir.path}${Platform.pathSeparator}step_idle.bin';
       await writeRecording(stagedPath, stagedState);
       await writeRecording(idlePath, (_) => 0);
-      container = ProviderContainer(overrides: [
-        telemetryStreamProvider
-            .overrideWith((ref) => Stream<TelemetryFrame>.empty()),
-        serialStatusProvider.overrideWith(
-            (ref) => Stream.value(const SerialWorkerStatus())),
-      ]);
+      container = ProviderContainer(
+        overrides: [
+          telemetryStreamProvider.overrideWith(
+            (ref) => Stream<TelemetryFrame>.empty(),
+          ),
+          serialStatusProvider.overrideWith(
+            (ref) => Stream.value(const SerialWorkerStatus()),
+          ),
+        ],
+      );
       addTearDown(container.dispose);
     });
 
@@ -244,8 +265,7 @@ void main() {
       }
     });
 
-    TelemetryState storeState() =>
-        container.read(telemetryStoreProvider);
+    TelemetryState storeState() => container.read(telemetryStoreProvider);
 
     int position() => container.read(replayProvider).positionMs;
 
@@ -362,48 +382,60 @@ void main() {
       expect(position(), 0);
     });
 
-    test('prev-event grace skips the just-reached event while playing',
-        () async {
-      final controller = await loadAndPark(stagedPath);
-      final events = container.read(replayFlightEventsProvider);
-      expect(events.map((e) => e.positionMs), [2000, 6000, 6400, 7600]);
+    test(
+      'prev-event grace skips the just-reached event while playing',
+      () async {
+        final controller = await loadAndPark(stagedPath);
+        final events = container.read(replayFlightEventsProvider);
+        expect(events.map((e) => e.positionMs), [2000, 6000, 6400, 7600]);
 
-      // Paused: strict — an event just behind the clock is a valid target.
-      controller.seek(6100);
-      controller.stepEvent(-1, events);
-      expect(position(), 6000);
+        // Paused: strict — an event just behind the clock is a valid target.
+        controller.seek(6100);
+        controller.stepEvent(-1, events);
+        expect(position(), 6000);
 
-      // Playing: the ticker advanced a little past the event the previous
-      // press just reached, so it is skipped in favour of the one before.
-      controller.state =
-          controller.state.copyWith(playing: true, positionMs: 6100);
-      controller.stepEvent(-1, events);
-      expect(position(), 2000);
+        // Playing: the ticker advanced a little past the event the previous
+        // press just reached, so it is skipped in favour of the one before.
+        controller.state = controller.state.copyWith(
+          playing: true,
+          positionMs: 6100,
+        );
+        controller.stepEvent(-1, events);
+        expect(position(), 2000);
 
-      // Only the closest event is skipped: with two milestones inside the
-      // grace window the walk still advances one press at a time.
-      controller.state =
-          controller.state.copyWith(playing: true, positionMs: 6500);
-      controller.stepEvent(-1, events);
-      expect(position(), 6000);
+        // Only the closest event is skipped: with two milestones inside the
+        // grace window the walk still advances one press at a time.
+        controller.state = controller.state.copyWith(
+          playing: true,
+          positionMs: 6500,
+        );
+        controller.stepEvent(-1, events);
+        expect(position(), 6000);
 
-      // Past the grace window the nearby event counts again: at the very
-      // end the previous milestone is 6400 (strict would give 7600 only
-      // when paused).
-      controller.state =
-          controller.state.copyWith(playing: true, positionMs: 7960);
-      controller.stepEvent(-1, events);
-      expect(position(), 6400);
+        // Past the grace window the nearby event counts again: at the very
+        // end the previous milestone is 6400 (strict would give 7600 only
+        // when paused).
+        controller.state = controller.state.copyWith(
+          playing: true,
+          positionMs: 7960,
+        );
+        controller.stepEvent(-1, events);
+        expect(position(), 6400);
 
-      // Grace boundary: exactly 500 ms behind still skips, 501 does not.
-      controller.state =
-          controller.state.copyWith(playing: true, positionMs: 6900);
-      controller.stepEvent(-1, events);
-      expect(position(), 6000);
-      controller.state =
-          controller.state.copyWith(playing: true, positionMs: 6901);
-      controller.stepEvent(-1, events);
-      expect(position(), 6400);
-    });
+        // Grace boundary: exactly 500 ms behind still skips, 501 does not.
+        controller.state = controller.state.copyWith(
+          playing: true,
+          positionMs: 6900,
+        );
+        controller.stepEvent(-1, events);
+        expect(position(), 6000);
+        controller.state = controller.state.copyWith(
+          playing: true,
+          positionMs: 6901,
+        );
+        controller.stepEvent(-1, events);
+        expect(position(), 6400);
+      },
+    );
   });
 }

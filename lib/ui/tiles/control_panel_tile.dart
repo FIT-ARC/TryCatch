@@ -1,4 +1,7 @@
-import 'dart:async';
+import '../components/two_click_button.dart';
+import '../../state/launch_site_store.dart';
+import '../../state/connector_provider.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -7,21 +10,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
 import '../../theme/app_colors.dart';
+
 import 'package:serial/serial.dart';
 
 extension ConnectorCommandUi on ConnectorCommand {
   IconData get icon => switch (id) {
-        'arm' => Icons.gpp_good_outlined,
-        'disarm' => Icons.gpp_bad_outlined,
-        'fire_parachute' => Icons.paragliding,
-        'beep' => Icons.campaign_outlined,
-        'reset_fsm' => Icons.restart_alt,
-        'move_up' => Icons.arrow_upward,
-        'move_down' => Icons.arrow_downward,
-        'move_east' => Icons.arrow_forward,
-        'move_west' => Icons.arrow_back,
-        _ => Icons.terminal,
-      };
+    'arm' => Icons.gpp_good_outlined,
+    'disarm' => Icons.gpp_bad_outlined,
+    'fire_parachute' => Icons.paragliding,
+    'beep' => Icons.campaign_outlined,
+    'reset_fsm' => Icons.restart_alt,
+    'move_up' => Icons.arrow_upward,
+    'move_down' => Icons.arrow_downward,
+    'move_east' => Icons.arrow_forward,
+    'move_west' => Icons.arrow_back,
+    _ => Icons.terminal,
+  };
 }
 
 /// Two-click command panel: every tile requires a second confirming click
@@ -34,52 +38,11 @@ class ControlPanelTile extends ConsumerStatefulWidget {
 }
 
 class _ControlPanelWidgetState extends ConsumerState<ControlPanelTile> {
-  static const _confirmTimeout = Duration(seconds: 3);
-
-  String? _armedCommandId;
-  String? _sentCommandId;
-  Timer? _timer;
-
+  final _confirmation = TwoClickController<String>();
   @override
   void dispose() {
-    _timer?.cancel();
+    _confirmation.dispose();
     super.dispose();
-  }
-
-  void _onTileTap(ConnectorCommand command) {
-    final notifier = ref.read(serialConfigProvider.notifier);
-    final connected =
-        ref.read(serialStatusProvider).value?.isConnected ?? false;
-    if (!connected) return;
-
-    if (_armedCommandId != command.id) {
-      _timer?.cancel();
-      setState(() {
-        _armedCommandId = command.id;
-        _sentCommandId = null;
-      });
-      _timer = Timer(_confirmTimeout, () {
-        if (mounted) setState(() => _armedCommandId = null);
-      });
-      return;
-    }
-
-    _timer?.cancel();
-    final ok = notifier.sendBytes(
-      command.bytes,
-      source: CommandSource.controlPanel,
-    );
-    setState(() {
-      _armedCommandId = null;
-      _sentCommandId = ok ? command.id : null;
-    });
-    if (ok) {
-      Timer(const Duration(seconds: 1), () {
-        if (mounted && _sentCommandId == command.id) {
-          setState(() => _sentCommandId = null);
-        }
-      });
-    }
   }
 
   @override
@@ -87,7 +50,7 @@ class _ControlPanelWidgetState extends ConsumerState<ControlPanelTile> {
     // Commands make no sense while replaying a recording — the radio is
     // idle and the Replay workspace omits this tile entirely; this guard
     // covers custom layouts that still contain it.
-    if (ref.watch(replayProvider).isActive) {
+    if (ref.watch(replayProvider.select((s) => s.isActive))) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -104,7 +67,12 @@ class _ControlPanelWidgetState extends ConsumerState<ControlPanelTile> {
       );
     }
     final connected =
-        ref.watch(serialStatusProvider).value?.isConnected ?? false;
+        (ref.watch(serialStatusProvider).value?.isConnected ?? false) &&
+        ref.watch(currentLaunchSiteProvider.select((s) => s != null));
+    ref.listen(serialStatusProvider, (_, next) {
+      if (next.value?.isConnected != true) _confirmation.clear();
+    });
+    ref.listen(activeConnectorProvider, (_, _) => _confirmation.clear());
 
     // Buttons fill the tile: a 2-column grid (3 when wide) whose row height
     // is derived from the available height, so the buttons stretch to fill
@@ -121,53 +89,60 @@ class _ControlPanelWidgetState extends ConsumerState<ControlPanelTile> {
         ),
       );
     }
-    return LayoutBuilder(builder: (context, constraints) {
-      // Four commands always form a 2x2 grid, even on wide tiles where
-      // the default would be 3 columns (3 + 1 orphan row).
-      final columns =
-          commands.length == 4 ? 2 : (constraints.maxWidth > 460 ? 3 : 2);
-      final rows = (commands.length / columns).ceil();
-      final bounded = constraints.maxHeight.isFinite;
-      final fillExtent =
-          (constraints.maxHeight - 8 * (rows - 1)) / rows;
-      final extent = bounded ? math.max(54.0, fillExtent) : 56.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Four commands always form a 2x2 grid, even on wide tiles where
+        // the default would be 3 columns (3 + 1 orphan row).
+        final columns = commands.length == 4
+            ? 2
+            : (constraints.maxWidth > 460 ? 3 : 2);
+        final rows = (commands.length / columns).ceil();
+        final bounded = constraints.maxHeight.isFinite;
+        final fillExtent = (constraints.maxHeight - 8 * (rows - 1)) / rows;
+        final extent = bounded ? math.max(54.0, fillExtent) : 56.0;
 
-      final grid = GridView(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns,
-          mainAxisExtent: extent,
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-        ),
-        children: [
-          for (final command in commands)
-            _CommandTile(
-              command: command,
-              state: _sentCommandId == command.id
-                  ? _TileState.sent
-                  : _armedCommandId == command.id
-                      ? _TileState.confirm
-                      : _TileState.idle,
-              enabled: connected,
-              onTap: () => _onTileTap(command),
-            ),
-        ],
-      );
+        final grid = GridView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisExtent: extent,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+          ),
+          children: [
+            for (final command in commands)
+              TwoClickButton<String>(
+                id: command.id,
+                controller: _confirmation,
+                enabled: connected,
+                onConfirm: () => ref
+                    .read(serialConfigProvider.notifier)
+                    .sendBytes(
+                      command.bytes,
+                      source: CommandSource.controlPanel,
+                    ),
+                builder: (context, state, tap) => _CommandTile(
+                  command: command,
+                  state: state,
+                  enabled: connected,
+                  onTap: tap ?? () {},
+                ),
+              ),
+          ],
+        );
 
-      if (bounded && fillExtent >= 54.0) return grid;
-      return SingleChildScrollView(child: grid);
-    });
+        if (bounded && fillExtent >= 54.0) return grid;
+        return SingleChildScrollView(child: grid);
+      },
+    );
   }
 }
 
-enum _TileState { idle, confirm, sent }
-
 class _CommandTile extends StatelessWidget {
   final ConnectorCommand command;
-  final _TileState state;
+  final TwoClickState state;
   final bool enabled;
   final VoidCallback onTap;
 
@@ -188,19 +163,19 @@ class _CommandTile extends StatelessWidget {
     final String label;
     final IconData icon;
     switch (state) {
-      case _TileState.idle:
+      case TwoClickState.idle:
         background = AppColors.card;
         foreground = AppColors.foreground;
         border = AppColors.border;
         label = command.label;
         icon = command.icon;
-      case _TileState.confirm:
+      case TwoClickState.confirm:
         background = accent;
         foreground = AppColors.primaryForeground;
         border = accent;
         label = 'Tap again to confirm';
         icon = Icons.priority_high;
-      case _TileState.sent:
+      case TwoClickState.sent:
         background = AppColors.success;
         foreground = AppColors.primaryForeground;
         border = AppColors.success;
@@ -211,50 +186,54 @@ class _CommandTile extends StatelessWidget {
     // Disabled keeps its real colors at reduced opacity instead of
     // flipping to grey text.
     final content = MouseRegion(
-          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-          child: Material(
-            color: background,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
-              side: BorderSide(
-                  color: state == _TileState.idle ? border : Colors.transparent,
-                  width: 1),
-            ),
-          child: InkWell(
-            onTap: enabled ? onTap : null,
-            borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Icon(
-                    icon,
-                    size: 21,
-                    color: state == _TileState.idle ? accent : foreground,
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: Material(
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
+          side: BorderSide(
+            color: state == TwoClickState.idle
+                ? border
+                : AppColors.fixedTransparent,
+            width: 1,
+          ),
+        ),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 21,
+                  color: state == TwoClickState.idle ? accent : foreground,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: foreground,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: foreground,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          ),
-        );
+        ),
+      ),
+    );
 
-    final withOpacity =
-        enabled ? content : Opacity(opacity: 0.45, child: content);
+    final withOpacity = enabled
+        ? content
+        : Opacity(opacity: 0.45, child: content);
 
     return Tooltip(
       message: enabled ? command.description : 'Connect first',

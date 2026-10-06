@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../services/live_bridge/bridge_config.dart';
 import '../../state/bridge_provider.dart';
+import '../../state/launch_site_store.dart';
 import '../../theme/app_colors.dart';
 import './app_card.dart';
 import './settings_inputs.dart';
@@ -162,6 +163,9 @@ class _LiveSharingControlsState extends ConsumerState<LiveSharingControls> {
     final configAsync = ref.watch(bridgeConfigProvider);
     final config = configAsync.value ?? const BridgeConfig();
     final status = ref.watch(bridgeStatusProvider);
+    final hasSite = ref.watch(
+      currentLaunchSiteProvider.select((site) => site != null),
+    );
 
     ref.listen(bridgeConfigProvider, (_, next) {
       final nextConfig = next.value;
@@ -208,7 +212,7 @@ class _LiveSharingControlsState extends ConsumerState<LiveSharingControls> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Material(
-          color: Colors.transparent,
+          color: AppColors.fixedTransparent,
           child: SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text(
@@ -219,7 +223,8 @@ class _LiveSharingControlsState extends ConsumerState<LiveSharingControls> {
             // Locked while serving (edit after switching off), and
             // disabled over invalid input (fix the error to enable).
             // Turning off always stays available, including on error.
-            onChanged: _fieldsValid || config.enabled
+            subtitle: hasSite ? null : const Text('Select a launch site first'),
+            onChanged: (_fieldsValid && hasSite) || config.enabled
                 ? (v) => _setEnabled(v)
                 : null,
           ),
@@ -228,68 +233,69 @@ class _LiveSharingControlsState extends ConsumerState<LiveSharingControls> {
           opacity: locked ? 0.45 : 1.0,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _bind,
-                focusNode: _bindFocus,
-                readOnly: locked,
-                canRequestFocus: !locked,
-                mouseCursor: locked ? SystemMouseCursors.basic : null,
-                decoration:
-                    settingsFieldDecoration(context, 'Bind address'),
-                style: settingsFieldStyle,
-                onChanged: (_) {
-                  if (mounted) {
-                    setState(() => _error = _validationMessage());
-                  }
-                },
-                onSubmitted: (_) => _saveBind(),
-                onTapOutside: (_) => _saveBind(),
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _bind,
+                  focusNode: _bindFocus,
+                  readOnly: locked,
+                  canRequestFocus: !locked,
+                  mouseCursor: locked ? SystemMouseCursors.basic : null,
+                  decoration: settingsFieldDecoration(context, 'Bind address'),
+                  style: settingsFieldStyle,
+                  onChanged: (_) {
+                    if (mounted) {
+                      setState(() => _error = _validationMessage());
+                    }
+                  },
+                  onSubmitted: (_) => _saveBind(),
+                  onTapOutside: (_) => _saveBind(),
+                ),
               ),
-            ),
-            fieldGap,
-            SizedBox(
-              width: 96,
-              child: TextField(
-                controller: _port,
-                focusNode: _portFocus,
-                readOnly: locked,
-                canRequestFocus: !locked,
-                mouseCursor: locked ? SystemMouseCursors.basic : null,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: settingsFieldDecoration(context, 'Port'),
-                style: settingsFieldStyle,
-                onChanged: (_) {
-                  if (mounted) {
-                    setState(() => _error = _validationMessage());
-                  }
-                },
-                onSubmitted: (_) => _savePort(),
-                onTapOutside: (_) => _savePort(),
+              fieldGap,
+              SizedBox(
+                width: 96,
+                child: TextField(
+                  controller: _port,
+                  focusNode: _portFocus,
+                  readOnly: locked,
+                  canRequestFocus: !locked,
+                  mouseCursor: locked ? SystemMouseCursors.basic : null,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: settingsFieldDecoration(context, 'Port'),
+                  style: settingsFieldStyle,
+                  onChanged: (_) {
+                    if (mounted) {
+                      setState(() => _error = _validationMessage());
+                    }
+                  },
+                  onSubmitted: (_) => _savePort(),
+                  onTapOutside: (_) => _savePort(),
+                ),
               ),
-            ),
-            fieldGap,
-            Expanded(
-              child: TextField(
-                controller: _cors,
-                focusNode: _corsFocus,
-                readOnly: locked,
-                canRequestFocus: !locked,
-                mouseCursor: locked ? SystemMouseCursors.basic : null,
-                decoration:
-                    settingsFieldDecoration(context, 'Allowed origin'),
-                style: settingsFieldStyle,
-                onChanged: (_) {
-                  if (mounted) {
-                    setState(() => _error = _validationMessage());
-                  }
-                },
-                onSubmitted: (_) => _saveCors(),
-                onTapOutside: (_) => _saveCors(),
+              fieldGap,
+              Expanded(
+                child: TextField(
+                  controller: _cors,
+                  focusNode: _corsFocus,
+                  readOnly: locked,
+                  canRequestFocus: !locked,
+                  mouseCursor: locked ? SystemMouseCursors.basic : null,
+                  decoration: settingsFieldDecoration(
+                    context,
+                    'Allowed origin',
+                  ),
+                  style: settingsFieldStyle,
+                  onChanged: (_) {
+                    if (mounted) {
+                      setState(() => _error = _validationMessage());
+                    }
+                  },
+                  onSubmitted: (_) => _saveCors(),
+                  onTapOutside: (_) => _saveCors(),
+                ),
               ),
-            ),
             ],
           ),
         ),

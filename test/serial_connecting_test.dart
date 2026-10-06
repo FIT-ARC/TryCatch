@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:trycatch/state/telemetry_provider.dart';
+import 'package:trycatch/state/launch_site_store.dart';
 import 'package:trycatch/state/toast_store.dart';
 import 'package:trycatch/ui/components/serial_controls.dart';
 import 'package:trycatch/ui/components/serial_toast_bridge.dart';
@@ -42,6 +43,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         serialWorkerProvider.overrideWithValue(worker),
+        currentLaunchSiteProvider.overrideWithValue(mockLaunchSite),
       ],
     );
     addTearDown(container.dispose);
@@ -56,7 +58,9 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(home: Scaffold(body: Center(child: child))),
+        child: MaterialApp(
+          home: Scaffold(body: Center(child: child)),
+        ),
       ),
     );
     await tester.pump();
@@ -80,9 +84,7 @@ void main() {
   }
 
   group('connecting state', () {
-    testWidgets('failed connect spins, then errors and clears', (
-      tester,
-    ) async {
+    testWidgets('failed connect spins, then errors and clears', (tester) async {
       final container = newContainer();
       await pumpHarness(tester, const SerialToastBridge(), container);
       // The pill owns the success path; mount it too so the status
@@ -92,9 +94,7 @@ void main() {
           container: container,
           child: const MaterialApp(
             home: Scaffold(
-              body: Column(
-                children: [SerialToastBridge(), SerialControls()],
-              ),
+              body: Column(children: [SerialToastBridge(), SerialControls()]),
             ),
           ),
         ),
@@ -104,8 +104,10 @@ void main() {
       final notifier = container.read(serialConfigProvider.notifier);
       notifier.setPort('__BOGUS_PORT_XYZ__');
       notifier.connect();
-      expect(container.read(serialConfigProvider).connectingPort,
-          '__BOGUS_PORT_XYZ__');
+      expect(
+        container.read(serialConfigProvider).connectingPort,
+        '__BOGUS_PORT_XYZ__',
+      );
       await tester.pump();
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -118,9 +120,11 @@ void main() {
       await tester.pump();
       final toasts = container.read(toastStoreProvider);
       expect(
-        toasts.any((t) =>
-            t.title == 'Serial error' &&
-            t.message.contains('__BOGUS_PORT_XYZ__')),
+        toasts.any(
+          (t) =>
+              t.title == 'Serial error' &&
+              t.message.contains('__BOGUS_PORT_XYZ__'),
+        ),
         isTrue,
       );
       expect(
@@ -129,9 +133,7 @@ void main() {
       );
     });
 
-    testWidgets('MOCK connect spins, then links up and clears', (
-      tester,
-    ) async {
+    testWidgets('MOCK connect spins, then links up and clears', (tester) async {
       final container = newContainer();
       await pumpHarness(tester, const SerialControls(), container);
 
@@ -219,7 +221,9 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('connect timeout toasts instead of dying silent', (tester) async {
+    testWidgets('connect timeout toasts instead of dying silent', (
+      tester,
+    ) async {
       // A worker isolate that is already gone drops commands silently (the
       // sleep/wake wedge): the pill must still resolve, and the timeout —
       // not just the pill unwinding — must say so.
@@ -230,7 +234,10 @@ void main() {
       });
       dead.dispose();
       final container = ProviderContainer(
-        overrides: [serialWorkerProvider.overrideWithValue(dead)],
+        overrides: [
+          serialWorkerProvider.overrideWithValue(dead),
+          currentLaunchSiteProvider.overrideWithValue(mockLaunchSite),
+        ],
       );
       addTearDown(container.dispose);
       await pumpHarness(tester, const SizedBox.shrink(), container);
@@ -246,8 +253,9 @@ void main() {
       expect(container.read(serialConfigProvider).connectingPort, isNull);
       final toasts = container.read(toastStoreProvider);
       expect(
-        toasts.any((t) =>
-            t.title == 'Serial error' && t.message.contains('COM9')),
+        toasts.any(
+          (t) => t.title == 'Serial error' && t.message.contains('COM9'),
+        ),
         isTrue,
       );
       expect(tester.takeException(), isNull);
@@ -257,18 +265,24 @@ void main() {
   group('SerialToastBridge.isDisconnectMessage', () {
     test('classifies link-loss text as disconnects', () {
       expect(
-          SerialToastBridge.isDisconnectMessage('Port disconnected — COM4'),
-          isTrue);
-      expect(SerialToastBridge.isDisconnectMessage('Port closed — COM4'),
-          isTrue);
-      expect(SerialToastBridge.isDisconnectMessage('Port error: boom'),
-          isTrue);
-      expect(SerialToastBridge.isDisconnectMessage('Failed to open COM4'),
-          isFalse);
+        SerialToastBridge.isDisconnectMessage('Port disconnected — COM4'),
+        isTrue,
+      );
       expect(
-          SerialToastBridge.isDisconnectMessage(
-              'Not connected — failed to send 4 byte(s)'),
-          isFalse);
+        SerialToastBridge.isDisconnectMessage('Port closed — COM4'),
+        isTrue,
+      );
+      expect(SerialToastBridge.isDisconnectMessage('Port error: boom'), isTrue);
+      expect(
+        SerialToastBridge.isDisconnectMessage('Failed to open COM4'),
+        isFalse,
+      );
+      expect(
+        SerialToastBridge.isDisconnectMessage(
+          'Not connected — failed to send 4 byte(s)',
+        ),
+        isFalse,
+      );
     });
   });
 }

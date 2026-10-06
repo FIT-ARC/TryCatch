@@ -317,7 +317,7 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
           SizedBox(
             height: 200,
             child: Material(
-              color: Colors.transparent,
+              color: AppColors.fixedTransparent,
               borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
               clipBehavior: Clip.hardEdge,
               child: InkWell(
@@ -374,13 +374,13 @@ class RecordingCardState extends ConsumerState<RecordingCard> {
                                   height: 26,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
-                                    color: Colors.white,
+                                    color: AppColors.fixedWhite,
                                   ),
                                 )
                               : Icon(
                                   isLoaded ? Icons.replay : Icons.play_arrow,
                                   size: 30,
-                                  color: Colors.white,
+                                  color: AppColors.fixedWhite,
                                 ),
                         ),
                       ),

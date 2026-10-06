@@ -1,9 +1,10 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../core/format.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/centered_stat.dart';
@@ -25,8 +26,12 @@ class MaxAltitudeTile extends ConsumerWidget {
         .watch(activeConnectorProvider)
         .unsupportedPlaceholder(TelemetryField.baroAltitude);
     if (unsupported != null) return unsupported;
-    final state = ref.watch(telemetryStoreProvider);
-    if (state.history.isEmpty) {
+    final state = ref.watch(
+      telemetryStoreProvider.select(
+        (s) => (empty: s.history.isEmpty, maxAltitude: s.maxAltitude),
+      ),
+    );
+    if (state.empty) {
       return const Center(child: WaitingForData());
     }
     final maxAlt = state.maxAltitude;

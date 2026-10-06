@@ -78,8 +78,7 @@ bool bridgeClientExpired({
   required int joinedMs,
   required int nowMs,
   int ttlMs = bridgeClientTtlMs,
-}) =>
-    nowMs - joinedMs > ttlMs;
+}) => nowMs - joinedMs > ttlMs;
 
 /// Liveness lease for the bridge isolate, in milliseconds.
 ///
@@ -97,8 +96,7 @@ bool bridgeLeaseExpired({
   required int lastSignalMs,
   required int nowMs,
   int leaseMs = bridgeLeaseMs,
-}) =>
-    nowMs - lastSignalMs > leaseMs;
+}) => nowMs - lastSignalMs > leaseMs;
 
 class _BridgeHost {
   final void Function(Map<String, dynamic> status) sendStatus;
@@ -109,11 +107,10 @@ class _BridgeHost {
 
   _BridgeHost({required this.sendStatus, required this.onLeaseExpired}) {
     _leaseTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_server != null &&
-          bridgeLeaseExpired(
-            lastSignalMs: _lastSignalMs,
-            nowMs: DateTime.now().millisecondsSinceEpoch,
-          )) {
+      if (bridgeLeaseExpired(
+        lastSignalMs: _lastSignalMs,
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      )) {
         _expire();
       }
     });
@@ -125,6 +122,9 @@ class _BridgeHost {
   /// heartbeat sweep reaps connections past [bridgeClientTtlMs], bounding how
   /// long a phantom client can inflate the count.
   final Map<HttpResponse, int> _sseClients = {};
+  final Map<HttpResponse, String> _pendingWrites = {};
+  final Set<HttpResponse> _flushing = {};
+  static const int _maxClients = 64;
   Timer? _heartbeat;
   Timer? _leaseTimer;
 
@@ -145,8 +145,10 @@ class _BridgeHost {
   bool _hasFrame = false;
 
   bool get _running => _server != null;
+  bool _expired = false;
 
   void handle(Map message) {
+    if (_expired) return;
     // Any message proves the main isolate is alive — renew the lease.
     _lastSignalMs = DateTime.now().millisecondsSinceEpoch;
     switch (message[LiveBridgeMessages.type]) {
@@ -163,8 +165,11 @@ class _BridgeHost {
   /// status below only ever reaches a live listener in tests; a dead main
   /// hears nothing.
   Future<void> _expire() async {
+    if (_expired) return;
+    _expired = true;
     _leaseTimer?.cancel();
     _leaseTimer = null;
+    await _configChain;
     await _stop();
     try {
       onLeaseExpired();
@@ -177,7 +182,9 @@ class _BridgeHost {
   Future<void> _configChain = Future.value();
 
   void _applyConfig(Map message) {
-    _configChain = _configChain.then((_) => _applyConfigNow(message)).then(
+    _configChain = _configChain
+        .then((_) => _applyConfigNow(message))
+        .then(
           (_) {},
           // _applyConfigNow handles bind failures itself; this only keeps
           // an unexpected throw from stalling later configs.
@@ -186,6 +193,7 @@ class _BridgeHost {
   }
 
   Future<void> _applyConfigNow(Map message) async {
+    if (_expired) return;
     final enabled = message['enabled'] == true;
     final port = message['port'];
     final bind = message['bind'];
@@ -238,11 +246,10 @@ class _BridgeHost {
     _heartbeat?.cancel();
     _heartbeat = null;
     for (final client in _sseClients.keys.toList()) {
-      try {
-        await client.close();
-      } catch (_) {}
+      _dropClient(client);
     }
     _sseClients.clear();
+    _pendingWrites.clear();
     final wasRunning = _running;
     if (_server != null) {
       try {
@@ -313,33 +320,48 @@ class _BridgeHost {
     response.headers.contentType = ContentType.json;
     response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
     response.write(jsonEncode(body));
-    response.close();
+    response.close().catchError((Object _) {});
   }
 
   Future<void> _serveEvents(HttpRequest request) async {
     final response = request.response;
+    if (_sseClients.length >= _maxClients) {
+      response.statusCode = HttpStatus.serviceUnavailable;
+      response.deadline = _clientFlushTimeout;
+      await response.close();
+      return;
+    }
     response.statusCode = HttpStatus.ok;
-    response.headers.contentType =
-        ContentType('text', 'event-stream', charset: 'utf-8');
+    response.headers.contentType = ContentType(
+      'text',
+      'event-stream',
+      charset: 'utf-8',
+    );
     response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
     response.headers.set('Connection', 'keep-alive');
     response.bufferOutput = false;
+    _sseClients[response] = DateTime.now().millisecondsSinceEpoch;
+    _flushing.add(response);
+    response.deadline = _clientFlushTimeout;
     response.write('retry: 2000\n\n');
     if (_latestJson != null) response.write('data: $_latestJson\n\n');
     try {
-      await response.flush();
+      await response.flush().timeout(_clientFlushTimeout);
     } catch (_) {
-      try {
-        await response.close();
-      } catch (_) {}
+      _dropClient(response);
       return;
+    } finally {
+      _flushing.remove(response);
     }
-    _sseClients[response] = DateTime.now().millisecondsSinceEpoch;
+    if (!_running || !_sseClients.containsKey(response)) return;
+    response.deadline = Duration(milliseconds: bridgeClientTtlMs);
+    if (_pendingWrites.containsKey(response)) _flushTo(response);
     _report();
     try {
       await response.done;
     } catch (_) {}
     _sseClients.remove(response);
+    _pendingWrites.remove(response);
     _report();
   }
 
@@ -351,10 +373,8 @@ class _BridgeHost {
     var dropped = false;
     for (final entry in _sseClients.entries.toList()) {
       if (bridgeClientExpired(joinedMs: entry.value, nowMs: nowMs)) {
-        try {
-          entry.key.close();
-        } catch (_) {}
-        dropped = _sseClients.remove(entry.key) != null || dropped;
+        _dropClient(entry.key);
+        dropped = true;
       }
     }
     if (dropped) _report();
@@ -362,34 +382,37 @@ class _BridgeHost {
 
   void _broadcastData(String json) {
     for (final client in _sseClients.keys.toList()) {
-      try {
-        client.write('data: $json\n\n');
-        _flushTo(client);
-      } catch (_) {
-        _dropClient(client);
-      }
+      _pendingWrites[client] = 'data: $json\n\n';
+      _flushTo(client);
     }
   }
 
   void _broadcastComment(String comment) {
     for (final client in _sseClients.keys.toList()) {
-      try {
-        client.write(': $comment\n\n');
-        _flushTo(client);
-      } catch (_) {
-        _dropClient(client);
-      }
+      if (_flushing.contains(client)) continue;
+      _pendingWrites[client] = ': $comment\n\n';
+      _flushTo(client);
     }
   }
 
   /// Flushes pending SSE bytes to [client], dropping it (with a status)
   /// when the flush errors or stalls past [_clientFlushTimeout].
   void _flushTo(HttpResponse client) {
+    if (!_flushing.add(client)) return;
     () async {
       try {
-        await client.flush().timeout(_clientFlushTimeout);
+        while (_sseClients.containsKey(client)) {
+          final event = _pendingWrites.remove(client);
+          if (event == null) break;
+          client.deadline = _clientFlushTimeout;
+          client.write(event);
+          await client.flush().timeout(_clientFlushTimeout);
+          client.deadline = Duration(milliseconds: bridgeClientTtlMs);
+        }
       } catch (_) {
         _dropClient(client);
+      } finally {
+        _flushing.remove(client);
       }
     }();
   }
@@ -397,6 +420,10 @@ class _BridgeHost {
   /// Drops [client] from the subscription map, pushing a status when the
   /// map shrinks so a reaped socket never leaves the count stale-high.
   void _dropClient(HttpResponse client) {
+    _pendingWrites.remove(client);
+    try {
+      client.deadline = Duration.zero;
+    } catch (_) {}
     if (_sseClients.remove(client) != null) _report();
   }
 

@@ -1,3 +1,5 @@
+import '../../state/recording_provider.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -6,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:serial/serial.dart';
 
 import '../../services/recording_repository.dart';
+import '../../foundation/app_log.dart';
 import '../../state/replay_controller.dart';
 import '../../state/telemetry_provider.dart';
 import '../../session/feedback.dart';
@@ -87,8 +90,8 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
         }
         _infoCache[entity.path] = info;
         recordings.add(info);
-      } catch (_) {
-        // Skip unreadable files.
+      } catch (e) {
+        AppLog.warn('Skipping recording ${entity.path}: $e');
       }
     }
     for (final assetKey in await RecordingRepository.bundledRecordingKeys()) {
@@ -279,6 +282,21 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const Center(child: CircularProgressIndicator());
               }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Could not read recordings: ${snapshot.error}'),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () => setState(_reload),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                );
+              }
               final recordings = snapshot.data ?? const [];
               if (recordings.isEmpty) {
                 return Center(
@@ -348,20 +366,18 @@ class _RecordingsScreenState extends ConsumerState<RecordingsScreen> {
                         physics: const NeverScrollableScrollPhysics(),
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 440,
-                          // Content budget: 18 card padding + ~32 header + 6
-                          // + 200 preview + 6 + ~12 stats.
-                          mainAxisExtent: 284,
-                          mainAxisSpacing: 8,
-                          crossAxisSpacing: 8,
-                        ),
+                              maxCrossAxisExtent: 440,
+                              // Content budget: 18 card padding + ~32 header + 6
+                              // + 200 preview + 6 + ~12 stats.
+                              mainAxisExtent: 284,
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                            ),
                         itemCount: flights.length,
                         itemBuilder: (context, index) {
                           final recording = flights[index];
-                          final isLoaded =
-                              replay.filePath == recording.path;
-                          final cardLoading =
-                              _loadingPath == recording.path;
+                          final isLoaded = replay.filePath == recording.path;
+                          final cardLoading = _loadingPath == recording.path;
                           return RecordingCard(
                             info: recording,
                             isLoaded: isLoaded,

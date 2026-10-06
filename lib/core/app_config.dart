@@ -18,11 +18,6 @@ abstract final class AppConfig {
   /// loss or GPS gaps. 100 ms corresponds to 10 Hz (matching telemetry rate).
   static const int deadReckoningUpdateIntervalMs = 100;
 
-  /// Minimum time between UI-visible state rebuilds from the telemetry store
-  /// (ms). High-frequency replay paths push packets faster than 10 Hz; this
-  /// throttle keeps tiles from rebuilding on every ingestion.
-  static const int minNotifyIntervalMs = 80;
-
   // ── Replay ───────────────────────────────────────────────────────────────────
 
   /// Speed multiplier presets offered in the playback bar.
@@ -39,6 +34,8 @@ abstract final class AppConfig {
 
   /// HTTP response timeout for tile fetches.
   static const Duration tileResponseTimeout = Duration(seconds: 10);
+  static const int tileMaxResponseBytes = 4 * 1024 * 1024;
+  static const int terrainAtlasMaxPixels = 2 * 1024 * 1024;
 
   /// How long fetched tiles are kept in the flutter_map disk cache.
   static const Duration tileCacheTtl = Duration(days: 30);

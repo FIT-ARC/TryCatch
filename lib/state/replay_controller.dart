@@ -1,3 +1,6 @@
+import 'connector_provider.dart';
+import '../core/flight_peaks.dart';
+
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -31,8 +34,10 @@ LaunchSite? launchSiteFromHeader(RecordingHeader? header) {
 /// `null` — then no flag is shown rather than a fallback), else the
 /// selected site.
 final effectiveLaunchSiteProvider = Provider<LaunchSite?>((ref) {
-  final replay = ref.watch(replayProvider);
-  if (replay.isActive) return replay.launchSite;
+  final replay = ref.watch(
+    replayProvider.select((s) => (s.isActive, s.launchSite)),
+  );
+  if (replay.$1) return replay.$2;
   return ref.watch(currentLaunchSiteProvider);
 });
 
@@ -163,8 +168,7 @@ int replayDisplayPositionMs(ReplayState replay, int nowWallMs) {
   if (!replay.isActive || !replay.playing) return replay.positionMs;
   final elapsed = nowWallMs - replay.positionWallMs;
   if (elapsed <= 0) return replay.positionMs;
-  final extrapolated =
-      replay.positionMs + (elapsed * replay.speed).round();
+  final extrapolated = replay.positionMs + (elapsed * replay.speed).round();
   final duration = replay.durationMs;
   if (duration == null || duration <= 0) return replay.positionMs;
   return extrapolated.clamp(0, duration);
@@ -213,10 +217,10 @@ class ReplayCommand {
 /// flight-clock positions resolved against the first frame (mirroring
 /// [detectFlightEvents]). Empty outside a replay or for command-free files.
 final replayCommandsProvider = Provider<List<ReplayCommand>>((ref) {
-  final replay = ref.watch(replayProvider);
-  final commands = replay.commands;
-  if (commands.isEmpty || replay.frames.isEmpty) return const [];
-  final t0 = replay.frames.first.receivedAtMs;
+  final commands = ref.watch(replayProvider.select((s) => s.commands));
+  final frames = ref.watch(replayProvider.select((s) => s.frames));
+  if (commands.isEmpty || frames.isEmpty) return const [];
+  final t0 = frames.first.receivedAtMs;
   return [
     for (final command in commands)
       ReplayCommand(
@@ -239,7 +243,7 @@ class ReplayController extends SessionStore<ReplayState> {
   /// restored on stop so the live choice survives replays).
   String? _savedConnectorId;
 
-  /// Monotonic load generation: each play()/stop() bumps it, and a pending
+  /// Monotonic load generation: each play()/clear() bumps it, and a pending
   /// play() abandons its result when it notices a newer generation. This
   /// closes the stop-during-loading race — the UI disables the close action
   /// while isLoading, but a programmatic stop (or a second play) must not
@@ -289,16 +293,28 @@ class ReplayController extends SessionStore<ReplayState> {
       loopEnabled: initialLoop,
     );
 
-    final loaded = bundled
-        ? await RecordingRepository.loadReplayFromAsset(source)
-        : await RecordingRepository.loadReplay(source);
-    if (generation != _loadGeneration) return;
+    LoadedRecording? loaded;
+    try {
+      loaded = bundled
+          ? await RecordingRepository.loadReplayFromAsset(source)
+          : await RecordingRepository.loadReplay(source);
+    } catch (e) {
+      if (!ref.mounted || generation != _loadGeneration) return;
+      state = ReplayState(
+        filePath: source,
+        durationMs: 0,
+        errorMsg: 'Could not load recording: $e',
+        smoothingEnabled: state.smoothingEnabled,
+        loopEnabled: state.loopEnabled,
+      );
+      return;
+    }
+    if (!ref.mounted || generation != _loadGeneration) return;
     if (loaded == null) {
       state = ReplayState(
         filePath: source,
         durationMs: 0,
-        errorMsg:
-            'Unsupported recording — expected a v3 recording with a header, launch site and known connector.',
+        errorMsg: 'Unsupported recording — expected a v3 recording with a header, launch site and known connector.',
         // Keep any toggles made mid-load instead of the entry values.
         smoothingEnabled: state.smoothingEnabled,
         loopEnabled: state.loopEnabled,
@@ -311,12 +327,14 @@ class ReplayController extends SessionStore<ReplayState> {
     final frames = loaded.frames;
 
     // Auto-select the recording's connector for the session (first play
-    // remembers the live choice so stop() can restore it; reloads keep the
+    // remembers the live choice so clear() can restore it; reloads keep the
     // already-saved one).
     _savedConnectorId ??= ref.read(activeConnectorIdProvider).value;
     await ref
         .read(activeConnectorIdProvider.notifier)
         .set(loaded.connector.id, persist: false);
+
+    if (!ref.mounted || generation != _loadGeneration) return;
 
     _store.setReplaying(true);
     // Drop the live link so the replay owns the session (no-op when
@@ -487,8 +505,7 @@ class ReplayController extends SessionStore<ReplayState> {
   /// Toggles looping: when on, the end of the recording wraps to the start
   /// instead of pausing. Safe to flip mid-playback — takes effect on the
   /// next tick that reaches the end.
-  void setLooping(bool enabled) =>
-      state = state.copyWith(loopEnabled: enabled);
+  void setLooping(bool enabled) => state = state.copyWith(loopEnabled: enabled);
 
   /// Restarts playback from [atPositionMs] (default 0) without pausing.
   /// Exactly one store rebuild: reset + ingest up to the target, mirroring
@@ -510,19 +527,19 @@ class ReplayController extends SessionStore<ReplayState> {
         lo = mid + 1;
       }
     }
-    _store.reset(sourceName: _fileName());
+    _store.clear(sourceName: _fileName());
     if (lo > 0) {
-      _store.ingestFrames(
-        _frames.sublist(0, lo),
-        sourceName: _fileName(),
-      );
+      _store.ingestFrames(_frames.sublist(0, lo), sourceName: _fileName());
     }
     _index = lo;
     final now = DateTime.now().millisecondsSinceEpoch;
     _lastTickMs = now;
     if (!state.playing) {
       state = state.copyWith(
-          positionMs: atPositionMs, playing: true, positionWallMs: now);
+        positionMs: atPositionMs,
+        playing: true,
+        positionWallMs: now,
+      );
     } else {
       state = state.copyWith(positionMs: atPositionMs, positionWallMs: now);
     }
@@ -552,13 +569,13 @@ class ReplayController extends SessionStore<ReplayState> {
     final index = lo;
 
     if (index > _index) {
-      if (_index == 0) _store.reset(sourceName: _fileName());
+      if (_index == 0) _store.clear(sourceName: _fileName());
       _store.ingestFrames(
         _frames.sublist(_index, index),
         sourceName: _fileName(),
       );
     } else if (index < _index) {
-      _store.reset(sourceName: _fileName());
+      _store.clear(sourceName: _fileName());
       _store.ingestFrames(_frames.sublist(0, index), sourceName: _fileName());
     }
 
@@ -655,7 +672,8 @@ class ReplayController extends SessionStore<ReplayState> {
       }
       if (nearest >= 0) {
         var index = nearest;
-        if (state.playing && pos - events[nearest].positionMs <= prevEventGraceMs) {
+        if (state.playing &&
+            pos - events[nearest].positionMs <= prevEventGraceMs) {
           index = nearest - 1;
         }
         target = index >= 0 ? events[index].positionMs : 0;
@@ -672,13 +690,10 @@ class ReplayController extends SessionStore<ReplayState> {
         (_frames.last.receivedAtMs - _frames.first.receivedAtMs);
   }
 
-  /// SessionStore entry: stops playback and returns to live mode.
-  @override
-  void clear() => stop();
-
   /// Stops playback and returns the store to live mode. The link stays
-  /// disconnected (play() dropped it) — reconnect is one tap on Connect.
-  void stop() {
+  /// disconnected — reconnect is one tap on Connect.
+  @override
+  void clear() {
     // Invalidate any in-flight play() so its late async completion is
     // dropped instead of resurrecting a replay the user just closed.
     _loadGeneration++;
@@ -699,3 +714,32 @@ class ReplayController extends SessionStore<ReplayState> {
   String _fileName() =>
       state.filePath == null ? 'replay' : basename(state.filePath!);
 }
+
+/// Whole-flight summaries recompute only when the decoded frames change.
+final replayHighlightsProvider = Provider((ref) {
+  final frames = ref.watch(replayProvider.select((s) => s.frames));
+  return (
+    peaks: FlightPeaks.scan(frames),
+    lastFix: FlightPeaks.lastFix(frames),
+    empty: frames.isEmpty,
+  );
+});
+
+/// Camera/chart clock dependencies, excluding commands and loading feedback.
+final replayRenderStateProvider = Provider<ReplayState>((ref) {
+  ref.watch(
+    replayProvider.select(
+      (s) => (
+        s.isActive,
+        s.frames,
+        s.positionMs,
+        s.positionWallMs,
+        s.playing,
+        s.speed,
+        s.smoothingEnabled,
+        s.durationMs,
+      ),
+    ),
+  );
+  return ref.read(replayProvider);
+});

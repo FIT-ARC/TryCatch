@@ -26,8 +26,7 @@ class Flight3dSatelliteTile extends ConsumerStatefulWidget {
       _Flight3dSatelliteWidgetState();
 }
 
-class _Flight3dSatelliteWidgetState
-    extends ConsumerState<Flight3dSatelliteTile>
+class _Flight3dSatelliteWidgetState extends ConsumerState<Flight3dSatelliteTile>
     with
         SatelliteTerrainState,
         Flight3dShellState,
@@ -36,9 +35,10 @@ class _Flight3dSatelliteWidgetState
   @override
   Widget build(BuildContext context) {
     final camera = ref.watch(orbitCameraProvider);
-    final replay = ref.watch(replayProvider);
-    final resolved =
-        resolveTerrainScene(positionMsOverride: replayDisplayMs(replay));
+    final replay = ref.watch(replayRenderStateProvider);
+    final resolved = resolveTerrainScene(
+      positionMsOverride: replayDisplayMs(replay),
+    );
     if (resolved == null) {
       return Center(child: WaitingForData());
     }

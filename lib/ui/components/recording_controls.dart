@@ -61,7 +61,8 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
 
     Widget child;
     final connected = status.isConnected;
-    if (status.isRecording) {      child = Tooltip(
+    if (status.isRecording) {
+      child = Tooltip(
         message: 'Stop recording',
         child: FilledButton(
           onPressed: ref.read(serialConfigProvider.notifier).stopRecording,
@@ -95,9 +96,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
                       style: AppText.mono.copyWith(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
-                        fontFeatures: const [
-                          FontFeature.tabularFigures()
-                        ],
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -110,24 +109,30 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
       );
     } else {
       final hasSite = ref.watch(currentLaunchSiteProvider) != null;
-      final canRecord = connected && hasSite;
+      final pending = ref.watch(
+        serialConfigProvider.select((s) => s.recordingPending),
+      );
+      final canRecord = connected && hasSite && !pending;
       child = Tooltip(
         message: !connected
             ? 'Connect first — recording needs a live link'
             : !hasSite
-                ? 'Set a launch site in Settings first — recordings require one'
-                : 'Record raw telemetry to a file',
+            ? 'Set a launch site in Settings first — recordings require one'
+            : 'Record raw telemetry to a file',
         child: OutlinedButton.icon(
           onPressed: canRecord
               ? ref.read(serialConfigProvider.notifier).startRecording
               : null,
           style: OutlinedButton.styleFrom(
             foregroundColor: AppColors.destructive,
-            disabledForegroundColor:
-                AppColors.destructive.withValues(alpha: 0.45),
+            disabledForegroundColor: AppColors.destructive.withValues(
+              alpha: 0.45,
+            ),
             side: BorderSide(
-                color: AppColors.destructive.withValues(
-                    alpha: canRecord ? 1.0 : 0.45)),
+              color: AppColors.destructive.withValues(
+                alpha: canRecord ? 1.0 : 0.45,
+              ),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 12),
             minimumSize: const Size(AppConfig.topBarChipWidth, 32),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -142,11 +147,7 @@ class _RecordingControlsState extends ConsumerState<RecordingControls> {
       );
     }
 
-    return SizedBox(
-      width: AppConfig.topBarChipWidth,
-      height: 32,
-      child: child,
-    );
+    return SizedBox(width: AppConfig.topBarChipWidth, height: 32, child: child);
   }
 }
 

@@ -21,8 +21,46 @@ abstract class TimeSeries<T> extends Iterable<T> {
   List<T> toChronological();
   List<T> slice(int startMs, int endMs);
   (List<T> played, List<T> future) splitAt(int clockMs);
+}
 
-  void clear();
+/// Read-only live view. The owner retains all mutation capabilities.
+class TimeSeriesView<T> extends TimeSeries<T> {
+  final Iterable<T> _source;
+  final int Function(T) _timestampOf;
+  TimeSeriesView(this._source, this._timestampOf);
+  @override
+  int timestampOf(T item) => _timestampOf(item);
+  @override
+  int get length => _source.length;
+  @override
+  bool get isEmpty => _source.isEmpty;
+  @override
+  T oldest(int index) => _source is RingBuffer<T>
+      ? _source.getChronological(index)
+      : _source is TimeSeries<T>
+      ? _source.oldest(index)
+      : _source.elementAt(index);
+  @override
+  T newest(int index) => oldest(length - 1 - index);
+  @override
+  List<T> toChronological() => List<T>.unmodifiable(_source);
+  @override
+  List<T> slice(int startMs, int endMs) => [
+    for (final item in _source)
+      if (timestampOf(item) >= startMs && timestampOf(item) <= endMs) item,
+  ];
+  @override
+  (List<T>, List<T>) splitAt(int clockMs) {
+    final played = <T>[];
+    final future = <T>[];
+    for (final item in _source) {
+      (timestampOf(item) <= clockMs ? played : future).add(item);
+    }
+    return (played, future);
+  }
+
+  @override
+  Iterator<T> get iterator => _source.iterator;
 }
 
 /// Bounded live buffer. Drops oldest past [capacity].
@@ -31,8 +69,8 @@ class RingTimeSeries<T> extends TimeSeries<T> {
   final int Function(T) _timestampOf;
 
   RingTimeSeries(int capacity, int Function(T) timestampOf)
-      : _ring = RingBuffer<T>(capacity),
-        _timestampOf = timestampOf;
+    : _ring = RingBuffer<T>(capacity),
+      _timestampOf = timestampOf;
 
   @override
   int timestampOf(T item) => _timestampOf(item);
@@ -58,11 +96,11 @@ class RingTimeSeries<T> extends TimeSeries<T> {
 
   @override
   List<T> slice(int startMs, int endMs) => [
-        for (var i = 0; i < _ring.length; i++)
-          if (_timestampOf(_ring.getChronological(i)) >= startMs &&
-              _timestampOf(_ring.getChronological(i)) <= endMs)
-            _ring.getChronological(i),
-      ];
+    for (var i = 0; i < _ring.length; i++)
+      if (_timestampOf(_ring.getChronological(i)) >= startMs &&
+          _timestampOf(_ring.getChronological(i)) <= endMs)
+        _ring.getChronological(i),
+  ];
 
   @override
   (List<T> played, List<T> future) splitAt(int clockMs) {
@@ -79,7 +117,6 @@ class RingTimeSeries<T> extends TimeSeries<T> {
     return (played, future);
   }
 
-  @override
   void clear() => _ring.clear();
 
   @override
@@ -92,8 +129,8 @@ class ListTimeSeries<T> extends TimeSeries<T> {
   final int Function(T) _timestampOf;
 
   ListTimeSeries(int Function(T) timestampOf, [List<T>? items])
-      : _timestampOf = timestampOf,
-        _items = items ?? const [];
+    : _timestampOf = timestampOf,
+      _items = items ?? const [];
 
   set items(List<T> next) => _items = next;
 
@@ -117,10 +154,9 @@ class ListTimeSeries<T> extends TimeSeries<T> {
 
   @override
   List<T> slice(int startMs, int endMs) => [
-        for (final item in _items)
-          if (_timestampOf(item) >= startMs && _timestampOf(item) <= endMs)
-            item,
-      ];
+    for (final item in _items)
+      if (_timestampOf(item) >= startMs && _timestampOf(item) <= endMs) item,
+  ];
 
   @override
   (List<T> played, List<T> future) splitAt(int clockMs) {
@@ -136,7 +172,6 @@ class ListTimeSeries<T> extends TimeSeries<T> {
     return (played, future);
   }
 
-  @override
   void clear() => _items = const [];
 
   @override

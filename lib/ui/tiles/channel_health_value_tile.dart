@@ -1,3 +1,5 @@
+import '../../foundation/time/rate_series.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -22,7 +24,9 @@ class ChannelHealthValueTile extends ConsumerWidget {
     final status = ref.watch(serialStatusProvider).value;
     final connected = status?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
-    final store = ref.watch(telemetryStoreProvider);
+    final store = ref.watch(
+      telemetryStoreProvider.select((s) => (replaying: s.replaying)),
+    );
 
     final profile = store.replaying && replay.isActive
         ? replay.channelProfile
@@ -64,14 +68,14 @@ class ChannelHealthValueTile extends ConsumerWidget {
   }
 }
 
-Color _verdictColor(ChannelVerdict verdict) => switch (verdict) {
-      ChannelVerdict.clear => AppColors.success,
-      ChannelVerdict.activity => AppColors.warning,
-      ChannelVerdict.interference => AppColors.destructive,
-    };
+Color _verdictColor(RateVerdict verdict) => switch (verdict) {
+  RateVerdict.clear => AppColors.success,
+  RateVerdict.activity => AppColors.warning,
+  RateVerdict.interference => AppColors.destructive,
+};
 
-String _verdictLabel(ChannelVerdict verdict) => switch (verdict) {
-      ChannelVerdict.clear => 'CLEAR',
-      ChannelVerdict.activity => 'ACTIVITY',
-      ChannelVerdict.interference => 'INTERFERENCE',
-    };
+String _verdictLabel(RateVerdict verdict) => switch (verdict) {
+  RateVerdict.clear => 'CLEAR',
+  RateVerdict.activity => 'ACTIVITY',
+  RateVerdict.interference => 'INTERFERENCE',
+};

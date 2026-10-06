@@ -9,7 +9,8 @@ import '../../state/replay_controller.dart';
 import '../../core/channel_health.dart';
 import '../../core/format.dart';
 import '../../foundation/chart_axis.dart';
-import '../../foundation/time/rate_series.dart' show RateSample, RateSeries;
+import '../../foundation/time/rate_series.dart';
+import '../../foundation/time/time_series.dart';
 import '../../state/channel_health_provider.dart';
 import '../../state/chart_hover_store.dart';
 import '../../state/telemetry_provider.dart';
@@ -17,8 +18,7 @@ import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/app_card.dart';
 import '../components/waiting_for_data.dart';
-import './shared/time_series_chart.dart'
-    show chartTouchData, previewBarAlpha;
+import './shared/time_series_chart.dart' show chartTouchData, previewBarAlpha;
 
 /// Tile-friendly channel-health readout: verdict + rolling signal chart.
 ///
@@ -58,17 +58,16 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
     final status = ref.watch(serialStatusProvider).value;
     final connected = status?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
-    final store = ref.watch(telemetryStoreProvider);
+    final store = ref.watch(
+      telemetryStoreProvider.select((s) => (replaying: s.replaying)),
+    );
 
     // Whole-flight replay view, mirroring TimeSeriesChart.
     final profile = store.replaying && replay.isActive
         ? replay.channelProfile
         : const <ChannelBin>[];
     if (profile.length >= 2) {
-      return _TileReplayBody(
-        profile: profile,
-        positionMs: replay.positionMs,
-      );
+      return _TileReplayBody(profile: profile, positionMs: replay.positionMs);
     }
 
     if (!connected) {
@@ -106,16 +105,11 @@ class _ChannelHealthTileState extends ConsumerState<ChannelHealthTile> {
   List<ChannelBin> profile,
   int positionMs,
 ) {
-  final played = <ChannelBin>[];
-  final future = <ChannelBin>[];
-  for (final bin in profile) {
-    if (bin.startMs <= positionMs) {
-      played.add(bin);
-    } else {
-      if (future.isEmpty && played.isNotEmpty) future.add(played.last);
-      future.add(bin);
-    }
-  }
+  final (played, future) = ListTimeSeries<ChannelBin>(
+    (b) => b.startMs,
+    profile,
+  ).splitAt(positionMs);
+  if (played.isNotEmpty && future.isNotEmpty) future.insert(0, played.last);
   return (played, future);
 }
 
@@ -125,10 +119,7 @@ class _TileReplayBody extends StatelessWidget {
   final List<ChannelBin> profile;
   final int positionMs;
 
-  const _TileReplayBody({
-    required this.profile,
-    required this.positionMs,
-  });
+  const _TileReplayBody({required this.profile, required this.positionMs});
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +154,7 @@ class _TileReplayBody extends StatelessWidget {
 /// the left, ours-vs-unknown rates on the right (ellipsized in narrow
 /// tiles).
 class _TileVerdictRow extends StatelessWidget {
-  final ChannelVerdict verdict;
+  final RateVerdict verdict;
   final double matchedBps;
   final double unmatchedBps;
 
@@ -192,38 +183,38 @@ class _TileVerdictRow extends StatelessWidget {
             color: color,
           ),
         ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '${matchedBps.round()} ours · '
-              '${unmatchedBps.round()} unknown B/s',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style: AppText.mono.copyWith(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                fontFeatures: const [FontFeature.tabularFigures()],
-                color: AppColors.mutedForeground,
-              ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            '${matchedBps.round()} ours · '
+            '${unmatchedBps.round()} unknown B/s',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+            style: AppText.mono.copyWith(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+              color: AppColors.mutedForeground,
             ),
           ),
-        ],
-      );
+        ),
+      ],
+    );
   }
 }
 
-Color _verdictColor(ChannelVerdict verdict) => switch (verdict) {
-      ChannelVerdict.clear => AppColors.success,
-      ChannelVerdict.activity => AppColors.warning,
-      ChannelVerdict.interference => AppColors.destructive,
-    };
+Color _verdictColor(RateVerdict verdict) => switch (verdict) {
+  RateVerdict.clear => AppColors.success,
+  RateVerdict.activity => AppColors.warning,
+  RateVerdict.interference => AppColors.destructive,
+};
 
-String _verdictLabel(ChannelVerdict verdict) => switch (verdict) {
-      ChannelVerdict.clear => 'CLEAR',
-      ChannelVerdict.activity => 'ACTIVITY',
-      ChannelVerdict.interference => 'INTERFERENCE',
-    };
+String _verdictLabel(RateVerdict verdict) => switch (verdict) {
+  RateVerdict.clear => 'CLEAR',
+  RateVerdict.activity => 'ACTIVITY',
+  RateVerdict.interference => 'INTERFERENCE',
+};
 
 /// Channel-health monitor: shows how much radio traffic on our frequency
 /// is unknown — does NOT decode as our packets (unknown transmitters, noise).
@@ -272,7 +263,9 @@ class _ChannelHealthMonitorState extends ConsumerState<ChannelHealthMonitor> {
     final status = ref.watch(serialStatusProvider).value;
     final connected = status?.isConnected ?? false;
     final replay = ref.watch(replayProvider);
-    final store = ref.watch(telemetryStoreProvider);
+    final store = ref.watch(
+      telemetryStoreProvider.select((s) => (replaying: s.replaying)),
+    );
 
     // Whole-flight replay view, mirroring TimeSeriesChart.
     final profile = store.replaying && replay.isActive
@@ -395,7 +388,7 @@ class _ReplayBody extends StatelessWidget {
 }
 
 class _VerdictBanner extends StatelessWidget {
-  final ChannelVerdict verdict;
+  final RateVerdict verdict;
   final double matchedBps;
   final double unmatchedBps;
 
@@ -475,7 +468,7 @@ class _Legend extends StatelessWidget {
 }
 
 class _RateChart extends StatelessWidget {
-  final RateSeries series;
+  final RateSeriesView series;
 
   const _RateChart({required this.series});
 
@@ -492,9 +485,9 @@ class _RateChart extends StatelessWidget {
     }
 
     List<FlSpot> spots(double Function(RateSample) pick) => [
-          for (final s in points)
-            FlSpot((s.timestampMs - (nowMs - _windowMs)) / 1000, pick(s)),
-        ];
+      for (final s in points)
+        FlSpot((s.timestampMs - (nowMs - _windowMs)) / 1000, pick(s)),
+    ];
 
     var peak = 1.0;
     for (final s in points) {
@@ -509,8 +502,11 @@ class _RateChart extends StatelessWidget {
         maxY: maxY,
         played: [
           _bar(spots((RateSample s) => s.matchedBps), AppColors.success),
-          _bar(spots((RateSample s) => s.unmatchedBps), AppColors.destructive,
-              fill: true),
+          _bar(
+            spots((RateSample s) => s.unmatchedBps),
+            AppColors.destructive,
+            fill: true,
+          ),
         ],
         touchData: chartTouchData(
           entries: [
@@ -518,8 +514,7 @@ class _RateChart extends StatelessWidget {
             ('UNKNOWN', AppColors.destructive),
           ],
           unit: 'B/s',
-          formatX: (value) =>
-              '${(60 - value).toStringAsFixed(0)}s ago',
+          formatX: (value) => '${(60 - value).toStringAsFixed(0)}s ago',
           formatY: (value) => value.round().toString(),
         ),
         bottomLabel: (value) => '-${(60 - value).toStringAsFixed(0)}s',
@@ -553,9 +548,10 @@ class _ReplayChart extends ConsumerWidget {
       return const Center(child: WaitingForData(compact: true));
     }
 
-    List<FlSpot> spots(List<ChannelBin> bins, double Function(ChannelBin) pick) => [
-          for (final b in bins) FlSpot(b.startMs / 1000, pick(b)),
-        ];
+    List<FlSpot> spots(
+      List<ChannelBin> bins,
+      double Function(ChannelBin) pick,
+    ) => [for (final b in bins) FlSpot(b.startMs / 1000, pick(b))];
 
     var peak = 1.0;
     for (final b in profile) {
@@ -570,20 +566,16 @@ class _ReplayChart extends ConsumerWidget {
     final durationS = (durationMs ?? 0) / 1000;
     // durationMs is null for the tile (playhead-only view): fall back to the
     // profile extent so the axis still spans the whole flight.
-    final double maxX =
-        math.max(durationS > 0 ? durationS : 0.0, profileEndS);
+    final double maxX = math.max(durationS > 0 ? durationS : 0.0, profileEndS);
 
-    LineChartBarData dimmed(List<FlSpot> s, Color c) => _bar(
-          s,
-          c.withValues(alpha: previewBarAlpha),
-        );
+    LineChartBarData dimmed(List<FlSpot> s, Color c) =>
+        _bar(s, c.withValues(alpha: previewBarAlpha));
 
     // X axis: clock-friendly M:SS steps so long flights don't pile dozens
     // of overlapping texts (the old 1-2-5 step landed on e.g. 8:20).
     final xStep = replayXInterval(math.max(1.0, maxX));
     final chartMaxX = math.max(1.0, maxX);
-    final playheadX =
-        (positionMs / 1000).clamp(0.0, chartMaxX).toDouble();
+    final playheadX = (positionMs / 1000).clamp(0.0, chartMaxX).toDouble();
 
     // Tooltip legend kept 1:1 with the bars (played + dimmed future +
     // invisible per-series touch bars, in that order) so the touched bar
@@ -591,17 +583,12 @@ class _ReplayChart extends ConsumerWidget {
     // touch bars over the unified bins (no junction duplicate): one match
     // per series on either side of the playhead — never twins, never
     // sticking. See [chartTouchData].
-    final touchBins = [
-      ...played,
-      ...future.skip(played.isEmpty ? 0 : 1),
-    ];
+    final touchBins = [...played, ...future.skip(played.isEmpty ? 0 : 1)];
     List<FlSpot> touchSpots(double Function(ChannelBin) pick) => [
-          for (final b in touchBins) FlSpot(b.startMs / 1000, pick(b)),
-        ];
-    LineChartBarData touchBar(List<FlSpot> s, Color c) => _bar(
-          s,
-          c.withValues(alpha: 0),
-        );
+      for (final b in touchBins) FlSpot(b.startMs / 1000, pick(b)),
+    ];
+    LineChartBarData touchBar(List<FlSpot> s, Color c) =>
+        _bar(s, c.withValues(alpha: 0));
 
     // Shared replay hover (see [chartHoverProvider]): this chart publishes
     // its touched x here and renders the shared x as its own tooltip +
@@ -628,10 +615,9 @@ class _ReplayChart extends ConsumerWidget {
     var hoverIdx = -1;
     if (hoverX != null && touchBins.isNotEmpty) {
       if (hoverX >= 0 && hoverX <= chartMaxX) {
-        hoverIdx = nearestIndexForX(
-          [for (final b in touchBins) b.startMs / 1000],
-          hoverX,
-        );
+        hoverIdx = nearestIndexForX([
+          for (final b in touchBins) b.startMs / 1000,
+        ], hoverX);
       }
     }
     final touchOurs = touchBar(
@@ -648,8 +634,9 @@ class _ReplayChart extends ConsumerWidget {
         hoverSpots.add(LineBarSpot(touchOurs, 4, touchOurs.spots[hoverIdx]));
       }
       if (hoverIdx < touchUnknown.spots.length) {
-        hoverSpots
-            .add(LineBarSpot(touchUnknown, 5, touchUnknown.spots[hoverIdx]));
+        hoverSpots.add(
+          LineBarSpot(touchUnknown, 5, touchUnknown.spots[hoverIdx]),
+        );
       }
     }
     return LineChart(
@@ -661,13 +648,15 @@ class _ReplayChart extends ConsumerWidget {
         playheadX: playheadX,
         played: [
           _bar(spots(played, (b) => b.matchedBps), AppColors.success),
-          _bar(spots(played, (b) => b.unmatchedBps), AppColors.destructive,
-              fill: true),
+          _bar(
+            spots(played, (b) => b.unmatchedBps),
+            AppColors.destructive,
+            fill: true,
+          ),
         ],
         future: [
           dimmed(spots(future, (b) => b.matchedBps), AppColors.success),
-          dimmed(
-              spots(future, (b) => b.unmatchedBps), AppColors.destructive),
+          dimmed(spots(future, (b) => b.unmatchedBps), AppColors.destructive),
         ],
         touch: [
           hoverIdx >= 0
@@ -753,14 +742,10 @@ LineChartData _chartData({
       drawVerticalLine: true,
       verticalInterval: xInterval,
       horizontalInterval: interval,
-      getDrawingHorizontalLine: (value) => FlLine(
-        color: AppColors.border,
-        strokeWidth: 1,
-      ),
-      getDrawingVerticalLine: (value) => FlLine(
-        color: AppColors.border,
-        strokeWidth: 1,
-      ),
+      getDrawingHorizontalLine: (value) =>
+          FlLine(color: AppColors.border, strokeWidth: 1),
+      getDrawingVerticalLine: (value) =>
+          FlLine(color: AppColors.border, strokeWidth: 1),
     ),
     borderData: FlBorderData(
       show: true,
@@ -781,8 +766,10 @@ LineChartData _chartData({
             meta: meta,
             child: Text(
               AxisSteps.compactLabel(value),
-              style: AppText.mono
-                  .copyWith(fontSize: 9.5, color: AppColors.faint),
+              style: AppText.mono.copyWith(
+                fontSize: 9.5,
+                color: AppColors.faint,
+              ),
             ),
           ),
         ),
@@ -796,8 +783,10 @@ LineChartData _chartData({
             meta: meta,
             child: Text(
               bottomLabel(value),
-              style: AppText.mono
-                  .copyWith(fontSize: 9.5, color: AppColors.faint),
+              style: AppText.mono.copyWith(
+                fontSize: 9.5,
+                color: AppColors.faint,
+              ),
             ),
           ),
         ),

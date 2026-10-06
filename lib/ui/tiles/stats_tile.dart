@@ -1,3 +1,5 @@
+import '../../state/connector_provider.dart';
+
 import 'package:dead_reckoning/dead_reckoning.dart' show haversineDistanceM;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,7 +7,6 @@ import 'package:serial/serial.dart';
 
 import '../../core/format.dart';
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../components/connector_gate.dart';
 import '../components/position_readout.dart';
@@ -32,7 +33,7 @@ class StatsTile extends ConsumerWidget {
         .unsupportedPlaceholder(TelemetryField.gpsPosition);
     if (unsupported != null) return unsupported;
     final state = ref.watch(telemetryStoreProvider);
-    final replaying = ref.watch(replayProvider).isActive;
+    final replaying = ref.watch(replayProvider.select((s) => s.isActive));
     final latest = state.latest;
     final site = ref.watch(effectiveLaunchSiteProvider);
 
@@ -42,14 +43,19 @@ class StatsTile extends ConsumerWidget {
 
     final drift = site != null && latest.gpsHasFix
         ? haversineDistanceM(
-            site.latitude, site.longitude, latest.latitude, latest.longitude)
+            site.latitude,
+            site.longitude,
+            latest.latitude,
+            latest.longitude,
+          )
         : null;
 
     // Same staleness rule as the store extrapolator and the 3D view: no
     // packets for over a second means the link (not just the fix) is down.
     // GPS-only since the split: the dead-reckoning tile owns the
     // extrapolated readout.
-    final linkStale = !replaying &&
+    final linkStale =
+        !replaying &&
         DateTime.now().millisecondsSinceEpoch - latest.receivedAtMs >
             TelemetryStore.deadReckoningStaleMs;
 
@@ -66,7 +72,10 @@ class StatsTile extends ConsumerWidget {
       qrLongitude: latest.gpsHasFix ? latest.longitude : null,
       qrTitle: 'GPS position',
       details: [
-        (text: 'Altitude ${formatAltitudeM(latest.baroAltitude)}', tooltip: null),
+        (
+          text: 'Altitude ${formatAltitudeM(latest.baroAltitude)}',
+          tooltip: null,
+        ),
         if (drift != null)
           (
             text: 'Drift ${formatDistanceM(drift)}',

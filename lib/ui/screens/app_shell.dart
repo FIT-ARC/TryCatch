@@ -4,22 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../foundation/app_log.dart';
 import '../../state/replay_controller.dart';
+import '../../state/telemetry_provider.dart';
 import './monitor_screen.dart';
 import './recordings_screen.dart';
 import './settings_screen.dart';
 import './dashboard_screen.dart';
 import './router.dart';
-import '../components/live_bridge_relay.dart';
+import '../../services/live_bridge/bridge_runtime.dart';
 import '../components/serial_toast_bridge.dart';
 import '../components/toast_overlay.dart';
 import '../components/top_bar.dart';
 
 /// Root layout: top bar on every screen + the active screen below it.
 ///
-/// Screens live in an [IndexedStack] so switching is instant: every screen
-/// stays mounted, and returning to a screen restores its state (map tiles,
-/// channel-health history, scroll positions) instead of rebuilding the whole
-/// subtree.
+/// Only the selected screen is mounted; session state lives in providers.
+/// Switching screens disposes transient view work such as chart and camera
+/// tickers; flight and workspace data remain in app-lifetime stores.
 ///
 /// While a replay is active, video-player keybinds drive the transport from
 /// any screen with focus (Space/K play, `,`/`.` packet, J/L ∓1 s,
@@ -34,6 +34,8 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(commandLogProvider.select((_) => true));
+    ref.watch(liveBridgeRuntimeProvider);
     final screen = ref.watch(appRouterProvider);
     final replayActive = ref.watch(replayProvider.select((s) => s.isActive));
 
@@ -82,24 +84,38 @@ class AppShell extends ConsumerWidget {
     return CallbackShortcuts(
       bindings: {
         if (replayActive) ...{
-          const SingleActivator(LogicalKeyboardKey.space):
-              guarded('play/pause', replay.toggle),
-          const SingleActivator(LogicalKeyboardKey.keyK):
-              guarded('play/pause', replay.toggle),
-          const SingleActivator(LogicalKeyboardKey.comma):
-              guarded('prev packet', () => replay.stepPacket(-1)),
-          const SingleActivator(LogicalKeyboardKey.period):
-              guarded('next packet', () => replay.stepPacket(1)),
-          const SingleActivator(LogicalKeyboardKey.keyJ):
-              guarded('back 1 s', () => replay.stepTime(-1000)),
-          const SingleActivator(LogicalKeyboardKey.keyL):
-              guarded('forward 1 s', () => replay.stepTime(1000)),
-          SingleActivator(LogicalKeyboardKey.keyJ, control: true):
-              guarded('prev event', () => replay.stepEvent(
-                  -1, ref.read(replayFlightEventsProvider))),
-          SingleActivator(LogicalKeyboardKey.keyL, control: true):
-              guarded('next event', () => replay.stepEvent(
-                  1, ref.read(replayFlightEventsProvider))),
+          const SingleActivator(LogicalKeyboardKey.space): guarded(
+            'play/pause',
+            replay.toggle,
+          ),
+          const SingleActivator(LogicalKeyboardKey.keyK): guarded(
+            'play/pause',
+            replay.toggle,
+          ),
+          const SingleActivator(LogicalKeyboardKey.comma): guarded(
+            'prev packet',
+            () => replay.stepPacket(-1),
+          ),
+          const SingleActivator(LogicalKeyboardKey.period): guarded(
+            'next packet',
+            () => replay.stepPacket(1),
+          ),
+          const SingleActivator(LogicalKeyboardKey.keyJ): guarded(
+            'back 1 s',
+            () => replay.stepTime(-1000),
+          ),
+          const SingleActivator(LogicalKeyboardKey.keyL): guarded(
+            'forward 1 s',
+            () => replay.stepTime(1000),
+          ),
+          SingleActivator(LogicalKeyboardKey.keyJ, control: true): guarded(
+            'prev event',
+            () => replay.stepEvent(-1, ref.read(replayFlightEventsProvider)),
+          ),
+          SingleActivator(LogicalKeyboardKey.keyL, control: true): guarded(
+            'next event',
+            () => replay.stepEvent(1, ref.read(replayFlightEventsProvider)),
+          ),
         },
       },
       child: Scaffold(
@@ -111,15 +127,12 @@ class AppShell extends ConsumerWidget {
                 // a dark-mode flip (AppColors resolves dynamically).
                 TopBar(),
                 Expanded(
-                  child: IndexedStack(
-                    index: screen.index,
-                    children: [
-                      DashboardScreen(),
-                      RecordingsScreen(),
-                      MonitorScreen(),
-                      SettingsScreen(),
-                    ],
-                  ),
+                  child: switch (screen.index) {
+                    0 => DashboardScreen(),
+                    1 => RecordingsScreen(),
+                    2 => MonitorScreen(),
+                    _ => SettingsScreen(),
+                  },
                 ),
               ],
             ),
@@ -128,7 +141,7 @@ class AppShell extends ConsumerWidget {
             SerialToastBridge(),
             // Headless: forks live frames into the bridge isolate for the
             // read-only public output (renders nothing itself).
-            LiveBridgeRelay(),
+
             // Floating error/warning cards over the workspace.
             ToastOverlay(),
           ],

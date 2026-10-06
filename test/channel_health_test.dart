@@ -1,3 +1,5 @@
+import 'package:trycatch/foundation/time/rate_series.dart';
+
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -5,9 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:serial/serial.dart';
 import 'package:trycatch/core/channel_health.dart';
 
-Uint8List validPacket(int sequence) => FrameCodec.encodePacket(
-      TelemetryFrame(sequence: sequence),
-    );
+Uint8List validPacket(int sequence) =>
+    FrameCodec.encodePacket(TelemetryFrame(sequence: sequence));
 
 void main() {
   group('PacketParser byte stats', () {
@@ -27,8 +28,10 @@ void main() {
       expect(parser.matchedPackets, 1);
       expect(parser.garbageBytes, garbage.length);
       expect(parser.unmatchedBytes, garbage.length);
-      expect(parser.totalBytes,
-          garbage.length + TelemetryFraming.totalPacketLength);
+      expect(
+        parser.totalBytes,
+        garbage.length + TelemetryFraming.totalPacketLength,
+      );
     });
 
     test('counts CRC-failed frames as unknown', () {
@@ -52,24 +55,27 @@ void main() {
     });
   });
 
-  group('ChannelHealthTracker', () {
-    LinkStats snap(int t, int total, int matched, int packets,
-            {int garbage = 0, int crcBytes = 0}) =>
-        LinkStats(
-          timestampMs: t,
-          totalBytes: total,
-          matchedBytes: matched,
-          garbageBytes: garbage,
-          crcErrorBytes: crcBytes,
-          matchedPackets: packets,
-        );
+  group('RateSeries', () {
+    LinkStats snap(
+      int t,
+      int total,
+      int matched,
+      int packets, {
+      int garbage = 0,
+      int crcBytes = 0,
+    }) => LinkStats(
+      timestampMs: t,
+      totalBytes: total,
+      matchedBytes: matched,
+      garbageBytes: garbage,
+      crcErrorBytes: crcBytes,
+      matchedPackets: packets,
+    );
 
     test('baselines on first snapshot, then computes rates', () {
-      final tracker = ChannelHealthTracker();
-      expect(
-          tracker.addSnapshot(snap(1000, 100, 55, 1, garbage: 45)), isNull);
-      final sample =
-          tracker.addSnapshot(snap(2000, 210, 110, 2, garbage: 100));
+      final tracker = RateSeries();
+      expect(tracker.addSnapshot(snap(1000, 100, 55, 1, garbage: 45)), isNull);
+      final sample = tracker.addSnapshot(snap(2000, 210, 110, 2, garbage: 100));
       expect(sample, isNotNull);
       expect(sample!.matchedBps, 55.0);
       // 55 matched (ours) of 110 total → 55 unknown.
@@ -78,32 +84,33 @@ void main() {
     });
 
     test('unknown traffic shows up as unknown rate', () {
-      final tracker = ChannelHealthTracker();
+      final tracker = RateSeries();
       tracker.addSnapshot(snap(1000, 100, 55, 1, garbage: 45));
       // 1000 extra bytes arrived but nothing new matched.
-      final sample =
-          tracker.addSnapshot(snap(2000, 1100, 55, 1, garbage: 1045));
+      final sample = tracker.addSnapshot(
+        snap(2000, 1100, 55, 1, garbage: 1045),
+      );
       expect(sample!.unmatchedBps, 1000.0);
       expect(sample.matchedBps, 0.0);
-      expect(verdictFor(sample.unmatchedBps), ChannelVerdict.interference);
+      expect(verdictFor(sample.unmatchedBps), RateVerdict.interference);
     });
 
-    test('reset clears history on counter regression', () {
-      final tracker = ChannelHealthTracker();
+    test('counter regression rebaselines and retains history', () {
+      final tracker = RateSeries();
       tracker.addSnapshot(snap(1000, 100, 55, 1, garbage: 45));
       tracker.addSnapshot(snap(2000, 200, 110, 2, garbage: 90));
-      expect(tracker.samples.length, 1);
+      expect(tracker.length, 1);
       // Worker reconnected: counters restarted at zero.
       expect(tracker.addSnapshot(snap(3000, 10, 0, 0)), isNull);
-      expect(tracker.samples, isEmpty);
+      expect(tracker.length, 1);
     });
 
     test('verdict thresholds', () {
-      expect(verdictFor(0), ChannelVerdict.clear);
-      expect(verdictFor(49), ChannelVerdict.clear);
-      expect(verdictFor(50), ChannelVerdict.activity);
-      expect(verdictFor(399), ChannelVerdict.activity);
-      expect(verdictFor(400), ChannelVerdict.interference);
+      expect(verdictFor(0), RateVerdict.clear);
+      expect(verdictFor(49), RateVerdict.clear);
+      expect(verdictFor(50), RateVerdict.activity);
+      expect(verdictFor(399), RateVerdict.activity);
+      expect(verdictFor(400), RateVerdict.interference);
     });
   });
 
@@ -135,8 +142,10 @@ void main() {
       }
       // All 10 real packets still decode through the noise...
       expect(parser.matchedPackets, greaterThanOrEqualTo(10));
-      expect(parser.matchedBytes,
-          greaterThanOrEqualTo(10 * TelemetryFraming.totalPacketLength));
+      expect(
+        parser.matchedBytes,
+        greaterThanOrEqualTo(10 * TelemetryFraming.totalPacketLength),
+      );
       // ...and the noise shows up as ~500 unknown bytes.
       expect(parser.unmatchedBytes, greaterThan(400));
     });
@@ -147,17 +156,18 @@ void main() {
       const baseUs = 1700000000000000;
       final out = <RecordingChunk>[];
       for (var i = 0; i < 5; i++) {
-        out.add(RecordingChunk(
-          tsUs: baseUs + i * 100000,
-          payload: validPacket(i),
-        ));
+        out.add(
+          RecordingChunk(tsUs: baseUs + i * 100000, payload: validPacket(i)),
+        );
       }
       // Trailing garbage chunk in the next bin (larger than one packet so
       // the parser can classify it instead of holding it as a partial).
-      out.add(RecordingChunk(
-        tsUs: baseUs + 500000,
-        payload: Uint8List.fromList(List.filled(60, 0x31)),
-      ));
+      out.add(
+        RecordingChunk(
+          tsUs: baseUs + 500000,
+          payload: Uint8List.fromList(List.filled(60, 0x31)),
+        ),
+      );
       return out;
     }
 
@@ -175,8 +185,10 @@ void main() {
       expect(profile[1].unmatchedBytes, greaterThan(0));
       expect(profile[1].matchedPackets, 0);
       // Bins carry per-second rates over their width.
-      expect(profile[0].matchedBps,
-          5 * TelemetryFraming.totalPacketLength / 0.5);
+      expect(
+        profile[0].matchedBps,
+        5 * TelemetryFraming.totalPacketLength / 0.5,
+      );
     });
   });
 }

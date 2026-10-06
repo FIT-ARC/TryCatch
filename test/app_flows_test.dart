@@ -1,3 +1,5 @@
+import 'package:trycatch/state/connector_provider.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -13,6 +15,7 @@ import 'package:trycatch/state/channel_health_provider.dart';
 import 'package:trycatch/state/replay_controller.dart';
 import 'package:trycatch/state/telemetry_provider.dart';
 import 'package:trycatch/state/telemetry_store.dart';
+import 'package:trycatch/state/launch_site_store.dart';
 
 /// Full-stack app flows against the real serial worker isolate + MOCK port.
 ///
@@ -34,13 +37,12 @@ void main() {
     HttpOverrides.global = _OfflineHttpOverrides();
     // flutter_map's disk cache needs a cache dir: point path_provider at
     // temp (its constructor otherwise throws an unhandled async error).
-    pathDir =
-        await Directory.systemTemp.createTemp('trycatch_path_test_');
+    pathDir = await Directory.systemTemp.createTemp('trycatch_path_test_');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      (call) async => pathDir.path,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => pathDir.path,
+        );
     worker = await SerialWorker.spawn();
     await worker.ready;
     ping = Timer.periodic(
@@ -53,9 +55,9 @@ void main() {
     HttpOverrides.global = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/path_provider'),
-      null,
-    );
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
     // The tile cache may still hold its DB file open; best effort only.
     try {
       pathDir.deleteSync(recursive: true);
@@ -70,7 +72,10 @@ void main() {
 
   ProviderContainer newContainer() {
     final container = ProviderContainer(
-      overrides: [serialWorkerProvider.overrideWithValue(worker)],
+      overrides: [
+        serialWorkerProvider.overrideWithValue(worker),
+        currentLaunchSiteProvider.overrideWithValue(mockLaunchSite),
+      ],
     );
     // Bare-container `read` does not drive StreamProviders (same root cause
     // as the widget-harness NOTE in serial_connecting_test): keep explicit
@@ -80,7 +85,8 @@ void main() {
     container.listen(linkStatsStreamProvider, (_, _) {});
     container.listen(commandEventsProvider, (_, _) {});
     container.listen(serialErrorsProvider, (_, _) {});
-    container.listen(availablePortsProvider, (_, _) {});    addTearDown(container.dispose);
+    container.listen(availablePortsProvider, (_, _) {});
+    addTearDown(container.dispose);
     return container;
   }
 
@@ -109,8 +115,7 @@ void main() {
   Future<void> disconnect(ProviderContainer container) async {
     container.read(serialConfigProvider.notifier).disconnect();
     await waitFor(
-      () =>
-          !(container.read(serialStatusProvider).value?.isConnected ?? true),
+      () => !(container.read(serialStatusProvider).value?.isConnected ?? true),
       reason: 'MOCK never reported disconnected',
     );
     // Let in-flight frames settle so post-disconnect asserts are stable.
@@ -139,10 +144,12 @@ void main() {
       final container = newContainer();
       await connectMock(container);
       try {
-        final ok = container
-            .read(serialConfigProvider.notifier)
-            .sendBytes([0x54, 0x43, 0x05, 0x00],
-                source: CommandSource.controlPanel);
+        final ok = container.read(serialConfigProvider.notifier).sendBytes([
+          0x54,
+          0x43,
+          0x05,
+          0x00,
+        ], source: CommandSource.controlPanel);
         expect(ok, isTrue);
         await waitFor(
           () => container.read(commandLogProvider).isNotEmpty,
@@ -159,10 +166,12 @@ void main() {
 
     test('uplink while disconnected files a failed command', () async {
       final container = newContainer();
-      final ok = container
-          .read(serialConfigProvider.notifier)
-          .sendBytes([0x54, 0x43, 0x05, 0x00],
-              source: CommandSource.controlPanel);
+      final ok = container.read(serialConfigProvider.notifier).sendBytes([
+        0x54,
+        0x43,
+        0x05,
+        0x00,
+      ], source: CommandSource.controlPanel);
       expect(ok, isFalse);
       final entry = container.read(commandLogProvider).last;
       expect(entry.status, CommandStatus.failed);
@@ -170,26 +179,27 @@ void main() {
   });
 
   group('record → file → replay', () {
-    test('round trip preserves frames, site, connector and commands',
-        () async {
+    test('round trip preserves frames, site, connector and commands', () async {
       final container = newContainer();
-      final tempDir =
-          await Directory.systemTemp.createTemp('trycatch_flows_test_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'trycatch_flows_test_',
+      );
       try {
         await connectMock(container);
-        final path =
-            '${tempDir.path}${Platform.pathSeparator}e2e_flight.bin';
+        final path = '${tempDir.path}${Platform.pathSeparator}e2e_flight.bin';
 
-        worker.send(StartRecordingCommand(
-          filePath: path,
-          launch: const LaunchRef(
-            latitude: 49.799,
-            longitude: 16.693,
-            mslM: 403,
-            name: 'E2E Pad',
+        worker.send(
+          StartRecordingCommand(
+            filePath: path,
+            launch: const LaunchRef(
+              latitude: 49.799,
+              longitude: 16.693,
+              mslM: 403,
+              name: 'E2E Pad',
+            ),
+            connectorId: 'mock',
           ),
-          connectorId: 'mock',
-        ));
+        );
         await waitFor(
           () =>
               container.read(serialStatusProvider).value?.isRecording ?? false,
@@ -197,9 +207,12 @@ void main() {
         );
 
         // File one uplink mid-recording so the command section is covered.
-        container.read(serialConfigProvider.notifier).sendBytes(
-            [0x54, 0x43, 0x05, 0x00],
-            source: CommandSource.controlPanel);
+        container.read(serialConfigProvider.notifier).sendBytes([
+          0x54,
+          0x43,
+          0x05,
+          0x00,
+        ], source: CommandSource.controlPanel);
         await waitFor(
           () => container.read(commandLogProvider).isNotEmpty,
           reason: 'uplink not filed during recording',
@@ -226,10 +239,12 @@ void main() {
         expect(loaded, isNotNull);
         expect(loaded!.frames.isNotEmpty, isTrue);
         expect(
-          loaded.commands.any((c) =>
-              c.bytes.length == 4 &&
-              c.bytes[2] == 0x05 &&
-              c.source == CommandSource.controlPanel),
+          loaded.commands.any(
+            (c) =>
+                c.bytes.length == 4 &&
+                c.bytes[2] == 0x05 &&
+                c.source == CommandSource.controlPanel,
+          ),
           isTrue,
         );
 
@@ -244,25 +259,29 @@ void main() {
             reason: 'replay never went live',
           );
           replay.pause();
-          expect(
-              container.read(effectiveLaunchSiteProvider)?.name, 'E2E Pad');
+          expect(container.read(effectiveLaunchSiteProvider)?.name, 'E2E Pad');
 
           final frames = container.read(replayProvider).frames;
           replay.seek(container.read(replayProvider).durationMs ?? 0);
-          expect(container.read(telemetryStoreProvider).packetCount,
-              frames.length);
-          expect(container.read(telemetryStoreProvider).latest!.sequence,
-              frames.last.sequence);
+          expect(
+            container.read(telemetryStoreProvider).packetCount,
+            frames.length,
+          );
+          expect(
+            container.read(telemetryStoreProvider).latest!.sequence,
+            frames.last.sequence,
+          );
 
           replay.seek(0);
-          expect(container.read(telemetryStoreProvider).latest!.sequence,
-              frames.first.sequence);
+          expect(
+            container.read(telemetryStoreProvider).latest!.sequence,
+            frames.first.sequence,
+          );
         } finally {
-          replay.stop();
+          replay.clear();
         }
         expect(container.read(replayProvider).isActive, isFalse);
-        expect(
-            container.read(telemetryStoreProvider).replaying, isFalse);
+        expect(container.read(telemetryStoreProvider).replaying, isFalse);
         expect(container.read(telemetryStoreProvider).history.isEmpty, isTrue);
       } finally {
         if (await tempDir.exists()) {
@@ -273,22 +292,24 @@ void main() {
 
     test('play drops the live link, stop stays disconnected', () async {
       final container = newContainer();
-      final tempDir =
-          await Directory.systemTemp.createTemp('trycatch_flows_drop_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'trycatch_flows_drop_',
+      );
       try {
         await connectMock(container);
-        final path =
-            '${tempDir.path}${Platform.pathSeparator}drop_flight.bin';
-        worker.send(StartRecordingCommand(
-          filePath: path,
-          launch: const LaunchRef(
-            latitude: 50.0,
-            longitude: 14.0,
-            mslM: 300,
-            name: 'Pad',
+        final path = '${tempDir.path}${Platform.pathSeparator}drop_flight.bin';
+        worker.send(
+          StartRecordingCommand(
+            filePath: path,
+            launch: const LaunchRef(
+              latitude: 50.0,
+              longitude: 14.0,
+              mslM: 300,
+              name: 'Pad',
+            ),
+            connectorId: 'mock',
           ),
-          connectorId: 'mock',
-        ));
+        );
         await waitFor(
           () =>
               container.read(serialStatusProvider).value?.isRecording ?? false,
@@ -304,8 +325,7 @@ void main() {
         );
 
         // Still connected here: play() itself drops the link.
-        expect(
-            container.read(serialStatusProvider).value?.isConnected, isTrue);
+        expect(container.read(serialStatusProvider).value?.isConnected, isTrue);
         final replay = container.read(replayProvider.notifier);
         await replay.play(path);
         try {
@@ -322,11 +342,13 @@ void main() {
             reason: 'play() never dropped the live link',
           );
         } finally {
-          replay.stop();
+          replay.clear();
         }
         // No auto-reconnect: back to live means picking Connect again.
         expect(
-            container.read(serialStatusProvider).value?.isConnected, isFalse);
+          container.read(serialStatusProvider).value?.isConnected,
+          isFalse,
+        );
         expect(container.read(telemetryStoreProvider).history.isEmpty, isTrue);
       } finally {
         if (await tempDir.exists()) {
@@ -337,8 +359,9 @@ void main() {
 
     test('replay restores the pre-play connector choice', () async {
       final container = newContainer();
-      final tempDir =
-          await Directory.systemTemp.createTemp('trycatch_flows_conn_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'trycatch_flows_conn_',
+      );
       try {
         // Park on segfault while disconnected, then play a mock file.
         await container
@@ -347,18 +370,19 @@ void main() {
         expect(container.read(activeConnectorIdProvider).value, 'segfault');
 
         await connectMock(container);
-        final path =
-            '${tempDir.path}${Platform.pathSeparator}conn_flight.bin';
-        worker.send(StartRecordingCommand(
-          filePath: path,
-          launch: const LaunchRef(
-            latitude: 50.0,
-            longitude: 14.0,
-            mslM: 300,
-            name: 'Pad',
+        final path = '${tempDir.path}${Platform.pathSeparator}conn_flight.bin';
+        worker.send(
+          StartRecordingCommand(
+            filePath: path,
+            launch: const LaunchRef(
+              latitude: 50.0,
+              longitude: 14.0,
+              mslM: 300,
+              name: 'Pad',
+            ),
+            connectorId: 'mock',
           ),
-          connectorId: 'mock',
-        ));
+        );
         await waitFor(
           () =>
               container.read(serialStatusProvider).value?.isRecording ?? false,
@@ -383,10 +407,9 @@ void main() {
           );
           expect(container.read(activeConnectorIdProvider).value, 'mock');
         } finally {
-          replay.stop();
+          replay.clear();
         }
-        expect(
-            container.read(activeConnectorIdProvider).value, 'segfault');
+        expect(container.read(activeConnectorIdProvider).value, 'segfault');
       } finally {
         if (await tempDir.exists()) {
           await tempDir.delete(recursive: true);
@@ -402,11 +425,16 @@ void main() {
       config.setPort('MOCK-BQ');
       config.connect();
       final arrivals = <({LinkStats snap, int atMs})>[];
-      final sub = worker.linkStatsStream.listen((snap) => arrivals.add(
-          (snap: snap, atMs: DateTime.now().millisecondsSinceEpoch)));
+      final sub = worker.linkStatsStream.listen(
+        (snap) => arrivals.add((
+          snap: snap,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        )),
+      );
       try {
         await waitFor(
-          () => container.read(serialStatusProvider).value?.isConnected ?? false,
+          () =>
+              container.read(serialStatusProvider).value?.isConnected ?? false,
           reason: 'MOCK-BQ never reported connected',
         );
         await waitFor(
@@ -418,22 +446,18 @@ void main() {
         // still see pre-dropout traffic, so only a fully-stalled window
         // counts).
         var stalled = false;
-        final stallDeadline =
-            DateTime.now().add(const Duration(seconds: 16));
+        final stallDeadline = DateTime.now().add(const Duration(seconds: 16));
         while (!stalled) {
           if (DateTime.now().isAfter(stallDeadline)) break;
-          final baseline =
-              container.read(telemetryStoreProvider).packetCount;
+          final baseline = container.read(telemetryStoreProvider).packetCount;
           await Future<void>.delayed(const Duration(seconds: 2));
           stalled =
               container.read(telemetryStoreProvider).packetCount == baseline;
         }
         // Ride out: frames resume on the next cycle.
-        final stalledAt =
-            container.read(telemetryStoreProvider).packetCount;
+        final stalledAt = container.read(telemetryStoreProvider).packetCount;
         await waitFor(
-          () =>
-              container.read(telemetryStoreProvider).packetCount > stalledAt,
+          () => container.read(telemetryStoreProvider).packetCount > stalledAt,
           reason: 'link never resumed after dropout',
           timeout: const Duration(seconds: 20),
         );
@@ -455,8 +479,11 @@ void main() {
           a.matchedPackets == b.matchedPackets &&
           a.crcErrors == b.crcErrors;
       for (var i = 1; i < arrivals.length; i++) {
-        expect(sameCounters(arrivals[i - 1].snap, arrivals[i].snap), isFalse,
-            reason: 'zero-delta heartbeat at index $i');
+        expect(
+          sameCounters(arrivals[i - 1].snap, arrivals[i].snap),
+          isFalse,
+          reason: 'zero-delta heartbeat at index $i',
+        );
       }
 
       // The outage surfaces as a snapshot gap, not zero samples.
@@ -482,38 +509,48 @@ void main() {
   });
 
   group('session scope', () {
-    test('FlightReset clears telemetry, commands and channel together',
-        () async {
-      final container = newContainer();
-      await connectMock(container);
-      try {
-        await waitFor(
-          () => container.read(telemetryStoreProvider).packetCount > 0,
-          reason: 'no live frames ingested',
-        );
-        container.read(serialConfigProvider.notifier).sendBytes(
-            [0x54, 0x43, 0x05, 0x00],
-            source: CommandSource.controlPanel);
-        await waitFor(
-          () =>
-              container.read(commandLogProvider).isNotEmpty &&
-              container.read(channelHealthProvider.notifier).series.isNotEmpty,
-          reason: 'commands/channel history never accumulated',
-          timeout: const Duration(seconds: 20),
-        );
-      } finally {
-        await disconnect(container);
-      }
+    test(
+      'FlightReset clears telemetry, commands and channel together',
+      () async {
+        final container = newContainer();
+        await connectMock(container);
+        try {
+          await waitFor(
+            () => container.read(telemetryStoreProvider).packetCount > 0,
+            reason: 'no live frames ingested',
+          );
+          container.read(serialConfigProvider.notifier).sendBytes([
+            0x54,
+            0x43,
+            0x05,
+            0x00,
+          ], source: CommandSource.controlPanel);
+          await waitFor(
+            () =>
+                container.read(commandLogProvider).isNotEmpty &&
+                container
+                    .read(channelHealthProvider.notifier)
+                    .series
+                    .isNotEmpty,
+            reason: 'commands/channel history never accumulated',
+            timeout: const Duration(seconds: 20),
+          );
+        } finally {
+          await disconnect(container);
+        }
 
-      final ref = container.read(_refProvider);
-      FlightReset.clearFlightRef(ref);
+        final ref = container.read(_refProvider);
+        FlightReset.clearFlightRef(ref);
 
-      expect(container.read(telemetryStoreProvider).history.isEmpty, isTrue);
-      expect(container.read(telemetryStoreProvider).packetCount, 0);
-      expect(container.read(commandLogProvider), isEmpty);
-      expect(
-          container.read(channelHealthProvider.notifier).series.isEmpty, isTrue);
-    });
+        expect(container.read(telemetryStoreProvider).history.isEmpty, isTrue);
+        expect(container.read(telemetryStoreProvider).packetCount, 0);
+        expect(container.read(commandLogProvider), isEmpty);
+        expect(
+          container.read(channelHealthProvider.notifier).series.isEmpty,
+          isTrue,
+        );
+      },
+    );
 
     test('switching connectors clears the live flight', () async {
       final container = newContainer();
@@ -537,22 +574,24 @@ void main() {
 
     test('connector switch is ignored while recording', () async {
       final container = newContainer();
-      final tempDir =
-          await Directory.systemTemp.createTemp('trycatch_flows_lock_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'trycatch_flows_lock_',
+      );
       try {
         await connectMock(container);
-        final path =
-            '${tempDir.path}${Platform.pathSeparator}lock_flight.bin';
-        worker.send(StartRecordingCommand(
-          filePath: path,
-          launch: const LaunchRef(
-            latitude: 50.0,
-            longitude: 14.0,
-            mslM: 300,
-            name: 'Pad',
+        final path = '${tempDir.path}${Platform.pathSeparator}lock_flight.bin';
+        worker.send(
+          StartRecordingCommand(
+            filePath: path,
+            launch: const LaunchRef(
+              latitude: 50.0,
+              longitude: 14.0,
+              mslM: 300,
+              name: 'Pad',
+            ),
+            connectorId: 'mock',
           ),
-          connectorId: 'mock',
-        ));
+        );
         await waitFor(
           () =>
               container.read(serialStatusProvider).value?.isRecording ?? false,
@@ -562,17 +601,17 @@ void main() {
           () => container.read(telemetryStoreProvider).packetCount > 0,
           reason: 'no live frames ingested',
         );
-        final packets =
-            container.read(telemetryStoreProvider).packetCount;
+        final packets = container.read(telemetryStoreProvider).packetCount;
         await container
             .read(serialConfigProvider.notifier)
             .setConnector('segfault');
         // Ignored: connector, flight and recording all untouched.
         expect(container.read(activeConnectorIdProvider).value, 'mock');
-        expect(container.read(telemetryStoreProvider).packetCount,
-            greaterThanOrEqualTo(packets));
         expect(
-            container.read(serialStatusProvider).value?.isRecording, isTrue);
+          container.read(telemetryStoreProvider).packetCount,
+          greaterThanOrEqualTo(packets),
+        );
+        expect(container.read(serialStatusProvider).value?.isRecording, isTrue);
         worker.send(const StopRecordingCommand());
         await waitFor(
           () =>
@@ -601,8 +640,7 @@ final _refProvider = Provider((ref) => ref);
 /// the network or the platform tile cache.
 class _OfflineHttpOverrides extends HttpOverrides {
   @override
-  HttpClient createHttpClient(SecurityContext? context) =>
-      _FailingHttpClient();
+  HttpClient createHttpClient(SecurityContext? context) => _FailingHttpClient();
 }
 
 class _FailingHttpClient implements HttpClient {
@@ -611,6 +649,5 @@ class _FailingHttpClient implements HttpClient {
       Future.error(const SocketException('offline test'));
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

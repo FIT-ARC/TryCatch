@@ -1,109 +1,5 @@
 import 'package:serial/serial.dart';
 
-import './ring_buffer.dart';
-
-/// One per-sample channel-health point: byte/packet rates over the delta
-/// between two consecutive [LinkStats] snapshots.
-class ChannelSample {
-  final int timestampMs;
-  final double matchedBps;
-  final double unmatchedBps;
-  final double packetRate;
-
-  const ChannelSample({
-    required this.timestampMs,
-    required this.matchedBps,
-    required this.unmatchedBps,
-    required this.packetRate,
-  });
-}
-
-/// Verdict on whether the frequency looks free for our link (ours vs unknown).
-enum ChannelVerdict {
-  /// Almost no unknown traffic — safe to fly.
-  clear,
-
-  /// Some unknown bytes — keep an eye on it before launch.
-  activity,
-
-  /// Sustained unknown traffic — an unknown transmitter is on this frequency.
-  interference,
-}
-
-/// Thresholds (unknown bytes/s) separating the verdicts. Our own link at
-/// 10 Hz × 55 B ≈ 550 B/s ours; anything unknown above a few hundred
-/// B/s sustained is an unknown transmitter, not noise.
-abstract final class ChannelThresholds {
-  static const double activityBps = 50;
-  static const double interferenceBps = 400;
-}
-
-
-
-ChannelVerdict verdictFor(double unmatchedBps) {
-  if (unmatchedBps >= ChannelThresholds.interferenceBps) {
-    return ChannelVerdict.interference;
-  }
-  if (unmatchedBps >= ChannelThresholds.activityBps) {
-    return ChannelVerdict.activity;
-  }
-  return ChannelVerdict.clear;
-}
-
-/// Turns cumulative [LinkStats] snapshots into per-second rate samples.
-///
-/// Feeding is idempotent w.r.t. resets: when the worker reconnects its
-/// counters restart at zero, which looks like a backwards snapshot — the
-/// tracker then clears its history and re-baselines without emitting a
-/// (bogus negative) sample.
-class ChannelHealthTracker {
-  final RingBuffer<ChannelSample> samples;
-
-  LinkStats? _prev;
-
-  ChannelHealthTracker({int capacity = 240}) : samples = RingBuffer(capacity);
-
-  /// Latest computed rates, or `null` before two snapshots arrive.
-  ChannelSample? get latest => samples.isEmpty ? null : samples[0];
-
-  /// Feeds a snapshot; returns the new sample, or `null` when baselining.
-  ChannelSample? addSnapshot(LinkStats next) {
-    final prev = _prev;
-    _prev = next;
-    if (prev == null) return null;
-    // Worker reset (reconnect): counters restarted — drop history.
-    if (next.totalBytes < prev.totalBytes ||
-        next.matchedBytes < prev.matchedBytes ||
-        next.timestampMs <= prev.timestampMs) {
-      samples.clear();
-      return null;
-    }
-    final dtS = (next.timestampMs - prev.timestampMs) / 1000.0;
-    if (dtS <= 0) return null;
-    final sample = ChannelSample(
-      timestampMs: next.timestampMs,
-      matchedBps: (next.matchedBytes - prev.matchedBytes) / dtS,
-      unmatchedBps: (next.unmatchedBytes - prev.unmatchedBytes) / dtS,
-      packetRate:
-          (next.matchedPackets - prev.matchedPackets).clamp(0, 1 << 30) / dtS,
-    );
-    samples.push(sample);
-    return sample;
-  }
-
-  void reset() {
-    samples.clear();
-    _prev = null;
-  }
-}
-
-/// Human rate formatting: 950 → "950 B/s", 2400 → "2.4 kB/s".
-String formatBps(double bps) {
-  if (bps < 1000) return '${bps.round()} B/s';
-  if (bps < 10000) return '${(bps / 1000).toStringAsFixed(1)} kB/s';
-  return '${(bps / 1000).round()} kB/s';
-}
-
 /// One fixed-width time bin of a recording's channel profile: raw byte
 /// counters decoded from the recorded chunk stream (garbage included — the
 /// saved chunks are the verbatim radio traffic, same as live).
@@ -142,9 +38,24 @@ List<ChannelBin> buildChannelProfile(
   List<RecordingChunk> chunks, {
   int binMs = 500,
   TelemetryConnector? connector,
+  void Function(List<TelemetryFrame>)? onFrames,
 }) {
   if (chunks.isEmpty) return const [];
+  if (binMs <= 0) throw ArgumentError.value(binMs, 'binMs');
   final t0 = chunks.first.tsMs;
+  var lastTimestamp = t0;
+  for (final chunk in chunks) {
+    if (chunk.tsMs < lastTimestamp) {
+      throw const FormatException(
+        'Recording timestamps are not chronological.',
+      );
+    }
+    lastTimestamp = chunk.tsMs;
+  }
+  // Keep dense profiles bounded even for sparse or corrupt timestamps.
+  const maxBins = 20000;
+  final minimumBinMs = (lastTimestamp - t0) ~/ (maxBins - 1) + 1;
+  if (minimumBinMs > binMs) binMs = minimumBinMs;
   final parser = (connector ?? mockConnector).createParser();
   // Per-bin accumulators, grown on demand.
   final matched = <int>[];
@@ -170,7 +81,8 @@ List<ChannelBin> buildChannelProfile(
   for (final chunk in chunks) {
     final bin = ((chunk.tsMs - t0) ~/ binMs).clamp(0, 1 << 30);
     ensure(bin);
-    parser.feed(chunk.payload, timestampMs: chunk.tsMs);
+    final frames = parser.feed(chunk.payload, timestampMs: chunk.tsMs);
+    onFrames?.call(frames);
     matched[bin] += parser.matchedBytes - prevMatched;
     unmatched[bin] +=
         (parser.garbageBytes + parser.crcErrorBytes) - prevUnmatched;

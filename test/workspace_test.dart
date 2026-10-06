@@ -1,3 +1,5 @@
+import 'helpers/layout_fixture.dart';
+
 import 'dart:ui' show Size;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -14,8 +16,7 @@ LeafNode leaf(String tileType) =>
 void main() {
   group('layout tree', () {
     test('treeFromOrder keeps every widget exactly once', () {
-      final root = treeFromOrder(
-          ['a', 'b', 'c', 'd', 'e'].map(leaf).toList());
+      final root = treeFromOrder(['a', 'b', 'c', 'd', 'e'].map(leaf).toList());
       expect(root.leaves.map((l) => l.tileType), ['a', 'b', 'c', 'd', 'e']);
     });
 
@@ -33,10 +34,14 @@ void main() {
       expect(horizontal.minSize(lookup).width, 200 + 240 + dividerWidth);
       expect(horizontal.minSize(lookup).height, 120);
 
-      final vertical = SplitNode(vertical: true, ratio: 0.5, a: horizontal, b: leaf('b'));
+      final vertical = SplitNode(
+        vertical: true,
+        ratio: 0.5,
+        a: horizontal,
+        b: leaf('b'),
+      );
       expect(vertical.minSize(lookup).width, horizontal.minSize(lookup).width);
-      expect(vertical.minSize(lookup).height,
-          120 + 100 + dividerWidth);
+      expect(vertical.minSize(lookup).height, 120 + 100 + dividerWidth);
     });
 
     test('layoutTree fills the bounds and clamps ratios to minimums', () {
@@ -52,9 +57,14 @@ void main() {
 
       final a = result.leafRects['w_map']!;
       final b = result.leafRects['w_hall_sensor']!;
-      expect(a.width, greaterThanOrEqualTo(TileRegistry.minSizeOf('map').width));
-      expect(b.width,
-          greaterThanOrEqualTo(TileRegistry.minSizeOf('hall_sensor').width));
+      expect(
+        a.width,
+        greaterThanOrEqualTo(TileRegistry.minSizeOf('map').width),
+      );
+      expect(
+        b.width,
+        greaterThanOrEqualTo(TileRegistry.minSizeOf('hall_sensor').width),
+      );
       expect(a.left + a.width + dividerWidth, b.left);
       expect(result.dividers.length, 1);
     });
@@ -74,7 +84,12 @@ void main() {
         vertical: false,
         ratio: 0.5,
         a: leaf('map'),
-        b: SplitNode(vertical: true, ratio: 0.5, a: leaf('stats'), b: leaf('fsm')),
+        b: SplitNode(
+          vertical: true,
+          ratio: 0.5,
+          a: leaf('stats'),
+          b: leaf('fsm'),
+        ),
       );
 
       final after = removeLeaf(root, 'w_stats');
@@ -95,8 +110,7 @@ void main() {
 
     test('splitLeaf splits the named tile, not the largest one', () {
       final root = treeFromOrder([leaf('map'), leaf('stats')]);
-      final result =
-          splitLeaf(root, 'w_stats', 'flight_3d', 'w_new', _minOf)!;
+      final result = splitLeaf(root, 'w_stats', 'flight_3d', 'w_new', _minOf)!;
 
       expect(result.tileId, 'w_new');
       final types = result.root.leaves.map((l) => l.tileType).toSet();
@@ -137,8 +151,7 @@ void main() {
       final root = SplitNode(
         vertical: false,
         ratio: 0.5,
-        a: LeafNode(
-            tileId: 'w_3d', tileType: 'flight_3d', settings: settings),
+        a: LeafNode(tileId: 'w_3d', tileType: 'flight_3d', settings: settings),
         b: leaf('map'),
       );
 
@@ -149,8 +162,9 @@ void main() {
 
     test('setLeafSettings updates only the target leaf', () {
       final root = treeFromOrder([leaf('map'), leaf('flight_3d')]);
-      final next = setLeafSettings(
-          root, 'w_flight_3d', {leafCameraModeKey: 'free'})!;
+      final next = setLeafSettings(root, 'w_flight_3d', {
+        leafCameraModeKey: 'free',
+      })!;
       final byId = {for (final l in next.leaves) l.tileId: l};
       expect(byId['w_flight_3d']!.settings[leafCameraModeKey], 'free');
       expect(byId['w_map']!.settings, isEmpty);
@@ -158,12 +172,16 @@ void main() {
 
     test('swap/retile/move carry the settings with the content', () {
       LeafNode camLeaf(String id) => LeafNode(
-          tileId: id,
-          tileType: 'flight_3d',
-          settings: const {leafCameraModeKey: 'free'});
+        tileId: id,
+        tileType: 'flight_3d',
+        settings: const {leafCameraModeKey: 'free'},
+      );
 
-      final swapped =
-          swapLeaves(treeFromOrder([camLeaf('a'), leaf('map')]), 'a', 'w_map')!;
+      final swapped = swapLeaves(
+        treeFromOrder([camLeaf('a'), leaf('map')]),
+        'a',
+        'w_map',
+      )!;
       final swappedById = {for (final l in swapped.leaves) l.tileId: l};
       // Ids travel with the content, settings included.
       expect(swappedById['a']!.tileType, 'flight_3d');
@@ -171,37 +189,39 @@ void main() {
       expect(swappedById['w_map']!.tileType, 'map');
       expect(swappedById['w_map']!.settings, isEmpty);
 
-      final retiled = retileLeaf(
-          treeFromOrder([camLeaf('a'), leaf('map')]),
-          'a',
-          'flight_3d_sat')! as SplitNode;
+      final retiled =
+          retileLeaf(
+                treeFromOrder([camLeaf('a'), leaf('map')]),
+                'a',
+                'flight_3d_sat',
+              )!
+              as SplitNode;
       expect(
-          retiled.leaves
-              .firstWhere((l) => l.tileId == 'a')
-              .settings[leafCameraModeKey],
-          'free');
+        retiled.leaves
+            .firstWhere((l) => l.tileId == 'a')
+            .settings[leafCameraModeKey],
+        'free',
+      );
 
       final moved = moveLeafBeside(
-          treeFromOrder([camLeaf('a'), leaf('map'), leaf('stats')]),
-          'a',
-          'w_stats',
-          SplitDirection.left);
+        treeFromOrder([camLeaf('a'), leaf('map'), leaf('stats')]),
+        'a',
+        'w_stats',
+        SplitDirection.left,
+      );
       expect(
-          moved.leaves
-              .firstWhere((l) => l.tileId == 'a')
-              .settings[leafCameraModeKey],
-          'free');
+        moved.leaves
+            .firstWhere((l) => l.tileId == 'a')
+            .settings[leafCameraModeKey],
+        'free',
+      );
     });
 
     test('ignores unknown persisted fields', () {
       final workspace = Workspace.fromJson({
         'id': 'ws1',
         'name': 'Flight view',
-        'root': {
-          'type': 'leaf',
-          'tileId': 'a',
-          'tileType': 'map',
-        },
+        'root': {'type': 'leaf', 'tileId': 'a', 'tileType': 'map'},
         'placements': [
           {'tileId': 'b', 'tileType': 'stats', 'x': 5, 'y': 0, 'w': 3, 'h': 4},
         ],

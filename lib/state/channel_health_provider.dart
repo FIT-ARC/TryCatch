@@ -10,13 +10,14 @@ import './telemetry_provider.dart';
 /// unmounts tile State; streams deliver once, so per-State trackers lost
 /// history). State is a version counter; data lives on the notifier.
 class ChannelHealthNotifier extends SessionStore<int> {
-  final RateSeries series = RateSeries();
+  final RateSeries _series = RateSeries();
+  late final RateSeriesView series = RateSeriesView(_series);
 
   @override
   int build() {
     ref.listen(linkStatsStreamProvider, (_, next) {
       next.whenData((stats) {
-        series.addSnapshot(stats);
+        _series.addSnapshot(stats);
         state++;
       });
     });
@@ -25,10 +26,11 @@ class ChannelHealthNotifier extends SessionStore<int> {
 
   @override
   void clear() {
-    series.clear();
+    _series.clear();
     state++;
   }
 }
 
-final channelHealthProvider =
-    NotifierProvider<ChannelHealthNotifier, int>(ChannelHealthNotifier.new);
+final channelHealthProvider = NotifierProvider<ChannelHealthNotifier, int>(
+  ChannelHealthNotifier.new,
+);

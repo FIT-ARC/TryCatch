@@ -18,8 +18,9 @@ List<T> decimate<T>(
   Decimation mode = Decimation.extremes,
 }) {
   final items = series.toChronological();
-  if (items.isEmpty || values.isEmpty) return const [];
+  if (items.isEmpty) return const [];
   if (mode == Decimation.strideStable) return _strideStable(items, maxPoints);
+  if (values.isEmpty) return const [];
   return _extremes(items, bucketOf, values, series.timestampOf);
 }
 
@@ -71,16 +72,27 @@ List<T> _extremes<T>(
 }
 
 List<T> _strideStable<T>(List<T> items, int maxPoints) {
-  if (items.length <= maxPoints) return items;
+  return [
+    for (final index in strideStableIndices(items.length, maxPoints))
+      items[index],
+  ];
+}
+
+/// Shared start-anchored sampling without copying a full prefix first.
+Iterable<int> strideStableIndices(int length, int maxPoints) sync* {
+  if (length <= 0) return;
+  if (length <= maxPoints) {
+    yield* Iterable<int>.generate(length);
+    return;
+  }
   final budget = math.max(2, maxPoints);
   var stride = 1;
-  while (2 + (items.length - 2) ~/ stride > budget) {
+  while (2 + (length - 2) ~/ stride > budget) {
     stride *= 2;
   }
-  final out = <T>[items.first];
-  for (var i = stride; i < items.length - 1; i += stride) {
-    out.add(items[i]);
+  yield 0;
+  for (var i = stride; i < length - 1; i += stride) {
+    yield i;
   }
-  out.add(items.last);
-  return out;
+  if (length > 1) yield length - 1;
 }

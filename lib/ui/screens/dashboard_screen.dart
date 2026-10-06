@@ -1,3 +1,5 @@
+import '../../services/workspace_defaults_export.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/services.dart';
@@ -137,69 +139,72 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     // Full strip height so the active underline sits flush on the strip's
     // bottom hairline and every tab aligns identically.
     Widget tabContent({bool dragging = false}) => Container(
-          height: double.infinity,
-          margin: const EdgeInsets.only(right: 4),
-          decoration: active
-              ? BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: AppColors.pink, width: 2.5),
-                  ),
-                )
-              : null,
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: Tooltip(
-              message: index < 9
-                  ? '${ws.name} (Ctrl+${index + 1}, drag to reorder, right-click for options)'
-                  : '${ws.name} (drag to reorder, right-click for options)',
-              child: InkWell(
-                // Renaming lives in the right-click menu only — double-click is
-                // reserved for canvas interactions, not the tab strip.
-                onTap: () =>
-                    ref.read(workspaceProvider.notifier).setActive(ws.id),
-                mouseCursor: SystemMouseCursors.click,
-                onSecondaryTapUp: (details) => _workspaceContextMenu(
-                    context, ws, index, total, details.globalPosition),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Opacity(
-                        opacity: dragging ? 0.4 : 1.0,
-                        child: Text(
-                          ws.name,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                active ? FontWeight.w700 : FontWeight.w500,
-                            color: active
-                                ? AppColors.foreground
-                                : AppColors.mutedForeground,
-                          ),
-                        ),
+      height: double.infinity,
+      margin: const EdgeInsets.only(right: 4),
+      decoration: active
+          ? BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: AppColors.pink, width: 2.5),
+              ),
+            )
+          : null,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Tooltip(
+          message: index < 9
+              ? '${ws.name} (Ctrl+${index + 1}, drag to reorder, right-click for options)'
+              : '${ws.name} (drag to reorder, right-click for options)',
+          child: InkWell(
+            // Renaming lives in the right-click menu only — double-click is
+            // reserved for canvas interactions, not the tab strip.
+            onTap: () => ref.read(workspaceProvider.notifier).setActive(ws.id),
+            mouseCursor: SystemMouseCursors.click,
+            onSecondaryTapUp: (details) => _workspaceContextMenu(
+              context,
+              ws,
+              index,
+              total,
+              details.globalPosition,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Opacity(
+                    opacity: dragging ? 0.4 : 1.0,
+                    child: Text(
+                      ws.name,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        color: active
+                            ? AppColors.foreground
+                            : AppColors.mutedForeground,
                       ),
-                      if (_editMode && canDelete) ...[
-                        const SizedBox(width: 6),
-                        InkWell(
-                          onTap: () => ref
-                              .read(workspaceProvider.notifier)
-                              .deleteWorkspace(ws.id),
-                          mouseCursor: SystemMouseCursors.click,
-                          child: Icon(
-                            Icons.close,
-                            size: 13,
-                            color: AppColors.mutedForeground,
-                          ),
-                        ),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
+                  if (_editMode && canDelete) ...[
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: () => ref
+                          .read(workspaceProvider.notifier)
+                          .deleteWorkspace(ws.id),
+                      mouseCursor: SystemMouseCursors.click,
+                      child: Icon(
+                        Icons.close,
+                        size: 13,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
-        );
+        ),
+      ),
+    );
 
     // Drag-to-reorder: dropping a tab onto another moves it to that slot.
     return DragTarget<String>(
@@ -219,10 +224,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: Draggable<String>(
             data: ws.id,
             feedback: Material(
-              color: Colors.transparent,
+              color: AppColors.fixedTransparent,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.card,
                   borderRadius: BorderRadius.circular(6),
@@ -267,14 +274,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         PopupMenuItem(
           value: 'move-left',
           enabled: index > 0,
-          child: const _MenuRow(
-              icon: Icons.arrow_back, label: 'Move left'),
+          child: const _MenuRow(icon: Icons.arrow_back, label: 'Move left'),
         ),
         PopupMenuItem(
           value: 'move-right',
           enabled: index < total - 1,
-          child: const _MenuRow(
-              icon: Icons.arrow_forward, label: 'Move right'),
+          child: const _MenuRow(icon: Icons.arrow_forward, label: 'Move right'),
         ),
         PopupMenuItem(
           value: 'rename',
@@ -424,18 +429,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.pink,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.pink),
             onPressed: () async {
               Navigator.of(dialogContext).pop();
-              final err = await ref
-                  .read(workspaceProvider.notifier)
-                  .promoteToDefaults();
+              final current = ref.read(workspaceProvider).value;
+              final err = current == null
+                  ? 'No workspace state loaded.'
+                  : await exportWorkspaceDefaults(current.toJson());
               if (!context.mounted) return;
               if (err == null) {
                 ref.successToast(
-                    'Current workspaces saved to default_layouts.dart!');
+                  'Current workspaces saved to default_layouts.dart!',
+                );
               } else {
                 ref.warningToast('Warning: $err');
               }
@@ -506,8 +511,9 @@ class _StripToggle extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onTap,
-          mouseCursor:
-              enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
           customBorder: const StadiumBorder(),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

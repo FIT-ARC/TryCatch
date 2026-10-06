@@ -9,8 +9,7 @@ import '../foundation/store.dart';
 import '../session/feedback.dart';
 import './connector_provider.dart';
 import './recording_provider.dart';
-export './connector_provider.dart';
-export './recording_provider.dart';
+import './launch_site_store.dart';
 
 // ─── Core worker provider ──────────────────────────────────────────────────────
 
@@ -79,8 +78,7 @@ final commandEventsProvider = StreamProvider<CommandResultEvent>((ref) {
 /// Stream of worker-side errors (connect failures, unexpected disconnects,
 /// failed transmits).
 ///
-/// The worker used to only `print()` these, so failures were silent in the
-/// UI. The serial toast bridge watches this and surfaces each message as a
+/// The serial toast bridge watches this and surfaces each message as a
 /// toast; widgets that need one-shot error text can watch it directly.
 final serialErrorsProvider = StreamProvider<ErrorEvent>((ref) {
   final worker = ref.watch(serialWorkerProvider);
@@ -97,8 +95,9 @@ final serialErrorsProvider = StreamProvider<ErrorEvent>((ref) {
 /// Commands tile reading it — sees *all* attempts. Bounded to the newest
 /// [CommandLog.maxEntries] entries; the recording's command section is the
 /// durable copy.
-final commandLogProvider =
-    NotifierProvider<CommandLog, List<SentCommand>>(CommandLog.new);
+final commandLogProvider = NotifierProvider<CommandLog, List<SentCommand>>(
+  CommandLog.new,
+);
 
 class CommandLog extends SessionStore<List<SentCommand>> {
   /// Ring cap for the in-memory log (the file keeps everything).
@@ -136,7 +135,6 @@ class CommandLog extends SessionStore<List<SentCommand>> {
   void clear() => state = const [];
 }
 
-
 // ─── UI-side connection config ─────────────────────────────────────────────────
 
 /// Stores the selected port before the user clicks Connect.
@@ -158,8 +156,14 @@ class SerialConfig {
   /// consumes it to toast exactly one "Ports refreshed" acknowledgment per
   /// explicit rescan (startup scans stay silent).
   final bool refreshPending;
+  final bool recordingPending;
 
-  const SerialConfig({this.selectedPort, this.connectingPort, this.refreshPending = false});
+  const SerialConfig({
+    this.selectedPort,
+    this.connectingPort,
+    this.refreshPending = false,
+    this.recordingPending = false,
+  });
 
   static const _absent = Object();
 
@@ -167,6 +171,7 @@ class SerialConfig {
     Object? selectedPort = _absent,
     Object? connectingPort = _absent,
     bool? refreshPending,
+    bool? recordingPending,
   }) {
     return SerialConfig(
       selectedPort: identical(selectedPort, _absent)
@@ -176,14 +181,15 @@ class SerialConfig {
           ? this.connectingPort
           : connectingPort as String?,
       refreshPending: refreshPending ?? this.refreshPending,
+      recordingPending: recordingPending ?? this.recordingPending,
     );
   }
 }
 
 final serialConfigProvider =
     NotifierProvider<SerialConfigNotifier, SerialConfig>(
-  SerialConfigNotifier.new,
-);
+      SerialConfigNotifier.new,
+    );
 
 /// Manages the pending serial config and dispatches commands to the worker.
 class SerialConfigNotifier extends Notifier<SerialConfig> {
@@ -196,6 +202,11 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
 
   @override
   SerialConfig build() {
+    ref.listen(serialStatusProvider, (_, next) {
+      if (next.hasValue && state.recordingPending) {
+        state = state.copyWith(recordingPending: false);
+      }
+    });
     ref.onDispose(() {
       _connectTimer?.cancel();
       _connectTimer = null;
@@ -204,6 +215,7 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   }
 
   void setPort(String? port) {
+    if (ref.read(currentLaunchSiteProvider) == null) return;
     // The mock simulator ports are dev-only: ignore them in release builds
     // (the picker never offers them there).
     if (port != null && !kDebugMode && SerialService.isMockPortName(port)) {
@@ -224,6 +236,10 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   /// status, [SerialToastBridge] on any error, or the timeout below (which
   /// toasts, so an attempt never dies silently).
   void connect() {
+    if (ref.read(currentLaunchSiteProvider) == null) {
+      ref.infoToast('Select a launch site before connecting.');
+      return;
+    }
     final cfg = state;
     if (cfg.selectedPort == null) return;
     final port = cfg.selectedPort!;
@@ -241,8 +257,8 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
         );
       }
     });
-    final connectorId = ref.read(activeConnectorIdProvider).value ??
-        defaultVisibleConnectorId;
+    final connectorId =
+        ref.read(activeConnectorIdProvider).value ?? defaultVisibleConnectorId;
     ref
         .read(serialWorkerProvider)
         .send(ConnectCommand(port, connectorId: connectorId));
@@ -296,14 +312,34 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
   /// Asks the worker to re-scan and push an updated port list.
   ///
   /// The fresh list is acknowledged with a "Ports refreshed" toast (see
-  /// [SerialToastBridge]) — rescans previously gave no feedback at all.
+  /// [SerialToastBridge]).
   void refreshPorts() {
+    if (ref.read(currentLaunchSiteProvider) == null) return;
     state = state.copyWith(refreshPending: true);
     ref.read(serialWorkerProvider).send(const ListPortsCommand());
   }
 
   /// Starts a recording session with an auto-generated timestamp file in the documents recordings folder.
-  Future<void> startRecording() => RecordingService.startRecording(ref);
+  Future<void> startRecording() async {
+    if (ref.read(currentLaunchSiteProvider) == null ||
+        ref.read(serialStatusProvider).value?.isConnected != true) {
+      return;
+    }
+    if (state.recordingPending ||
+        ref.read(serialStatusProvider).value?.isRecording == true) {
+      return;
+    }
+    state = state.copyWith(recordingPending: true);
+    try {
+      await RecordingService.startRecording(ref);
+    } catch (e) {
+      if (!ref.mounted) return;
+      state = state.copyWith(recordingPending: false);
+      ref.errorToast(
+        'Could not start recording: $e — check the folder and retry.',
+      );
+    }
+  }
 
   /// Stops the active recording session.
   void stopRecording() => RecordingService.stopRecording(ref);
@@ -319,24 +355,33 @@ class SerialConfigNotifier extends Notifier<SerialConfig> {
     List<int> bytes, {
     CommandSource source = CommandSource.unknown,
   }) {
+    ref.read(commandLogProvider);
     final status = ref.read(serialStatusProvider).value;
-    if (status?.isConnected != true) {
-      ref.read(commandLogProvider.notifier).add(SentCommand(
-            tsUs: DateTime.now().microsecondsSinceEpoch,
-            bytes: Uint8List.fromList(bytes),
-            status: CommandStatus.failed,
-            source: source,
-          ));
+    if (status?.isConnected != true ||
+        ref.read(currentLaunchSiteProvider) == null) {
+      ref
+          .read(commandLogProvider.notifier)
+          .add(
+            SentCommand(
+              tsUs: DateTime.now().microsecondsSinceEpoch,
+              bytes: Uint8List.fromList(bytes),
+              status: CommandStatus.failed,
+              source: source,
+            ),
+          );
       return false;
     }
-    ref.read(serialWorkerProvider).send(
+    ref
+        .read(serialWorkerProvider)
+        .send(
           SendBytesCommand(Uint8List.fromList(bytes), source: source.index),
         );
     return true;
   }
 
   /// Opens the recordings folder in the desktop OS file explorer.
-  Future<void> openRecordingsFolder() => RecordingService.openRecordingsFolder();
+  Future<void> openRecordingsFolder() =>
+      RecordingService.openRecordingsFolder();
 
   /// Resolves the user's `Documents/TryCatch/recordings` directory cross-platform.
   static Future<String> getRecordingsDirectory() =>

@@ -6,6 +6,7 @@ import '../../theme/app_colors.dart';
 import '../../core/app_config.dart';
 import '../../session/feedback.dart';
 import '../../state/telemetry_provider.dart';
+import '../../state/launch_site_store.dart';
 
 /// Compact connection control for the top bar: port picker, rescan and link
 /// action fused into one pill — the segments share the outer border with
@@ -32,6 +33,9 @@ class SerialControls extends ConsumerWidget {
     final status =
         ref.watch(serialStatusProvider).value ?? const SerialWorkerStatus();
     final notifier = ref.read(serialConfigProvider.notifier);
+    final hasSite = ref.watch(
+      currentLaunchSiteProvider.select((site) => site != null),
+    );
 
     // Resolve the in-flight connect mark: the worker answered with a live
     // link (idempotent; also covers the "connected to another port" edge).
@@ -45,14 +49,18 @@ class SerialControls extends ConsumerWidget {
     });
 
     final selected = config.selectedPort;
-    final effectiveSelected = selected ??
+    final effectiveSelected =
+        selected ??
         (ports.contains(status.connectedPort) ? status.connectedPort : null);
     final connected = status.isConnected;
     // In-flight connect attempt (native open can stall on cranky hardware):
     // the pill shows a spinner + the target port until the worker answers.
-    final connecting =
-        (!connected) ? config.connectingPort : null;
-    final canConnect = !connected && connecting == null && effectiveSelected != null;
+    final connecting = (!connected) ? config.connectingPort : null;
+    final canConnect =
+        hasSite &&
+        !connected &&
+        connecting == null &&
+        effectiveSelected != null;
 
     return Container(
       // Total slot stays fixed so siblings never shift; the border paints
@@ -66,8 +74,8 @@ class SerialControls extends ConsumerWidget {
           color: connected
               ? AppColors.success.withValues(alpha: 0.5)
               : (connecting != null
-                  ? AppColors.primary.withValues(alpha: 0.5)
-                  : AppColors.strongBorder),
+                    ? AppColors.primary.withValues(alpha: 0.5)
+                    : AppColors.strongBorder),
         ),
       ),
       child: Row(
@@ -92,11 +100,15 @@ class SerialControls extends ConsumerWidget {
                         ),
                       )
                     : PopupMenuButton<String>(
-                        tooltip: ports.isEmpty
+                        enabled: hasSite,
+                        tooltip: !hasSite
+                            ? 'Select a launch site first'
+                            : ports.isEmpty
                             ? 'No serial ports found — plug in the radio'
                             : 'Select a serial port',
-                        borderRadius:
-                            BorderRadius.circular(AppDimens.radiusSmall),
+                        borderRadius: BorderRadius.circular(
+                          AppDimens.radiusSmall,
+                        ),
                         padding: EdgeInsets.zero,
                         onSelected: notifier.setPort,
                         itemBuilder: (context) => [
@@ -111,7 +123,8 @@ class SerialControls extends ConsumerWidget {
                             ),
                         ],
                         child: _SegmentLabel(
-                          text: connecting ??
+                          text:
+                              connecting ??
                               (effectiveSelected ??
                                   (ports.isEmpty ? 'No ports' : 'Port')),
                           textColor: (connecting ?? effectiveSelected) == null
@@ -129,24 +142,22 @@ class SerialControls extends ConsumerWidget {
           // the outer width stays fixed, so siblings never shift.
           if (!connected) ...[
             // Inner hairline joining the picker and rescan segments.
-            Container(
-              width: 1,
-              height: 18,
-              color: AppColors.border,
-            ),
+            Container(width: 1, height: 18, color: AppColors.border),
             SizedBox(
               width: refreshWidth,
               height: 32,
               child: Tooltip(
-                message: 'Rescan for serial ports',
+                message: hasSite
+                    ? 'Rescan for serial ports'
+                    : 'Select a launch site first',
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: notifier.refreshPorts,
+                    onTap: hasSite ? notifier.refreshPorts : null,
                     child: Container(
                       alignment: Alignment.center,
-                      color: Colors.transparent,
+                      color: AppColors.fixedTransparent,
                       child: Icon(
                         Icons.refresh,
                         size: 17,
@@ -159,11 +170,7 @@ class SerialControls extends ConsumerWidget {
             ),
           ],
           // Inner hairline joining the link segment to its neighbor.
-          Container(
-            width: 1,
-            height: 18,
-            color: AppColors.border,
-          ),
+          Container(width: 1, height: 18, color: AppColors.border),
           // Link segment: icon-only connect/disconnect, spinner while the
           // native open is in flight. Pink only when a port is selected
           // (otherwise muted and inert — no hint toast needed).
@@ -174,10 +181,12 @@ class SerialControls extends ConsumerWidget {
               message: connected
                   ? 'Disconnect ${status.connectedPort ?? ''}'
                   : (connecting != null
-                      ? 'Connecting to $connecting…'
-                      : (effectiveSelected == null
-                          ? 'Select a port first'
-                          : 'Connect to $effectiveSelected')),
+                        ? 'Connecting to $connecting…'
+                        : (!hasSite
+                              ? 'Select a launch site first'
+                              : effectiveSelected == null
+                              ? 'Select a port first'
+                              : 'Connect to $effectiveSelected')),
               child: MouseRegion(
                 cursor: canConnect || connected
                     ? SystemMouseCursors.click
@@ -189,11 +198,11 @@ class SerialControls extends ConsumerWidget {
                   onTap: connected
                       ? notifier.disconnect
                       : (connecting != null
-                          ? () => ref.infoToast(
+                            ? () => ref.infoToast(
                                 'Still connecting to $connecting…',
                                 title: 'Connecting',
                               )
-                          : (canConnect ? notifier.connect : null)),
+                            : (canConnect ? notifier.connect : null)),
                   child: Container(
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
@@ -202,7 +211,7 @@ class SerialControls extends ConsumerWidget {
                       ),
                       color: canConnect
                           ? AppColors.primary.withValues(alpha: 0.12)
-                          : Colors.transparent,
+                          : AppColors.fixedTransparent,
                     ),
                     child: connecting != null
                         ? SizedBox(
@@ -219,8 +228,8 @@ class SerialControls extends ConsumerWidget {
                             color: connected
                                 ? AppColors.mutedForeground
                                 : (canConnect
-                                    ? AppColors.primary
-                                    : AppColors.faint),
+                                      ? AppColors.primary
+                                      : AppColors.faint),
                           ),
                   ),
                 ),

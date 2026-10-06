@@ -1,3 +1,6 @@
+import '../../state/connector_provider.dart';
+import '../../state/theme_mode_provider.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -691,7 +694,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           contentPadding: EdgeInsets.zero,
           title: const Text('Dark mode', style: _Type.itemTitle),
           value: isDark,
-          onChanged: (v) => AppThemeMode.instance.setDark(v),
+          onChanged: (v) => ref.read(themeModeProvider.notifier).setDark(v),
         ),
       ),
     );

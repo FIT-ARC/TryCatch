@@ -1,3 +1,6 @@
+import '../../../foundation/time/time_series.dart';
+import '../../../foundation/time/decimation.dart';
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -140,23 +143,21 @@ LineTouchData chartTouchData({
               show: true,
               getDotPainter: (spot, percent, touchedBar, index) =>
                   FlDotCirclePainter(
-                radius: 3.5,
-                // Touch bars are transparent series color — re-opacify so
-                // the head keeps its series hue. No-op on opaque bars.
-                color: (touchedBar.color ?? AppColors.foreground)
-                    .withValues(alpha: 1),
-                strokeWidth: 0,
-              ),
+                    radius: 3.5,
+                    // Touch bars are transparent series color — re-opacify so
+                    // the head keeps its series hue. No-op on opaque bars.
+                    color: (touchedBar.color ?? AppColors.foreground)
+                        .withValues(alpha: 1),
+                    strokeWidth: 0,
+                  ),
             ),
           ),
     ],
     touchTooltipData: LineTouchTooltipData(
       getTooltipColor: (_) => AppColors.card,
       tooltipBorder: BorderSide(color: AppColors.strongBorder),
-      tooltipBorderRadius:
-          BorderRadius.circular(AppDimens.radiusSmall),
-      tooltipPadding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      tooltipBorderRadius: BorderRadius.circular(AppDimens.radiusSmall),
+      tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       tooltipMargin: 16,
       fitInsideHorizontally: true,
       fitInsideVertically: true,
@@ -200,8 +201,7 @@ LineTouchData chartTouchData({
             continue;
           }
           final barIndex = spots[i].barIndex;
-          final label =
-              entries[barIndex].$1.toUpperCase().padRight(labelW);
+          final label = entries[barIndex].$1.toUpperCase().padRight(labelW);
           final value = formatY(spots[i].y).padLeft(valueW);
           items.add(
             LineTooltipItem(
@@ -289,7 +289,7 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
   @override
   Widget build(BuildContext context) {
     final store = ref.watch(telemetryStoreProvider);
-    final replay = ref.watch(replayProvider);
+    final replay = ref.watch(replayRenderStateProvider);
     final history = store.history;
 
     // During a replay the whole recording is known up front: the chart shows
@@ -322,45 +322,31 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
     // where first-sample decimation would silently drop it.
     final bucketMs = math.max(1, windowMs ~/ _maxPoints);
     int bucketOf(TelemetryFrame f) => f.receivedAtMs ~/ bucketMs;
-    final seriesValues = [
-      for (final s in widget.config.series) s.value,
-    ];
+    final seriesValues = [for (final s in widget.config.series) s.value];
     final playedSamples = <TelemetryFrame>[];
     final futureSamples = <TelemetryFrame>[];
     if (fullFlight) {
-      final playedRaw = <TelemetryFrame>[];
-      final futureRaw = <TelemetryFrame>[];
-      TelemetryFrame? lastPlayed;
-      for (final frame in replayFrames) {
-        if (frame.receivedAtMs <= nowMs) {
-          playedRaw.add(frame);
-          lastPlayed = frame;
-        } else {
-          futureRaw.add(frame);
-        }
-      }
-      playedSamples.addAll(
-        decimateExtremes(playedRaw, bucketOf, seriesValues),
-      );
+      final (playedRaw, futureRaw) = ListTimeSeries<TelemetryFrame>(
+        (f) => f.receivedAtMs,
+        replayFrames,
+      ).splitAt(nowMs);
+      final lastPlayed = playedRaw.isEmpty ? null : playedRaw.last;
+      playedSamples.addAll(decimateExtremes(playedRaw, bucketOf, seriesValues));
       if (lastPlayed != null && futureRaw.isNotEmpty) {
         // Carry the last played point so the dimmed segment connects.
         futureSamples.add(lastPlayed);
       }
-      futureSamples.addAll(
-        decimateExtremes(futureRaw, bucketOf, seriesValues),
-      );
+      futureSamples.addAll(decimateExtremes(futureRaw, bucketOf, seriesValues));
     } else {
       final windowed = <TelemetryFrame>[];
       final len = history.length;
       for (var i = 0; i < len; i++) {
-        final frame = history.getChronological(i);
+        final frame = history.oldest(i);
         final t = frame.receivedAtMs;
         if (t < windowStart || t > nowMs) continue;
         windowed.add(frame);
       }
-      playedSamples.addAll(
-        decimateExtremes(windowed, bucketOf, seriesValues),
-      );
+      playedSamples.addAll(decimateExtremes(windowed, bucketOf, seriesValues));
     }
     final samples = fullFlight
         ? [
@@ -520,13 +506,9 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
     if (hoverX != null && samples.isNotEmpty) {
       final pad = (maxX - minX) * 0.02;
       if (hoverX >= minX - pad && hoverX <= maxX + pad) {
-        hoverIdx = nearestIndexForX(
-          [
-            for (final frame in samples)
-              (frame.receivedAtMs - originMs) / 1000,
-          ],
-          hoverX,
-        );
+        hoverIdx = nearestIndexForX([
+          for (final frame in samples) (frame.receivedAtMs - originMs) / 1000,
+        ], hoverX);
       }
     }
     final hoverSpots = <LineBarSpot>[];
@@ -546,167 +528,167 @@ class _TimeSeriesChartState extends ConsumerState<TimeSeriesChart> {
         : [ShowingTooltipIndicators(hoverSpots)];
 
     return LayoutBuilder(
-        builder: (context, constraints) {
-          // Short tiles give the plot priority: the legend collapses away
-          // below ~120 px so the line keeps room to breathe.
-          final showLegend =
-              widget.config.showLegend && constraints.maxHeight >= 120;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Legend.
-              if (showLegend)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 4,
-                    children: [
-                      for (final spec in widget.config.series)
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 2.5,
-                                decoration: BoxDecoration(
-                                  color: spec.color,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                spec.label.toUpperCase(),
-                                style: AppText.microLabel.copyWith(
-                                  fontSize: 9,
-                                  letterSpacing: 0.8,
-                                  color: AppColors.mutedForeground,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
+      builder: (context, constraints) {
+        // Short tiles give the plot priority: the legend collapses away
+        // below ~120 px so the line keeps room to breathe.
+        final showLegend =
+            widget.config.showLegend && constraints.maxHeight >= 120;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Legend.
+            if (showLegend)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
                   children: [
-                    LineChart(
-                      LineChartData(
-                        minX: minX,
-                        maxX: maxX,
-                        minY: minY,
-                        maxY: maxY,
-                        extraLinesData: playheadX == null
-                            ? const ExtraLinesData()
-                            : ExtraLinesData(
-                                verticalLines: [
-                                  VerticalLine(
-                                    x: playheadX,
-                                    color: AppColors.mutedForeground,
-                                    strokeWidth: 1.2,
-                                    dashArray: [5, 4],
-                                  ),
-                                ],
-                              ),
-                        gridData: FlGridData(
-                          show: true,
-                          drawVerticalLine: true,
-                          verticalInterval: xInterval,
-                          horizontalInterval: yInterval,
-                          getDrawingHorizontalLine: (value) => FlLine(
-                            color: value == 0
-                                ? AppColors.strongBorder
-                                : AppColors.border,
-                            strokeWidth: 1,
-                          ),
-                          getDrawingVerticalLine: (value) => FlLine(
-                            color: value == 0
-                                ? AppColors.strongBorder
-                                : AppColors.border,
-                            strokeWidth: 1,
-                          ),
-                        ),
-                        borderData: FlBorderData(
-                          show: true,
-                          border: Border(
-                            left: BorderSide(color: AppColors.border),
-                            bottom: BorderSide(color: AppColors.border),
-                          ),
-                        ),
-                        titlesData: FlTitlesData(
-                          topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: widget.config.showLeftAxis,
-                              reservedSize: widget.config.showLeftAxis ? 42 : 0,
-                              interval: yInterval,
-                              getTitlesWidget: (value, meta) => SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  _formatValue(value),
-                                  style: AppText.mono.copyWith(
-                                    fontSize: 9.5,
-                                    color: AppColors.faint,
-                                  ),
-                                ),
+                    for (final spec in widget.config.series)
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 2.5,
+                              decoration: BoxDecoration(
+                                color: spec.color,
+                                borderRadius: BorderRadius.circular(2),
                               ),
                             ),
-                          ),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 18,
-                              interval: xInterval,
-                              getTitlesWidget: (value, meta) => SideTitleWidget(
-                                meta: meta,
-                                child: Text(
-                                  fullFlight
-                                      ? formatAxisMinSec(value)
-                                      : '${value.toStringAsFixed(0)}s',
-                                  style: AppText.mono.copyWith(
-                                    fontSize: 9.5,
-                                    color: AppColors.faint,
-                                  ),
-                                ),
+                            const SizedBox(width: 5),
+                            Text(
+                              spec.label.toUpperCase(),
+                              style: AppText.microLabel.copyWith(
+                                fontSize: 9,
+                                letterSpacing: 0.8,
+                                color: AppColors.mutedForeground,
                               ),
                             ),
-                          ),
+                          ],
                         ),
-                        lineTouchData: chartTouchData(
-                          entries: legend,
-                          unit: widget.config.unit,
-                          formatX: (x) => fullFlight
-                              ? formatAxisMinSec(x)
-                              : '${x.toStringAsFixed(0)}s',
-                          formatY: _formatValue,
-                          touchBarsOnly: fullFlight,
-                          handleBuiltInTouches: !fullFlight,
-                          touchCallback: fullFlight ? onReplayTouch : null,
-                        ),
-                        lineBarsData: lineBars,
-                        showingTooltipIndicators: hoverTooltips,
                       ),
-                      duration: Duration.zero,
-                    ),
-                    if (samples.isEmpty)
-                      const Center(child: WaitingForData(compact: true)),
                   ],
                 ),
               ),
-            ],
-          );
-        },
-      );
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  LineChart(
+                    LineChartData(
+                      minX: minX,
+                      maxX: maxX,
+                      minY: minY,
+                      maxY: maxY,
+                      extraLinesData: playheadX == null
+                          ? const ExtraLinesData()
+                          : ExtraLinesData(
+                              verticalLines: [
+                                VerticalLine(
+                                  x: playheadX,
+                                  color: AppColors.mutedForeground,
+                                  strokeWidth: 1.2,
+                                  dashArray: [5, 4],
+                                ),
+                              ],
+                            ),
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: true,
+                        verticalInterval: xInterval,
+                        horizontalInterval: yInterval,
+                        getDrawingHorizontalLine: (value) => FlLine(
+                          color: value == 0
+                              ? AppColors.strongBorder
+                              : AppColors.border,
+                          strokeWidth: 1,
+                        ),
+                        getDrawingVerticalLine: (value) => FlLine(
+                          color: value == 0
+                              ? AppColors.strongBorder
+                              : AppColors.border,
+                          strokeWidth: 1,
+                        ),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border(
+                          left: BorderSide(color: AppColors.border),
+                          bottom: BorderSide(color: AppColors.border),
+                        ),
+                      ),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: widget.config.showLeftAxis,
+                            reservedSize: widget.config.showLeftAxis ? 42 : 0,
+                            interval: yInterval,
+                            getTitlesWidget: (value, meta) => SideTitleWidget(
+                              meta: meta,
+                              child: Text(
+                                _formatValue(value),
+                                style: AppText.mono.copyWith(
+                                  fontSize: 9.5,
+                                  color: AppColors.faint,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 18,
+                            interval: xInterval,
+                            getTitlesWidget: (value, meta) => SideTitleWidget(
+                              meta: meta,
+                              child: Text(
+                                fullFlight
+                                    ? formatAxisMinSec(value)
+                                    : '${value.toStringAsFixed(0)}s',
+                                style: AppText.mono.copyWith(
+                                  fontSize: 9.5,
+                                  color: AppColors.faint,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      lineTouchData: chartTouchData(
+                        entries: legend,
+                        unit: widget.config.unit,
+                        formatX: (x) => fullFlight
+                            ? formatAxisMinSec(x)
+                            : '${x.toStringAsFixed(0)}s',
+                        formatY: _formatValue,
+                        touchBarsOnly: fullFlight,
+                        handleBuiltInTouches: !fullFlight,
+                        touchCallback: fullFlight ? onReplayTouch : null,
+                      ),
+                      lineBarsData: lineBars,
+                      showingTooltipIndicators: hoverTooltips,
+                    ),
+                    duration: Duration.zero,
+                  ),
+                  if (samples.isEmpty)
+                    const Center(child: WaitingForData(compact: true)),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   /// Buckets [frames] by [bucketOf], keeping each bucket's per-series
@@ -748,53 +730,9 @@ List<TelemetryFrame> decimateExtremes(
   int Function(TelemetryFrame) bucketOf,
   List<double Function(TelemetryFrame)> values,
 ) {
-  final out = <TelemetryFrame>[];
-  if (frames.isEmpty || values.isEmpty) return out;
-  var curBucket = bucketOf(frames.first);
-  var mins = List<double>.filled(values.length, double.infinity);
-  var maxs = List<double>.filled(values.length, double.negativeInfinity);
-  var minF = List<TelemetryFrame?>.filled(values.length, null);
-  var maxF = List<TelemetryFrame?>.filled(values.length, null);
-  void resetBucket() {
-    mins = List<double>.filled(values.length, double.infinity);
-    maxs = List<double>.filled(values.length, double.negativeInfinity);
-    minF = List<TelemetryFrame?>.filled(values.length, null);
-    maxF = List<TelemetryFrame?>.filled(values.length, null);
-  }
-
-  void flush() {
-    final set = <TelemetryFrame>{};
-    for (final f in minF) {
-      if (f != null) set.add(f);
-    }
-    for (final f in maxF) {
-      if (f != null) set.add(f);
-    }
-    if (set.isEmpty) return;
-    final sorted = set.toList()
-      ..sort((a, b) => a.receivedAtMs.compareTo(b.receivedAtMs));
-    out.addAll(sorted);
-  }
-
-  for (final frame in frames) {
-    final b = bucketOf(frame);
-    if (b != curBucket) {
-      flush();
-      curBucket = b;
-      resetBucket();
-    }
-    for (var i = 0; i < values.length; i++) {
-      final v = values[i](frame);
-      if (v < mins[i]) {
-        mins[i] = v;
-        minF[i] = frame;
-      }
-      if (v > maxs[i]) {
-        maxs[i] = v;
-        maxF[i] = frame;
-      }
-    }
-  }
-  flush();
-  return out;
+  return decimate(
+    ListTimeSeries<TelemetryFrame>((f) => f.receivedAtMs, frames),
+    bucketOf,
+    values,
+  );
 }

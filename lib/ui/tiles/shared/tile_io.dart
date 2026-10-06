@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:flutter_map/flutter_map.dart'
     show BuiltInMapCachingProvider, CachedMapTileMetadata;
 
@@ -41,19 +40,34 @@ String satelliteTileUrl(int x, int y, int z) =>
 Future<Uint8List?> fetchTileBytes(Uri url, {HttpClient? client}) async {
   final owned = client == null;
   final http = client ?? HttpClient();
+  HttpClientRequest? request;
   try {
     http.connectionTimeout = AppConfig.tileConnectionTimeout;
-    final request = await http.getUrl(url);
+    request = await http.getUrl(url).timeout(AppConfig.tileConnectionTimeout);
     request.headers.set('User-Agent', tileUserAgent);
-    final response =
-        await request.close().timeout(AppConfig.tileResponseTimeout);
-    if (response.statusCode != 200) return null;
-    final bytes = await consolidateHttpClientResponseBytes(response);
+    final response = await request.close().timeout(
+      AppConfig.tileResponseTimeout,
+    );
+    if (response.statusCode != 200) {
+      request.abort();
+      return null;
+    }
+    final bytes = await () async {
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response) {
+        if (builder.length + chunk.length > AppConfig.tileMaxResponseBytes) {
+          throw const FormatException('Tile response exceeds size limit');
+        }
+        builder.add(chunk);
+      }
+      return builder.takeBytes();
+    }().timeout(AppConfig.tileResponseTimeout);
     return bytes.isEmpty ? null : bytes;
   } catch (_) {
+    request?.abort();
     return null;
   } finally {
-    if (owned) http.close();
+    if (owned) http.close(force: true);
   }
 }
 
@@ -61,12 +75,12 @@ Future<Uint8List?> fetchTileBytes(Uri url, {HttpClient? client}) async {
 /// (Esri imagery is JPEG, street tiles are PNG).
 bool looksLikeImage(Uint8List bytes) {
   if (bytes.length < 4) return false;
-  final png = bytes[0] == 0x89 &&
+  final png =
+      bytes[0] == 0x89 &&
       bytes[1] == 0x50 &&
       bytes[2] == 0x4E &&
       bytes[3] == 0x47;
-  final jpeg =
-      bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+  final jpeg = bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
   return png || jpeg;
 }
 

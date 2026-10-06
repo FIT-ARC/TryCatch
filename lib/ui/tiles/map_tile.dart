@@ -1,3 +1,9 @@
+import '../../foundation/time/time_series.dart';
+
+import 'package:serial/serial.dart' show TelemetryFrame;
+
+import '../../foundation/time/decimation.dart';
+
 import 'package:flutter/gestures.dart' show PointerPanZoomUpdateEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,8 +15,7 @@ import '../../state/telemetry_store.dart';
 import '../../theme/app_colors.dart';
 import '../components/tool_button.dart';
 import './shared/map_tiles.dart';
-import './shared/tile_io.dart'
-    show satelliteAttribution, streetAttribution;
+import './shared/tile_io.dart' show satelliteAttribution, streetAttribution;
 
 /// Flight map: launch site, GPS track + live fix, dead-reckoning track + live
 /// estimate. Tiles are fetched from Esri (internet required).
@@ -48,7 +53,8 @@ class _MapWidgetState extends ConsumerState<MapTile> {
   static final _satelliteTiles = buildSatelliteLayer();
 
   static const _interactionOptions = InteractionOptions(
-    flags: InteractiveFlag.drag |
+    flags:
+        InteractiveFlag.drag |
         InteractiveFlag.scrollWheelZoom |
         InteractiveFlag.pinchZoom,
   );
@@ -113,8 +119,8 @@ class _MapWidgetState extends ConsumerState<MapTile> {
     final initialCenter = (firstFix != null && firstFix.gpsHasFix)
         ? LatLng(firstFix.latitude, firstFix.longitude)
         : (site != null
-            ? LatLng(site.latitude, site.longitude)
-            : const LatLng(50.0755, 14.4378));
+              ? LatLng(site.latitude, site.longitude)
+              : const LatLng(50.0755, 14.4378));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -161,7 +167,10 @@ class _MapWidgetState extends ConsumerState<MapTile> {
                               size: 22,
                               color: AppColors.pinkDeep,
                               shadows: const [
-                                Shadow(color: Colors.white, blurRadius: 4),
+                                Shadow(
+                                  color: AppColors.fixedWhite,
+                                  blurRadius: 4,
+                                ),
                               ],
                             ),
                           ),
@@ -204,7 +213,7 @@ class _MapWidgetState extends ConsumerState<MapTile> {
                 _satellite ? satelliteAttribution : streetAttribution,
                 style: TextStyle(
                   fontSize: 9,
-                  color: Colors.black.withValues(alpha: 0.45),
+                  color: AppColors.fixedBlack.withValues(alpha: 0.45),
                 ),
               ),
             ),
@@ -238,8 +247,10 @@ class _MapWidgetState extends ConsumerState<MapTile> {
     try {
       final camera = _mapController.camera;
       final newZoom =
-          (camera.zoom - dy * _interactionOptions.scrollWheelVelocity)
-              .clamp(3.0, 19.0);
+          (camera.zoom - dy * _interactionOptions.scrollWheelVelocity).clamp(
+            3.0,
+            19.0,
+          );
       _zoom = newZoom;
       _mapController.move(
         camera.focusedZoomCenter(event.localPosition, newZoom),
@@ -346,10 +357,10 @@ class _LiveMarkers extends ConsumerWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.seriesGpsTrack,
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: AppColors.fixedWhite, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
+                    color: AppColors.fixedBlack.withValues(alpha: 0.3),
                     blurRadius: 4,
                   ),
                 ],
@@ -369,29 +380,17 @@ class _LiveMarkers extends ConsumerWidget {
 /// per-frame projection cost. Two cheap O(n) passes, no per-frame churn for
 /// skipped points (no [LatLng] allocation for them).
 List<LatLng> gpsTrackPoints(TelemetryState state, {int maxPoints = 1500}) {
-  assert(maxPoints >= 2, 'maxPoints must leave room for both endpoints');
-  var fixes = 0;
-  for (final f in state.history) {
-    if (f.gpsHasFix) fixes++;
-  }
-  if (fixes == 0) return const [];
-  // Stride over the (fixes - 1) intervals, so the strided samples plus the
-  // forced newest fix below never exceed maxPoints.
-  final stride = fixes <= maxPoints
-      ? 1
-      : ((fixes - 1) + (maxPoints - 2)) ~/ (maxPoints - 1);
-  final points = <LatLng>[];
-  var i = 0;
-  LatLng? last;
-  for (final f in state.history) {
-    if (!f.gpsHasFix) continue;
-    last = LatLng(f.latitude, f.longitude);
-    if (i % stride == 0) points.add(last);
-    i++;
-  }
-  // The newest fix is always on the track, even when it falls off-stride.
-  if (last != null && (i - 1) % stride != 0) points.add(last);
-  return points;
+  final fixes = state.history.where((f) => f.gpsHasFix).toList(growable: false);
+  return [
+    for (final frame in decimate<TelemetryFrame>(
+      ListTimeSeries<TelemetryFrame>((f) => f.receivedAtMs, fixes),
+      (f) => f.receivedAtMs,
+      const [],
+      maxPoints: maxPoints,
+      mode: Decimation.strideStable,
+    ))
+      LatLng(frame.latitude, frame.longitude),
+  ];
 }
 
 /// Dead reckoning track split into one segment per GPS gap. Points within a
@@ -418,9 +417,9 @@ List<List<LatLng>> deadReckoningSegments(TelemetryState state) {
   var prevMs = -1;
 
   for (var i = 0; i < deadReckoning.length; i++) {
-    final p = deadReckoning.getChronological(i);
+    final p = deadReckoning.oldest(i);
     while (h < hLen) {
-      final f = history.getChronological(h);
+      final f = history.oldest(h);
       if (f.receivedAtMs > p.atMs) break;
       if (f.gpsHasFix) lastFix = LatLng(f.latitude, f.longitude);
       h++;
@@ -437,7 +436,10 @@ List<List<LatLng>> deadReckoningSegments(TelemetryState state) {
     prevMs = p.atMs;
   }
   if (current != null) segments.add(current);
-  return [for (final s in segments) if (s.length > 1) s];
+  return [
+    for (final s in segments)
+      if (s.length > 1) s,
+  ];
 }
 
 /// Track-key overlay. Only depends on the replay flag (which flips rarely),
@@ -447,8 +449,9 @@ class _Legend extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final replaying =
-        ref.watch(telemetryStoreProvider.select((s) => s.replaying));
+    final replaying = ref.watch(
+      telemetryStoreProvider.select((s) => s.replaying),
+    );
     return Positioned(
       left: 8,
       bottom: 8,
@@ -459,25 +462,25 @@ class _Legend extends ConsumerWidget {
           borderRadius: BorderRadius.circular(AppDimens.radiusSmall),
           border: Border.all(color: AppColors.border),
         ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _LegendRow(
+              color: AppColors.seriesGpsTrack,
+              label: 'GPS',
+              solid: true,
+            ),
+            if (!replaying) ...[
+              const SizedBox(height: 3),
               _LegendRow(
-                color: AppColors.seriesGpsTrack,
-                label: 'GPS',
-                solid: true,
+                color: AppColors.seriesDeadReckoning,
+                label: 'Dead reckoning',
+                solid: false,
               ),
-              if (!replaying) ...[
-                const SizedBox(height: 3),
-                _LegendRow(
-                  color: AppColors.seriesDeadReckoning,
-                  label: 'Dead reckoning',
-                  solid: false,
-                ),
-              ],
             ],
-          ),
+          ],
+        ),
       ),
     );
   }

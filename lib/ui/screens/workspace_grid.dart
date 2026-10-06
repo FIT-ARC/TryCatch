@@ -42,7 +42,7 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
 
   // ── Leaf drag state (swap / restructure) ─────────────────────────────────────
   String? _dragLeafId;
-  String? _dropTargetId;   // tile under the pointer
+  String? _dropTargetId; // tile under the pointer
   SplitDirection? _dropZone; // null → centre/swap, else directional insert
   Offset _dragPointer = Offset.zero;
 
@@ -67,8 +67,11 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
     if (identical(root, _layoutForRoot) && size == _layoutForSize) {
       return _layoutCache!;
     }
-    final result = layoutTree(root, Rect2(0, 0, size.width, size.height),
-        TileRegistry.minSizeOf);
+    final result = layoutTree(
+      root,
+      Rect2(0, 0, size.width, size.height),
+      TileRegistry.minSizeOf,
+    );
     _layoutForRoot = root;
     _layoutForSize = size;
     _layoutCache = result;
@@ -91,65 +94,66 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
 
     return Padding(
       padding: const EdgeInsets.all(AppDimens.outerPadding),
-      child: LayoutBuilder(builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        _lastLayoutSize = size;
-        final result = _layoutCached(root, size);
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = Size(constraints.maxWidth, constraints.maxHeight);
+          _lastLayoutSize = size;
+          final result = _layoutCached(root, size);
 
-        final editIdle = widget.editMode && _dragDividerId == null;
-        final showGroupHighlight =
-            editIdle && _hoveredDividerId != null && _dragLeafId == null;
+          final editIdle = widget.editMode && _dragDividerId == null;
+          final showGroupHighlight =
+              editIdle && _hoveredDividerId != null && _dragLeafId == null;
 
-        return Stack(
-          clipBehavior: Clip.hardEdge,
-          children: [
-            // ── 1. Tiles ───────────────────────────────────────────────────────
-            for (final entry in result.leafRects.entries)
-              if (TileRegistry.byId(_typeOf(workspace, entry.key)) != null)
-                _buildLeaf(
-                  workspace: workspace,
-                  tileId: entry.key,
-                  rect: entry.value,
-                  // Show swap-target highlight only for centre-zone drops.
-                  swapTarget:
-                      _dropTargetId == entry.key && _dropZone == null,
-                ),
+          return Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              // ── 1. Tiles ───────────────────────────────────────────────────────
+              for (final entry in result.leafRects.entries)
+                if (TileRegistry.byId(_typeOf(workspace, entry.key)) != null)
+                  _buildLeaf(
+                    workspace: workspace,
+                    tileId: entry.key,
+                    rect: entry.value,
+                    // Show swap-target highlight only for centre-zone drops.
+                    swapTarget: _dropTargetId == entry.key && _dropZone == null,
+                  ),
 
-            // ── 2. Drop-zone overlay (directional or swap preview) ─────────────
-            if (_dragLeafId != null && _dropTargetId != null)
-              _buildDropZoneOverlay(result),
+              // ── 2. Drop-zone overlay (directional or swap preview) ─────────────
+              if (_dragLeafId != null && _dropTargetId != null)
+                _buildDropZoneOverlay(result),
 
-            // ── 3. Group highlight ─────────────────────────────────────────────
-            if (showGroupHighlight)
-              Positioned.fill(
-                key: const ValueKey('group_highlight_layer'),
-                child: IgnorePointer(
-                  child: Stack(
-                    children: _buildGroupHighlight(workspace, result),
+              // ── 3. Group highlight ─────────────────────────────────────────────
+              if (showGroupHighlight)
+                Positioned.fill(
+                  key: const ValueKey('group_highlight_layer'),
+                  child: IgnorePointer(
+                    child: Stack(
+                      children: _buildGroupHighlight(workspace, result),
+                    ),
                   ),
                 ),
-              ),
 
-            // ── 4. Dividers + merge chips ──────────────────────────────────────
-            for (final divider in result.dividers)
-              ..._buildDivider(divider, result.dividers),
+              // ── 4. Dividers + merge chips ──────────────────────────────────────
+              for (final divider in result.dividers)
+                ..._buildDivider(divider, result.dividers),
 
-            // ── 5. Snap overlay during divider drag ───────────────────────────
-            if (_dragDividerId != null) _buildSnapOverlay(result, size),
+              // ── 5. Snap overlay during divider drag ───────────────────────────
+              if (_dragDividerId != null) _buildSnapOverlay(result, size),
 
-            // ── 6. Drag badge ─────────────────────────────────────────────────
-            if (_dragLeafId != null)
-              Positioned(
-                key: const ValueKey('drag_badge_layer'),
-                left: _dragPointer.dx,
-                top: _dragPointer.dy,
-                child: IgnorePointer(
-                  child: _DragBadge(directional: _dropZone != null),
+              // ── 6. Drag badge ─────────────────────────────────────────────────
+              if (_dragLeafId != null)
+                Positioned(
+                  key: const ValueKey('drag_badge_layer'),
+                  left: _dragPointer.dx,
+                  top: _dragPointer.dy,
+                  child: IgnorePointer(
+                    child: _DragBadge(directional: _dropZone != null),
+                  ),
                 ),
-              ),
-          ],
-        );
-      }),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -176,9 +180,8 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
     final tile = TileLeafScope.fromSettings(
       tileId: tileId,
       settings: workspace.leafOf(tileId)?.settings ?? const {},
-      onCameraMode: (mode) => ref
-          .read(workspaceProvider.notifier)
-          .setTileCameraMode(tileId, mode),
+      onCameraMode: (mode) =>
+          ref.read(workspaceProvider.notifier).setTileCameraMode(tileId, mode),
       child: descriptor.builder(context),
     );
 
@@ -202,10 +205,7 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
 
       // Layer split arrows on top of the card.
       card = Stack(
-        children: [
-          card,
-          if (showArrows) _buildSplitArrowsOverlay(tileId),
-        ],
+        children: [card, if (showArrows) _buildSplitArrowsOverlay(tileId)],
       );
 
       // Hover + drag gesture.
@@ -253,16 +253,17 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
             final zone = _dropZone;
             if (target != null) {
               if (zone != null) {
-                ref.read(workspaceProvider.notifier).moveTileBeside(
+                ref
+                    .read(workspaceProvider.notifier)
+                    .moveTileBeside(
                       sourceId: tileId,
                       targetId: target,
                       direction: zone,
                     );
               } else {
-                ref.read(workspaceProvider.notifier).swapTiles(
-                      tileId: tileId,
-                      ontoTileId: target,
-                    );
+                ref
+                    .read(workspaceProvider.notifier)
+                    .swapTiles(tileId: tileId, ontoTileId: target);
               }
             }
             setState(() {
@@ -305,8 +306,12 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               child: _SplitArrowButton(
                 icon: Icons.arrow_back,
                 tooltip: 'Add tile to the left',
-                onTap: () => showTilePicker(context, ref,
-                    splitTileId: tileId, direction: SplitDirection.left),
+                onTap: () => showTilePicker(
+                  context,
+                  ref,
+                  splitTileId: tileId,
+                  direction: SplitDirection.left,
+                ),
               ),
             ),
           ),
@@ -319,8 +324,12 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               child: _SplitArrowButton(
                 icon: Icons.arrow_forward,
                 tooltip: 'Add tile to the right',
-                onTap: () => showTilePicker(context, ref,
-                    splitTileId: tileId, direction: SplitDirection.right),
+                onTap: () => showTilePicker(
+                  context,
+                  ref,
+                  splitTileId: tileId,
+                  direction: SplitDirection.right,
+                ),
               ),
             ),
           ),
@@ -333,8 +342,12 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               child: _SplitArrowButton(
                 icon: Icons.arrow_upward,
                 tooltip: 'Add tile above',
-                onTap: () => showTilePicker(context, ref,
-                    splitTileId: tileId, direction: SplitDirection.top),
+                onTap: () => showTilePicker(
+                  context,
+                  ref,
+                  splitTileId: tileId,
+                  direction: SplitDirection.top,
+                ),
               ),
             ),
           ),
@@ -347,8 +360,12 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               child: _SplitArrowButton(
                 icon: Icons.arrow_downward,
                 tooltip: 'Add tile below',
-                onTap: () => showTilePicker(context, ref,
-                    splitTileId: tileId, direction: SplitDirection.bottom),
+                onTap: () => showTilePicker(
+                  context,
+                  ref,
+                  splitTileId: tileId,
+                  direction: SplitDirection.bottom,
+                ),
               ),
             ),
           ),
@@ -400,8 +417,7 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
     final dRight = 1 - relX;
     final dTop = relY;
     final dBottom = 1 - relY;
-    final minDist =
-        math.min(math.min(dLeft, dRight), math.min(dTop, dBottom));
+    final minDist = math.min(math.min(dLeft, dRight), math.min(dTop, dBottom));
 
     if (minDist == dLeft) return SplitDirection.left;
     if (minDist == dRight) return SplitDirection.right;
@@ -445,8 +461,9 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
       child: IgnorePointer(
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.primary
-                .withValues(alpha: zone != null ? 0.20 : 0.10),
+            color: AppColors.primary.withValues(
+              alpha: zone != null ? 0.20 : 0.10,
+            ),
             border: zone != null
                 ? Border.all(color: AppColors.primary, width: 1.5)
                 : null,
@@ -470,26 +487,34 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
     for (final id in groups.a) {
       final r = result.leafRects[id];
       if (r == null) continue;
-      widgets.add(Positioned(
-        left: r.left, top: r.top, width: r.width, height: r.height,
-        child: IgnorePointer(
-          child: Container(
-            color: AppColors.pink.withValues(alpha: 0.09),
+      widgets.add(
+        Positioned(
+          left: r.left,
+          top: r.top,
+          width: r.width,
+          height: r.height,
+          child: IgnorePointer(
+            child: Container(color: AppColors.pink.withValues(alpha: 0.09)),
           ),
         ),
-      ));
+      );
     }
     for (final id in groups.b) {
       final r = result.leafRects[id];
       if (r == null) continue;
-      widgets.add(Positioned(
-        left: r.left, top: r.top, width: r.width, height: r.height,
-        child: IgnorePointer(
-          child: Container(
-            color: Colors.blueAccent.withValues(alpha: 0.06),
+      widgets.add(
+        Positioned(
+          left: r.left,
+          top: r.top,
+          width: r.width,
+          height: r.height,
+          child: IgnorePointer(
+            child: Container(
+              color: AppColors.fixedBlueAccent.withValues(alpha: 0.06),
+            ),
           ),
         ),
-      ));
+      );
     }
     return widgets;
   }
@@ -497,8 +522,7 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
   // ── Dividers ──────────────────────────────────────────────────────────────────
 
   /// Returns the draggable divider line AND (in edit mode) the merge chip.
-  List<Widget> _buildDivider(
-      DividerHandle divider, List<DividerHandle> all) {
+  List<Widget> _buildDivider(DividerHandle divider, List<DividerHandle> all) {
     if (!widget.editMode) {
       return [
         Positioned(
@@ -514,26 +538,22 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
     final isDragging = _dragDividerId == divider.nodeId;
     final snapped = isDragging && _snapLabel != null;
     final thickness = snapped ? 4.0 : (isDragging ? 3.0 : 1.0);
-    final lineColor =
-        isDragging ? AppColors.primary : AppColors.strongBorder;
+    final lineColor = isDragging ? AppColors.primary : AppColors.strongBorder;
 
     const hit = 10.0;
     final hArea = divider.hitArea;
 
     final dividerWidget = Positioned(
       key: ValueKey('divider_${divider.nodeId}'),
-      left: hArea.left -
-          (divider.vertical ? 0 : (hit - dividerWidth) / 2),
-      top: hArea.top -
-          (divider.vertical ? (hit - dividerWidth) / 2 : 0),
+      left: hArea.left - (divider.vertical ? 0 : (hit - dividerWidth) / 2),
+      top: hArea.top - (divider.vertical ? (hit - dividerWidth) / 2 : 0),
       width: divider.vertical ? hArea.width : hit,
       height: divider.vertical ? hit : hArea.height,
       child: MouseRegion(
         cursor: divider.vertical
             ? SystemMouseCursors.resizeRow
             : SystemMouseCursors.resizeColumn,
-        onEnter: (_) =>
-            setState(() => _hoveredDividerId = divider.nodeId),
+        onEnter: (_) => setState(() => _hoveredDividerId = divider.nodeId),
         onExit: (_) => setState(() {
           if (_hoveredDividerId == divider.nodeId) {
             _hoveredDividerId = null;
@@ -554,10 +574,10 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
             });
           },
           onPanUpdate: (details) {
-            _dividerDragOffset +=
-                divider.vertical ? details.delta.dy : details.delta.dx;
-            final raw = (_dragStartRatio +
-                    _dividerDragOffset / divider.extent)
+            _dividerDragOffset += divider.vertical
+                ? details.delta.dy
+                : details.delta.dx;
+            final raw = (_dragStartRatio + _dividerDragOffset / divider.extent)
                 .clamp(0.02, 0.98);
             final snap = snapDividerRatio(
               rawRatio: raw,
@@ -569,11 +589,9 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               _snapLabel = snap?.label;
               _dragRatio = ratio;
             });
-            ref.read(workspaceProvider.notifier).setRatio(
-                  nodeId: divider.nodeId,
-                  ratio: ratio,
-                  persist: false,
-                );
+            ref
+                .read(workspaceProvider.notifier)
+                .setRatio(nodeId: divider.nodeId, ratio: ratio, persist: false);
           },
           onPanEnd: (_) {
             setState(() {
@@ -615,22 +633,19 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
           )
         : null;
 
-    return [
-      dividerWidget,
-      ?mergeChip,
-    ];
+    return [dividerWidget, ?mergeChip];
   }
 
   // ── Merge menu ────────────────────────────────────────────────────────────────
 
   Future<void> _showMergeMenu(
-      DividerHandle divider, Offset globalPosition) async {
+    DividerHandle divider,
+    Offset globalPosition,
+  ) async {
     // Snapshot for undo before anything changes.
-    final oldRoot =
-        ref.read(workspaceProvider).value?.active?.root;
+    final oldRoot = ref.read(workspaceProvider).value?.active?.root;
 
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final result = await showMenu<KeepSide>(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -642,31 +657,35 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
       items: [
         PopupMenuItem(
           value: KeepSide.a,
-          child: Row(children: [
-            Icon(
-              divider.vertical
-                  ? Icons.keyboard_arrow_up
-                  : Icons.keyboard_arrow_left,
-              size: 16,
-              color: AppColors.mutedForeground,
-            ),
-            const SizedBox(width: 8),
-            Text(divider.vertical ? 'Keep top' : 'Keep left'),
-          ]),
+          child: Row(
+            children: [
+              Icon(
+                divider.vertical
+                    ? Icons.keyboard_arrow_up
+                    : Icons.keyboard_arrow_left,
+                size: 16,
+                color: AppColors.mutedForeground,
+              ),
+              const SizedBox(width: 8),
+              Text(divider.vertical ? 'Keep top' : 'Keep left'),
+            ],
+          ),
         ),
         PopupMenuItem(
           value: KeepSide.b,
-          child: Row(children: [
-            Icon(
-              divider.vertical
-                  ? Icons.keyboard_arrow_down
-                  : Icons.keyboard_arrow_right,
-              size: 16,
-              color: AppColors.mutedForeground,
-            ),
-            const SizedBox(width: 8),
-            Text(divider.vertical ? 'Keep bottom' : 'Keep right'),
-          ]),
+          child: Row(
+            children: [
+              Icon(
+                divider.vertical
+                    ? Icons.keyboard_arrow_down
+                    : Icons.keyboard_arrow_right,
+                size: 16,
+                color: AppColors.mutedForeground,
+              ),
+              const SizedBox(width: 8),
+              Text(divider.vertical ? 'Keep bottom' : 'Keep right'),
+            ],
+          ),
         ),
       ],
     );
@@ -720,7 +739,8 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               height: 1,
               child: IgnorePointer(
                 child: Container(
-                    color: AppColors.primary.withValues(alpha: 0.55)),
+                  color: AppColors.primary.withValues(alpha: 0.55),
+                ),
               ),
             )
           else
@@ -731,31 +751,35 @@ class _WorkspaceGridState extends ConsumerState<WorkspaceGrid> {
               height: gridSize.height,
               child: IgnorePointer(
                 child: Container(
-                    color: AppColors.primary.withValues(alpha: 0.55)),
+                  color: AppColors.primary.withValues(alpha: 0.55),
+                ),
               ),
             ),
         Positioned(
           left: (d.vertical ? midX + 10 : midX - 20).clamp(
-              0.0, (gridSize.width - 90).clamp(0.0, double.infinity)),
+            0.0,
+            (gridSize.width - 90).clamp(0.0, double.infinity),
+          ),
           top: (d.vertical ? midY - 34 : midY + 10).clamp(
-              0.0, (gridSize.height - 30).clamp(0.0, double.infinity)),
+            0.0,
+            (gridSize.height - 30).clamp(0.0, double.infinity),
+          ),
           child: IgnorePointer(
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.85),
+                color: AppColors.fixedBlack.withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: _snapLabel == null
-                      ? Colors.white24
+                      ? AppColors.fixedWhite24
                       : AppColors.primary,
                 ),
               ),
               child: Text(
                 label,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.fixedWhite,
                   fontSize: 11,
                   fontFeatures: [],
                 ),
@@ -793,7 +817,7 @@ class _SplitArrowButton extends StatelessWidget {
         color: AppColors.card.withValues(alpha: 0.92),
         shape: const CircleBorder(),
         elevation: 2,
-        shadowColor: Colors.black.withValues(alpha: 0.25),
+        shadowColor: AppColors.fixedBlack.withValues(alpha: 0.25),
         child: InkWell(
           onTap: onTap,
           customBorder: const CircleBorder(),
@@ -831,7 +855,7 @@ class _MergeChipButton extends StatelessWidget {
             border: Border.all(color: AppColors.strongBorder),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
+                color: AppColors.fixedBlack.withValues(alpha: 0.12),
                 blurRadius: 4,
               ),
             ],
@@ -866,7 +890,7 @@ class _DragBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
+            color: AppColors.fixedBlack.withValues(alpha: 0.2),
             blurRadius: 6,
           ),
         ],
@@ -901,8 +925,7 @@ class _EditHeaderActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(workspaceProvider.notifier);
-    void change() =>
-        showTilePicker(context, ref, changeTileId: tileId);
+    void change() => showTilePicker(context, ref, changeTileId: tileId);
     void remove() => notifier.removeTile(tileId);
 
     if (swapTarget || tileWidth < _collapseBelow) {
@@ -912,11 +935,7 @@ class _EditHeaderActions extends ConsumerWidget {
           if (swapTarget)
             Padding(
               padding: const EdgeInsets.only(right: 2),
-              child: Icon(
-                Icons.swap_horiz,
-                size: 16,
-                color: AppColors.primary,
-              ),
+              child: Icon(Icons.swap_horiz, size: 16, color: AppColors.primary),
             ),
           PopupMenuButton<String>(
             tooltip: 'Tile actions',
@@ -937,19 +956,23 @@ class _EditHeaderActions extends ConsumerWidget {
             itemBuilder: (context) => const [
               PopupMenuItem(
                 value: 'change',
-                child: Row(children: [
-                  Icon(Icons.swap_horiz, size: 16),
-                  SizedBox(width: 8),
-                  Text('Change type…'),
-                ]),
+                child: Row(
+                  children: [
+                    Icon(Icons.swap_horiz, size: 16),
+                    SizedBox(width: 8),
+                    Text('Change type…'),
+                  ],
+                ),
               ),
               PopupMenuItem(
                 value: 'remove',
-                child: Row(children: [
-                  Icon(Icons.delete_outline, size: 16),
-                  SizedBox(width: 8),
-                  Text('Remove'),
-                ]),
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline, size: 16),
+                    SizedBox(width: 8),
+                    Text('Remove'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -994,14 +1017,13 @@ class _HeaderIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        danger ? AppColors.destructive : AppColors.mutedForeground;
+    final color = danger ? AppColors.destructive : AppColors.mutedForeground;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Tooltip(
         message: tooltip,
         child: Material(
-          color: Colors.transparent,
+          color: AppColors.fixedTransparent,
           borderRadius: BorderRadius.circular(6),
           child: InkWell(
             onTap: onTap,
@@ -1035,8 +1057,11 @@ class _EmptyWorkspace extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.dashboard_customize_outlined,
-              size: 40, color: AppColors.strongBorder),
+          Icon(
+            Icons.dashboard_customize_outlined,
+            size: 40,
+            color: AppColors.strongBorder,
+          ),
           const SizedBox(height: 12),
           Text(
             'This workspace is empty',

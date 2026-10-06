@@ -1,8 +1,9 @@
+import '../../state/connector_provider.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../state/replay_controller.dart';
-import '../../state/telemetry_provider.dart';
 import '../../state/telemetry_store.dart';
 import '../components/waiting_for_data.dart';
 import './shared/flight_3d_common.dart';
@@ -29,9 +30,9 @@ class _Rocket3dWidgetState extends ConsumerState<Rocket3dTile>
     with SingleTickerProviderStateMixin, ReplayVsync {
   @override
   Widget build(BuildContext context) {
-    final latest = ref.watch(telemetryStoreProvider).latest;
+    final latest = ref.watch(telemetryStoreProvider.select((s) => s.latest));
     final camera = ref.watch(orbitCameraProvider);
-    final replay = ref.watch(replayProvider);
+    final replay = ref.watch(replayRenderStateProvider);
 
     if (latest == null) {
       return Center(child: WaitingForData());

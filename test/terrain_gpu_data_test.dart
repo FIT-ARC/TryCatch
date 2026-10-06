@@ -1,4 +1,7 @@
 import 'dart:typed_data';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show compute;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trycatch/ui/tiles/shared/gpu/terrain_gpu_data.dart';
@@ -8,9 +11,17 @@ import 'package:vector_math/vector_math.dart' as vm;
 /// Locks the retained-mesh → GPU-stream conversion: normalized imagery UVs,
 /// baked hillshade RGB, per-vertex feather alpha, and the tier Y lift.
 void main() {
+  test('atlas uploads stay within area and dimension budgets', () {
+    for (final (width, height) in [(2304, 6400), (8000, 100), (256, 256)]) {
+      final output = boundedTerrainAtlasSize(width, height, 2 * 1024 * 1024);
+      expect(output.width * output.height, lessThanOrEqualTo(2 * 1024 * 1024));
+      expect(output.width, lessThanOrEqualTo(4096));
+      expect(output.height, lessThanOrEqualTo(4096));
+    }
+  });
+
   /// Two triangles over a 100 m square, imagery 256 px, mid-tier alpha.
-  TerrainMesh mesh() {
-    final n = 2;
+  TerrainMesh mesh([int n = 2]) {
     final world = Float32List(n * n * 3);
     final normals = Float32List(n * n * 3);
     final alpha = Float32List(n * n);
@@ -39,6 +50,30 @@ void main() {
       half: 50,
     );
   }
+
+  test('large GPU conversion leaves the main event loop responsive', () async {
+    final tiers = [
+      for (var i = 0; i < 2; i++)
+        TerrainAtlasTier(
+          mesh: mesh(160),
+          imageWidth: 2304,
+          imageHeight: 2304,
+          yOffset: 0,
+        ),
+    ];
+    var ticks = 0;
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 1),
+      (_) => ticks++,
+    );
+    try {
+      final data = await compute(terrainAtlasInBackground, tiers);
+      expect(data.positions.length ~/ 3, 2 * 160 * 160);
+      expect(ticks, greaterThan(0));
+    } finally {
+      timer.cancel();
+    }
+  });
 
   test('normalizes pixel UVs into texture space', () {
     final data = buildTerrainGpuData(

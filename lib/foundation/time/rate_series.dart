@@ -43,8 +43,7 @@ RateVerdict verdictFor(double unmatchedBps) {
 class RateSeries extends RingTimeSeries<RateSample> {
   LinkStats? _prev;
 
-  RateSeries({int capacity = 240})
-      : super(capacity, (s) => s.timestampMs);
+  RateSeries({int capacity = 240}) : super(capacity, (s) => s.timestampMs);
 
   RateSample? get latest => isEmpty ? null : newest(0);
 
@@ -107,6 +106,15 @@ class RateSeries extends RingTimeSeries<RateSample> {
     if (s < 60) return '${s.toStringAsFixed(1)} s ago';
     return '${(s ~/ 60)}m ${(s % 60).round()}s ago';
   }
+}
+
+/// Read-only rate history exposed to views.
+class RateSeriesView extends TimeSeriesView<RateSample> {
+  final RateSeries _rates;
+  RateSeriesView(this._rates) : super(_rates, (s) => s.timestampMs);
+  RateSample? get latest => _rates.latest;
+  String label({int? nowMs, Duration window = const Duration(seconds: 2)}) =>
+      _rates.label(nowMs: nowMs, window: window);
 }
 
 /// Human rate: 950 -> "950 B/s", 2400 -> "2.4 kB/s".

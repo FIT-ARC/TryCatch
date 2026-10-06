@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../components/tool_button.dart';
 import '../../screens/tile_leaf_scope.dart';
 import './orbit_camera.dart';
+import './flight_scene_builder.dart' show FlightCameraIcon;
 import './trackpad_zoom.dart' show scrollZoomFactor;
 
 /// Shared camera state for the 3D flight views: chase / orbit-field / free
@@ -113,8 +114,10 @@ class Flight3dShell extends StatefulWidget {
     required this.onResetZoom,
     required this.onOrbit,
     this.extraOverlays = const [],
-  }) : assert(painter != null || child != null,
-            'Flight3dShell needs a painter or a child');
+  }) : assert(
+         painter != null || child != null,
+         'Flight3dShell needs a painter or a child',
+       );
 
   @override
   State<Flight3dShell> createState() => _Flight3dShellState();
@@ -157,7 +160,8 @@ class _Flight3dShellState extends State<Flight3dShell> {
               widget.onOrbit(details.delta);
             },
             onDoubleTap: widget.onResetZoom,
-            child: widget.child ??
+            child:
+                widget.child ??
                 CustomPaint(
                   painter: widget.painter,
                   child: const SizedBox.expand(),

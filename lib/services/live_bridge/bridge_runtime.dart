@@ -1,12 +1,13 @@
+import '../../state/connector_provider.dart';
+
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:math' as math;
 
-import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../services/live_bridge/bridge_schema.dart';
-import '../../services/live_bridge/bridge_server.dart';
+import './bridge_schema.dart';
+import './bridge_server.dart';
 import '../../session/feedback.dart';
 import '../../state/bridge_provider.dart';
 import '../../state/launch_site_store.dart';
@@ -16,7 +17,7 @@ import '../../state/telemetry_store.dart';
 
 /// Headless relay: forks live frames into the bridge isolate.
 ///
-/// Mounted once in [AppShell] (renders nothing). The serial worker stays
+/// Owned by liveBridgeRuntimeProvider for the app lifetime. The serial worker stays
 /// the only isolate that touches ports and recordings; this relay only
 /// copies already-decoded [TelemetryFrame]s from the main isolate into the
 /// bridge over a [SendPort], latest-only with no queue — a slow public
@@ -28,16 +29,19 @@ import '../../state/telemetry_store.dart';
 ///
 /// The relay pings the bridge every 2 s (see [bridgeLeaseMs]): a bridge
 /// orphaned by a hot restart frees its socket and exits on its own, and the
-/// relay retries the bind while enabled — so the port conflict in the
-/// screenshot recovers automatically within a few seconds, no taps needed.
-class LiveBridgeRelay extends ConsumerStatefulWidget {
-  const LiveBridgeRelay({super.key});
+/// relay retries binding while enabled and restarts unexpected isolate exits.
+final liveBridgeRuntimeProvider = Provider<LiveBridgeRuntime>((ref) {
+  final runtime = LiveBridgeRuntime(ref);
+  runtime.start();
+  runtime.listen();
+  ref.onDispose(runtime.dispose);
+  return runtime;
+});
 
-  @override
-  ConsumerState<LiveBridgeRelay> createState() => _LiveBridgeRelayState();
-}
-
-class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
+class LiveBridgeRuntime {
+  final Ref ref;
+  bool mounted = true;
+  LiveBridgeRuntime(this.ref);
   Isolate? _isolate;
   SendPort? _bridge;
   ReceivePort? _fromBridge;
@@ -47,9 +51,7 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
   Timer? _pingTimer;
   Timer? _retryTimer;
 
-  @override
-  void initState() {
-    super.initState();
+  void start() {
     _spawn();
     // Lease heartbeat (see [bridgeLeaseMs]): proves this main isolate is
     // alive so an orphaned bridge frees its socket and exits on its own.
@@ -63,34 +65,59 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
     _fromBridge = fromBridge;
     _bridgeSub = fromBridge.listen(_onBridgeMessage);
     try {
-      _isolate = await Isolate.spawn(
+      final isolate = await Isolate.spawn(
         liveBridgeMain,
         fromBridge.sendPort,
         debugName: 'LiveBridge',
+        onError: fromBridge.sendPort,
+        onExit: fromBridge.sendPort,
       );
+      if (!mounted) {
+        isolate.kill(priority: Isolate.immediate);
+        return;
+      }
+      _isolate = isolate;
     } catch (e) {
-      ref.read(bridgeStatusProvider.notifier).report(
+      if (!mounted) return;
+      _bridgeSub?.cancel();
+      fromBridge.close();
+      ref
+          .read(bridgeStatusProvider.notifier)
+          .report(
             running: false,
             port: ref.read(bridgeConfigProvider).value?.port ?? 6767,
-            bind: ref.read(bridgeConfigProvider).value?.bindAddress ??
+            bind:
+                ref.read(bridgeConfigProvider).value?.bindAddress ??
                 '127.0.0.1',
             clients: 0,
             hasFrame: false,
             error: '$e',
           );
+      _onBridgeMessage(null);
     }
   }
 
   void _onBridgeMessage(dynamic message) {
-    if (message is! Map) return;
+    if (!mounted) return;
+    if (message is! Map) {
+      _bridge = null;
+      _isolate = null;
+      _bridgeSub?.cancel();
+      _fromBridge?.close();
+      _cancelRetry();
+      _retryTimer = Timer(const Duration(seconds: 2), () {
+        _retryTimer = null;
+        if (mounted) _spawn();
+      });
+      return;
+    }
     if (message[LiveBridgeMessages.type] == LiveBridgeMessages.ready) {
       final port = message['commandPort'];
       if (port is SendPort) {
         _bridge = port;
         var flushedConfig = false;
         for (final pending in _outbox) {
-          if (pending[LiveBridgeMessages.type] ==
-              LiveBridgeMessages.config) {
+          if (pending[LiveBridgeMessages.type] == LiveBridgeMessages.config) {
             flushedConfig = true;
           }
           _bridge!.send(pending);
@@ -112,7 +139,9 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
         message['error'] as String?,
         port is int ? port : 6767,
       );
-      ref.read(bridgeStatusProvider.notifier).report(
+      ref
+          .read(bridgeStatusProvider.notifier)
+          .report(
             running: running,
             port: port is int ? port : 6767,
             bind: bind is String ? bind : '127.0.0.1',
@@ -168,7 +197,12 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
           (m) => m[LiveBridgeMessages.type] == LiveBridgeMessages.config,
         );
       }
-      _outbox.add(message);
+      if (message[LiveBridgeMessages.type] != LiveBridgeMessages.ping) {
+        _outbox.removeWhere(
+          (m) => m[LiveBridgeMessages.type] == message[LiveBridgeMessages.type],
+        );
+        _outbox.add(message);
+      }
       return;
     }
     try {
@@ -181,7 +215,7 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
     if (config == null) return;
     _send({
       LiveBridgeMessages.type: LiveBridgeMessages.config,
-      'enabled': config.enabled,
+      'enabled': config.enabled && ref.read(currentLaunchSiteProvider) != null,
       'port': config.port,
       'bind': config.bindAddress,
       'cors': config.corsOrigin,
@@ -190,12 +224,13 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
 
   /// Whether [frame] may leave the app: live link, no replay in progress.
   bool _isLive() {
+    if (ref.read(currentLaunchSiteProvider) == null) return false;
     if (ref.read(replayProvider).isActive) return false;
     return ref.read(serialStatusProvider).value?.isConnected ?? false;
   }
 
-  @override
   void dispose() {
+    mounted = false;
     _pingTimer?.cancel();
     _cancelRetry();
     _bridgeSub?.cancel();
@@ -206,11 +241,10 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
     try {
       ref.read(bridgeStatusProvider.notifier).clear();
     } catch (_) {}
-    super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
+  void listen() {
+    ref.listen(currentLaunchSiteProvider, (_, _) => _sendConfig());
     ref.listen(bridgeConfigProvider, (_, next) {
       if (next.value?.enabled != true) _cancelRetry();
       _sendConfig();
@@ -221,10 +255,8 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
         if (ref.read(bridgeConfigProvider).value?.enabled != true) return;
         if (!_isLive()) return;
         try {
-          final siteMsl =
-              ref.read(currentLaunchSiteProvider)?.altitudeMsl ?? 0;
-          final sessionMaxAgl =
-              ref.read(telemetryStoreProvider).maxAltitude;
+          final siteMsl = ref.read(currentLaunchSiteProvider)?.altitudeMsl ?? 0;
+          final sessionMaxAgl = ref.read(telemetryStoreProvider).maxAltitude;
           final hasParachute = ref
               .read(activeConnectorProvider)
               .stateForId(frame.fsmStateId)
@@ -234,15 +266,12 @@ class _LiveBridgeRelayState extends ConsumerState<LiveBridgeRelay> {
             'envelope': LiveBridgeSchema.packet(
               frame: frame,
               siteMslM: siteMsl,
-              maxAltitudeAglM:
-                  math.max(sessionMaxAgl, frame.baroAltitude),
+              maxAltitudeAglM: math.max(sessionMaxAgl, frame.baroAltitude),
               hasParachute: hasParachute,
             ),
           });
         } catch (_) {}
       });
     });
-
-    return const SizedBox.shrink();
   }
 }

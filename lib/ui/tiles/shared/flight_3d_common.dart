@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 // `Colors` collides with material's — material's wins here.
 import 'package:vector_math/vector_math_64.dart' hide Colors;
+
 import '../../../theme/app_colors.dart';
 import './rocket_mesh.dart';
 
@@ -19,7 +20,6 @@ import './rocket_mesh.dart';
 
 export './flight_scene_builder.dart';
 import './flight_scene_builder.dart';
-
 
 // ── Camera ───────────────────────────────────────────────────────────────────
 
@@ -161,10 +161,7 @@ FlightCamera computeFlightCamera({
 
   final (Vector3 target, double dist) = switch (mode) {
     FlightCameraMode.chase => (scene.rocketPos, 7.0 / zoom),
-    _ => (
-        center,
-        math.max(60.0, sceneRadius * 2.2) / zoom,
-      ),
+    _ => (center, math.max(60.0, sceneRadius * 2.2) / zoom),
   };
 
   final az = radians(azimuthDeg);
@@ -287,7 +284,8 @@ FlightCamera flightCameraFromEyeTarget({
     }
   }
   final view = makeViewMatrix(eye, target, up);
-  final vp = flightProjection(
+  final vp =
+      flightProjection(
         eyeDist: eye.distanceTo(target),
         fovY: fovY,
         aspect: aspect,
@@ -450,8 +448,8 @@ void paintVignette(Canvas canvas, Size size, {double strength = 0.85}) {
         colors: [
           const Color(0x00000000),
           const Color(0x00000000),
-          Colors.black.withValues(alpha: strength),
-          Colors.black.withValues(alpha: strength),
+          AppColors.fixedBlack.withValues(alpha: strength),
+          AppColors.fixedBlack.withValues(alpha: strength),
         ],
         stops: const [0.0, 0.7, 0.9, 1.0],
       ).createShader(Offset.zero & size),
@@ -549,8 +547,14 @@ Offset? projectToScreen(Vector3 world, Matrix4 vp, Size size) {
   }
 }
 
-void drawWorldSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
-    Size size, Paint paint) {
+void drawWorldSegment(
+  Canvas canvas,
+  Vector3 a,
+  Vector3 b,
+  Matrix4 vp,
+  Size size,
+  Paint paint,
+) {
   final clipped = clipWorldSegment(a, b, vp, size);
   if (clipped == null) return;
   canvas.drawLine(clipped.$1, clipped.$2, paint);
@@ -562,7 +566,11 @@ void drawWorldSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
 /// [drawWorldSegment] and the batched polyline painters below, so single
 /// lines and batched paths clip identically.
 (Offset, Offset)? clipWorldSegment(
-    Vector3 a, Vector3 b, Matrix4 vp, Size size) {
+  Vector3 a,
+  Vector3 b,
+  Matrix4 vp,
+  Size size,
+) {
   var ca = _clipOf(a, vp);
   var cb = _clipOf(b, vp);
   final aIn = _clipInFront(ca);
@@ -579,8 +587,7 @@ void drawWorldSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
   }
   final pa = _divideClip(ca, size);
   final pb = _divideClip(cb, size);
-  final safeRect =
-      Rect.fromLTRB(-64, -64, size.width + 64, size.height + 64);
+  final safeRect = Rect.fromLTRB(-64, -64, size.width + 64, size.height + 64);
   return clipSegment2D(pa, pb, safeRect);
 }
 
@@ -592,16 +599,15 @@ void drawWorldSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
 /// the lens; a bare `w > eps` kept between-lens-and-near streaks.)
 const double clipEps = 1e-6;
 
-bool _clipInFront(Vector4 c) =>
-    c.w > clipEps && (c.z + c.w) > clipEps;
+bool _clipInFront(Vector4 c) => c.w > clipEps && (c.z + c.w) > clipEps;
 
 Vector4 _clipOf(Vector3 world, Matrix4 vp) =>
     vp.transformed(Vector4(world.x, world.y, world.z, 1));
 
 Offset _divideClip(Vector4 c, Size size) => Offset(
-      (c.x / c.w * 0.5 + 0.5) * size.width,
-      (0.5 - c.y / c.w * 0.5) * size.height,
-    );
+  (c.x / c.w * 0.5 + 0.5) * size.width,
+  (0.5 - c.y / c.w * 0.5) * size.height,
+);
 
 /// Intersection of segment out→inn with the near volume (both the lens
 /// plane `w = eps` and the near plane `z + w = eps`): the farther of the
@@ -622,8 +628,14 @@ Vector4 _clipNear(Vector4 out, Vector4 inn) {
   return out * (1 - t) + inn * t;
 }
 
-void drawGroundCircle(Canvas canvas, Vector3 center, double radius, Matrix4 vp,
-    Size size, Paint paint) {
+void drawGroundCircle(
+  Canvas canvas,
+  Vector3 center,
+  double radius,
+  Matrix4 vp,
+  Size size,
+  Paint paint,
+) {
   final path = Path();
   var pen = false;
   for (var i = 0; i <= 32; i++) {
@@ -650,8 +662,9 @@ void drawGroundCircle(Canvas canvas, Vector3 center, double radius, Matrix4 vp,
 /// Rounds up to a 1-2-5 progression so grid spacing stays readable.
 double niceCeil(double v) {
   if (v <= 0) return 1;
-  final mag =
-      math.pow(10, (math.log(v) / math.ln10).floorToDouble()).toDouble();
+  final mag = math
+      .pow(10, (math.log(v) / math.ln10).floorToDouble())
+      .toDouble();
   for (final m in const [1.0, 2.0, 5.0, 10.0]) {
     if (v <= m * mag) return m * mag;
   }
@@ -668,9 +681,14 @@ double niceCeil(double v) {
 /// the far-terrain ring takes over behind it.
 ({double half, double step}) flightGroundGrid(FlightScene scene) {
   final gridHalf = math.min(
-      10000.0,
-      niceCeil(math.max(
-          60.0, math.max(scene.gridMaxHoriz * 1.3, scene.gridMaxAlt * 0.6))));
+    10000.0,
+    niceCeil(
+      math.max(
+        60.0,
+        math.max(scene.gridMaxHoriz * 1.3, scene.gridMaxAlt * 0.6),
+      ),
+    ),
+  );
   final step = niceCeil(gridHalf / 8);
   final n = (gridHalf / step).ceil();
   return (half: n * step, step: step);
@@ -702,7 +720,8 @@ Vector3 cgAnchorPos({
   final tailOff = (RocketMesh.finBottom - RocketMesh.cgY) * scale;
   final noseOff = (RocketMesh.noseTip - RocketMesh.cgY) * scale;
   final radius = RocketMesh.bodyRadius * scale;
-  final lowest = rocketPos.y +
+  final lowest =
+      rocketPos.y +
       math.min(math.min(tailOff * bodyAxis.y, noseOff * bodyAxis.y), -radius);
   if (lowest >= groundY) return rocketPos;
   return rocketPos + Vector3(0, groundY - lowest, 0);
@@ -711,9 +730,16 @@ Vector3 cgAnchorPos({
 /// Screen-space dashed segment between two world points, clipped against
 /// the near plane like [drawWorldSegment]. Pure screen-space dashing keeps
 /// dash lengths uniform regardless of perspective depth.
-void drawWorldDashedSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
-    Size size, Paint paint,
-    {double dashPx = 6, double gapPx = 4}) {
+void drawWorldDashedSegment(
+  Canvas canvas,
+  Vector3 a,
+  Vector3 b,
+  Matrix4 vp,
+  Size size,
+  Paint paint, {
+  double dashPx = 6,
+  double gapPx = 4,
+}) {
   var ca = _clipOf(a, vp);
   var cb = _clipOf(b, vp);
   final aIn = _clipInFront(ca);
@@ -726,8 +752,7 @@ void drawWorldDashedSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
   }
   final pa = _divideClip(ca, size);
   final pb = _divideClip(cb, size);
-  final safeRect =
-      Rect.fromLTRB(-64, -64, size.width + 64, size.height + 64);
+  final safeRect = Rect.fromLTRB(-64, -64, size.width + 64, size.height + 64);
   final clipped = clipSegment2D(pa, pb, safeRect);
   if (clipped == null) return;
   final p0 = clipped.$1;
@@ -759,8 +784,12 @@ void drawWorldDashedSegment(Canvas canvas, Vector3 a, Vector3 b, Matrix4 vp,
 /// With [anchorOverride] the marker hangs from the CG anchor instead of the
 /// raw reported fix.
 void paintDeadReckoning(
-    Canvas canvas, FlightScene scene, Matrix4 vp, Size size,
-    {Vector3? anchorOverride}) {
+  Canvas canvas,
+  FlightScene scene,
+  Matrix4 vp,
+  Size size, {
+  Vector3? anchorOverride,
+}) {
   if (!scene.rocketIsDeadReckoning) return;
   final top = anchorOverride ?? scene.rocketPos;
   if (scene.trail.isNotEmpty) {
@@ -790,11 +819,7 @@ void paintDeadReckoning(
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
-    canvas.drawCircle(
-      s,
-      2,
-      Paint()..color = AppColors.seriesDeadReckoning,
-    );
+    canvas.drawCircle(s, 2, Paint()..color = AppColors.seriesDeadReckoning);
   }
 }
 
@@ -810,7 +835,12 @@ String formatUnderMeters(double meters) {
 /// "N m under ground" badge next to a terrain-clamped rocket. No-op when
 /// the anchor projects behind the camera.
 void paintUnderGroundLabel(
-    Canvas canvas, Matrix4 vp, Size size, Vector3 anchorWorld, String text) {
+  Canvas canvas,
+  Matrix4 vp,
+  Size size,
+  Vector3 anchorWorld,
+  String text,
+) {
   final pos = projectToScreen(anchorWorld, vp, size);
   if (pos == null) return;
   final tp = TextPainter(
@@ -830,8 +860,13 @@ void paintUnderGroundLabel(
 
 /// One cardinal letter laid on the ground plane next to the grid edge.
 void paintGroundLabel(
-    Canvas canvas, Matrix4 vp, Size size, Vector3 world, String label,
-    Color color) {
+  Canvas canvas,
+  Matrix4 vp,
+  Size size,
+  Vector3 world,
+  String label,
+  Color color,
+) {
   final pos = projectToScreen(world, vp, size);
   if (pos == null) return;
   final tp = TextPainter(
@@ -849,18 +884,34 @@ void paintGroundLabel(
 }
 
 /// Cardinal ground labels — north sits on −Z (world Z is south).
-void paintGroundLabels(Canvas canvas, Matrix4 vp, Size size,
-    {required double half, required double step}) {
-  paintGroundLabel(canvas, vp, size, Vector3(half + step * 0.3, 0, 0), 'E',
-      AppColors.warning);
-  paintGroundLabel(canvas, vp, size, Vector3(0, 0, -(half + step * 0.3)), 'N',
-      AppColors.info);
+void paintGroundLabels(
+  Canvas canvas,
+  Matrix4 vp,
+  Size size, {
+  required double half,
+  required double step,
+}) {
+  paintGroundLabel(
+    canvas,
+    vp,
+    size,
+    Vector3(half + step * 0.3, 0, 0),
+    'E',
+    AppColors.warning,
+  );
+  paintGroundLabel(
+    canvas,
+    vp,
+    size,
+    Vector3(0, 0, -(half + step * 0.3)),
+    'N',
+    AppColors.info,
+  );
 }
 
 /// Launch-site flag on the ground plane at the world origin: a 2 m pole with
 /// a pennant and a 2 m ground circle. No-op without a configured site.
-void paintLaunchSite(
-    Canvas canvas, FlightScene scene, Matrix4 vp, Size size) {
+void paintLaunchSite(Canvas canvas, FlightScene scene, Matrix4 vp, Size size) {
   // The flag marks a real configured/file launch site — never a fallback
   // origin (first fix). Without a site there is nothing to flag. Real-life
   // scale: 2 m pole, 2 m diameter ground circle.
@@ -905,10 +956,7 @@ void paintLaunchSite(
   final tp = TextPainter(
     text: TextSpan(
       text: 'Launch site · ${scene.siteName}',
-      style: AppText.microLabel.copyWith(
-        fontSize: 9,
-        letterSpacing: 1,
-      ),
+      style: AppText.microLabel.copyWith(fontSize: 9, letterSpacing: 1),
     ),
     textDirection: TextDirection.ltr,
   )..layout();

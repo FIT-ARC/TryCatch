@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:serial/serial.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import '../services/prefs_keys.dart';
 
 /// Concrete color palette: every color the app uses, in one place.
 ///
@@ -172,43 +169,27 @@ class AppPalette {
 
 /// Global light/dark switch, persisted across launches.
 ///
-/// A [ValueNotifier] (not Riverpod — theming sits below the provider scope):
-/// the app root listens and rebuilds [MaterialApp] on toggle, and every
-/// [AppColors] getter resolves the active palette, so all tiles follow.
+/// Rendering adapter for ThemeModeStore: the app root listens and rebuilds
+/// MaterialApp, while AppColors resolves the current palette on demand.
 class AppThemeMode extends ValueNotifier<bool> {
-  static const String _prefsKey = PrefsKeys.darkMode;
-
   static final AppThemeMode instance = AppThemeMode._(false);
 
   AppThemeMode._(super.value);
 
   bool get isDark => value;
-
-  Future<void> load() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final dark = prefs.getBool(_prefsKey);
-      if (dark != null) value = dark;
-    } catch (_) {
-      // Fall back to light.
-    }
-  }
-
-  Future<void> setDark(bool dark) async {
-    value = dark;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_prefsKey, dark);
-    } catch (_) {
-      // Non-fatal; the in-memory choice still applies.
-    }
-  }
 }
 
 /// App-wide color access. NEVER cache these in a `final`/`const` — always
 /// read them inside `build()` (or theme builders) so a dark-mode toggle
 /// repaints correctly.
 abstract final class AppColors {
+  // Fixed colors for image rendering, overlays and QR contrast.
+  static const fixedBlack = Colors.black;
+  static const fixedBlueAccent = Colors.blueAccent;
+  static const fixedTransparent = Colors.transparent;
+  static const fixedWhite = Colors.white;
+  static const fixedWhite24 = Colors.white24;
+
   static AppPalette get _p =>
       AppThemeMode.instance.value ? AppPalette.dark : AppPalette.light;
 
@@ -277,16 +258,16 @@ abstract final class AppColors {
   /// raw `colorArgb` is the light-mode reference only — UI must call this
   /// (or [connectorStateColor]) instead of `Color(...colorArgb)` directly.
   static Color fsmColor(FsmState state) => switch (state) {
-        FsmState.idle => _p.fsmIdle,
-        FsmState.armed => _p.fsmArmed,
-        FsmState.ascent => _p.fsmAscent,
-        FsmState.apogee => _p.fsmApogee,
-        FsmState.parachute => _p.fsmParachute,
-        FsmState.landed => _p.fsmLanded,
-        FsmState.debugUnlocked => _p.fsmDebugUnlocked,
-        FsmState.debugLocked => _p.fsmDebugLocked,
-        FsmState.unknown => _p.fsmUnknown,
-      };
+    FsmState.idle => _p.fsmIdle,
+    FsmState.armed => _p.fsmArmed,
+    FsmState.ascent => _p.fsmAscent,
+    FsmState.apogee => _p.fsmApogee,
+    FsmState.parachute => _p.fsmParachute,
+    FsmState.landed => _p.fsmLanded,
+    FsmState.debugUnlocked => _p.fsmDebugUnlocked,
+    FsmState.debugLocked => _p.fsmDebugLocked,
+    FsmState.unknown => _p.fsmUnknown,
+  };
 
   /// Semantic color for a connector state id on [connector].
   ///
@@ -345,22 +326,22 @@ abstract final class AppText {
   /// stats group labels. Color varies by context — pass via `copyWith`.
   /// A getter (not final): the color follows the active palette.
   static TextStyle get microLabel => TextStyle(
-        fontFamily: monoFamily,
-        fontFamilyFallback: monoFallback,
-        fontSize: 9.5,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.4,
-        color: AppColors.mutedForeground,
-      );
+    fontFamily: monoFamily,
+    fontFamilyFallback: monoFallback,
+    fontSize: 9.5,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 1.4,
+    color: AppColors.mutedForeground,
+  );
 
   /// Compact monospace value (top-bar cells, readouts). Getter for the
   /// same reason.
   static TextStyle get monoValue => TextStyle(
-        fontFamily: monoFamily,
-        fontFamilyFallback: monoFallback,
-        fontSize: 12.5,
-        fontWeight: FontWeight.w700,
-        color: AppColors.foreground,
-        fontFeatures: [FontFeature.tabularFigures()],
-      );
+    fontFamily: monoFamily,
+    fontFamilyFallback: monoFallback,
+    fontSize: 12.5,
+    fontWeight: FontWeight.w700,
+    color: AppColors.foreground,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
 }
