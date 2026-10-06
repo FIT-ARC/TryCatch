@@ -5,15 +5,14 @@ import 'dart:typed_data';
 import '../telemetry/frame_codec.dart';
 import '../telemetry/telemetry_frame.dart';
 
-/// Brno static pad coordinates (WGS84 degrees).
-const double mockBrnoLatitude = 49.22892339423079;
+/// Brno rocket latitude, three metres north of the static pad (WGS84 degrees).
+const double mockBrnoLatitude = 49.22892339423079 + 3 / mockBrnoMetersPerDegLat;
 
 /// Brno static pad coordinates (WGS84 degrees).
 const double mockBrnoLongitude = 16.582853748863815;
 
-/// Altitude above the launch site in metres. Zero: the rocket sits on the pad,
-/// so absolute MSL resolves as site MSL + 18 — select the `Brno Pad` launch
-/// site (264 m MSL) to read 264 m MSL downstream.
+/// Altitude above the launch site in metres. The `Brno Pad` site at 264 m MSL
+/// places the rocket at 282 m MSL.
 const double mockBrnoBaroAltitude = 18;
 
 /// Metres per degree of latitude (WGS84 mean, enough for 1 m test nudges).
@@ -155,8 +154,7 @@ class MockBrnoSerialPort {
   }
 
   double _metersEastToDeg(double meters) {
-    final latRad =
-        (mockBrnoLatitude + _latOffsetDeg) * math.pi / 180;
+    final latRad = (mockBrnoLatitude + _latOffsetDeg) * math.pi / 180;
     return meters / (mockBrnoMetersPerDegLat * math.cos(latRad));
   }
 }

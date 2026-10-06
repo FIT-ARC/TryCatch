@@ -53,7 +53,10 @@ void main() {
         expect(frames.length, chunks.length);
 
         for (final frame in frames) {
-          expect(frame.latitude, closeTo(49.22892339423079, 1e-7));
+          expect(
+            (frame.latitude - 49.22892339423079) * mockBrnoMetersPerDegLat,
+            closeTo(3, 0.02),
+          );
           expect(frame.longitude, closeTo(16.582853748863815, 1e-7));
           expect(frame.baroAltitude, closeTo(18, 1e-9));
           expect(frame.velocityNorth, 0);
@@ -196,10 +199,7 @@ void main() {
       addTearDown(port.disconnect);
       expect(port.connect(), isTrue);
       for (final cmd in brnoConnector.commands) {
-        expect(
-          port.sendBytes(Uint8List.fromList(cmd.bytes)),
-          isTrue,
-        );
+        expect(port.sendBytes(Uint8List.fromList(cmd.bytes)), isTrue);
       }
     });
   });
