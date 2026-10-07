@@ -124,10 +124,11 @@ flowchart LR
 The relay forks already-decoded frames from the main isolate into a dedicated
 isolate that owns the socket — the serial worker never sees network clients
 and slow consumers drop frames instead of blocking the flight pipeline.
-The public packet is seven fields only
-(`receivedAt`, `gpsLat`, `gpsLong`, `altitudeMSL`, `hasParachute`,
+The public packet is eight fields only
+(`receivedAt`, `gpsLat`, `gpsLong`, `altitudeMSL`, `altitudeAGL`, `hasParachute`,
 `maxAltitude`, `totalVelocity`; MSL fields add the selected site's MSL,
-`hasParachute` resolves the active connector's states). Staleness is
+`altitudeAGL` is barometric altitude above the launch pad, matching the app's
+altitude charts; `hasParachute` resolves the active connector's states). Staleness is
 age-based on `receivedAt` — the bridge emits no markers, it just stops
 sending when the link drops, a replay runs, or the buffers clear
 (`/latest` then keeps the last packet with its original timestamp).

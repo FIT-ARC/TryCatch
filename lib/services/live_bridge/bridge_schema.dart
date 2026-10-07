@@ -1,6 +1,6 @@
 import 'package:serial/serial.dart';
 
-/// The public packet: exactly seven fields, nothing else.
+/// The public live telemetry packet, with altitude in metres MSL and AGL.
 ///
 /// Staleness is age-based — the website compares `receivedAt` against now
 /// (data older than a few seconds is stale). The bridge therefore emits no
@@ -18,6 +18,7 @@ abstract final class LiveBridgeSchema {
       'gpsLat': frame.latitude,
       'gpsLong': frame.longitude,
       'altitudeMSL': siteMslM + frame.baroAltitude,
+      'altitudeAGL': frame.baroAltitude,
       'hasParachute': hasParachute,
       'maxAltitude': siteMslM + maxAltitudeAglM,
       'totalVelocity': frame.speedTotal,

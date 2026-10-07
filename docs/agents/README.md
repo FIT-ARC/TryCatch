@@ -145,3 +145,6 @@
 * Workspace defaults generation lives in `tool/workspace_codegen.dart`;
   the debug UI invokes validated tooling from the repository root.
 * Architecture and lifecycle ownership are documented in `docs/architecture.md`.
+* The live bridge owns detached SSE sockets: observe read-side disconnects,
+  remove clients idempotently, and destroy every owned socket on shutdown.
+  Flush timeouts and subscription TTLs bound stalled/half-open connections.

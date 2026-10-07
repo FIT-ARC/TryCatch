@@ -90,7 +90,12 @@ enablement require a launch site. Replay data is not forwarded.
 
 The bridge serves read-only JSON/SSE. It caps subscriptions at 64, allows one
 flush per client with only the latest pending frame, and aborts stalled/expired
-sockets. Shutdown force-closes clients. The liveness lease expires even when
+sockets. SSE responses detach their sockets with a close-delimited body; the
+bridge listens for read-side closure/errors to remove disconnected clients
+without waiting for another frame. Removal is idempotent across read/write
+failures and shutdown. A ten-minute subscription TTL bounds half-open sockets
+when a network disappears without delivering a disconnect. Shutdown destroys
+all owned sockets, including detached clients. The liveness lease expires even when
 sharing is disabled or binding failed, allowing an orphaned isolate to exit.
 
 ## Workspace models and developer tooling

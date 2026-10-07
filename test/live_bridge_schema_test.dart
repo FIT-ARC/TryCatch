@@ -20,7 +20,7 @@ bool _isTransferable(dynamic value) {
 
 void main() {
   group('LiveBridgeSchema packet', () {
-    test('carries exactly the seven public fields', () {
+    test('carries the public fields with MSL and launch-pad altitude', () {
       final packet = LiveBridgeSchema.packet(
         frame: const TelemetryFrame(
           receivedAtMs: 1700000000000,
@@ -36,22 +36,21 @@ void main() {
         maxAltitudeAglM: 900.0,
         hasParachute: true,
       );
-      expect(
-        packet.keys.toSet(),
-        {
-          'receivedAt',
-          'gpsLat',
-          'gpsLong',
-          'altitudeMSL',
-          'hasParachute',
-          'maxAltitude',
-          'totalVelocity',
-        },
-      );
+      expect(packet.keys.toSet(), {
+        'receivedAt',
+        'gpsLat',
+        'gpsLong',
+        'altitudeMSL',
+        'altitudeAGL',
+        'hasParachute',
+        'maxAltitude',
+        'totalVelocity',
+      });
       expect(packet['receivedAt'], 1700000000000);
       expect(packet['gpsLat'], 50.0755);
       expect(packet['gpsLong'], 14.4378);
       expect(packet['altitudeMSL'], closeTo(403 + 812.34, 1e-9));
+      expect(packet['altitudeAGL'], 812.34);
       expect(packet['hasParachute'], true);
       expect(packet['maxAltitude'], closeTo(403 + 900.0, 1e-9));
       expect(packet['totalVelocity'], closeTo(5.0, 1e-9));

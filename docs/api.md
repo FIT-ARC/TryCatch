@@ -24,6 +24,7 @@ into the app through this API.
   "gpsLat": 50.0755,
   "gpsLong": 14.4378,
   "altitudeMSL": 1215.3,
+  "altitudeAGL": 812.3,
   "hasParachute": false,
   "maxAltitude": 1303.0,
   "totalVelocity": 45.6
@@ -36,6 +37,7 @@ into the app through this API.
 | `gpsLat`       | Degrees north                     |
 | `gpsLong`      | Degrees east                      |
 | `altitudeMSL`  | Metres above mean sea level       |
+| `altitudeAGL`  | Metres above the launch pad, matching the app's altitude charts |
 | `hasParachute` | `true` once the canopy is out     |
 | `maxAltitude`  | Session peak, metres MSL          |
 | `totalVelocity`| Metres per second                 |
